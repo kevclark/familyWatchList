@@ -1,0 +1,41 @@
+# --- Secrets / machine-local config -----------------------------------------
+# Holds TMDB_ACCESS_TOKEN and sdk.dir. NEVER commit.
+local.properties
+*.keystore
+*.jks
+keystore.properties
+
+# --- Gradle ------------------------------------------------------------------
+.gradle/
+build/
+captures/
+out/
+*.hprof
+.kotlin/
+
+# --- Android build output ----------------------------------------------------
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+release/
+app/release/
+app/debug/
+
+# --- IDE ---------------------------------------------------------------------
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild/
+.navigation/
+
+# --- OS / editor noise -------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# --- Logs / scratch ----------------------------------------------------------
+*.log
+/scratch/

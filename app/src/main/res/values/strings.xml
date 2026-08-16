@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Family Watchlist</string>
+    <!-- Required verbatim by the TMDB terms (PLAN.md §3). -->
+    <string name="tmdb_attribution">This application uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB</string>
+    <string name="justwatch_attribution">Streaming data by JustWatch</string>
+</resources>
