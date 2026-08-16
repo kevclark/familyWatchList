@@ -78,4 +78,37 @@ class ProviderRepositoryTest {
 
         assertEquals(listOf(8), repo.getSubscribedIds())
     }
+
+    @Test
+    fun `applyOnboardingDefaults subscribes the PLAN md §2 GB default services, case-insensitively, and leaves the rest alone`() = runTest {
+        db.providerDao().upsertAll(
+            listOf(
+                ProviderEntity(8, "Netflix", null, subscribed = false, displayPriority = 1),
+                ProviderEntity(337, "Disney Plus", null, subscribed = false, displayPriority = 2),
+                ProviderEntity(9, "amazon prime video", null, subscribed = false, displayPriority = 3),
+                ProviderEntity(38, "BBC iPlayer", null, subscribed = false, displayPriority = 4),
+                ProviderEntity(103, "Channel 4", null, subscribed = false, displayPriority = 5),
+                ProviderEntity(104, "ITVX", null, subscribed = false, displayPriority = 6),
+                ProviderEntity(2, "Apple TV", null, subscribed = false, displayPriority = 7),
+            )
+        )
+
+        repo.applyOnboardingDefaults()
+
+        assertEquals(setOf(8, 337, 9, 38, 103, 104), repo.getSubscribedIds().toSet())
+    }
+
+    @Test
+    fun `applyOnboardingDefaults is a no-op once anything is already subscribed — safe to call again from Settings`() = runTest {
+        db.providerDao().upsertAll(
+            listOf(
+                ProviderEntity(8, "Netflix", null, subscribed = false, displayPriority = 1),
+                ProviderEntity(99, "Some Other Service", null, subscribed = true, displayPriority = 2),
+            )
+        )
+
+        repo.applyOnboardingDefaults()
+
+        assertEquals(listOf(99), repo.getSubscribedIds())
+    }
 }
