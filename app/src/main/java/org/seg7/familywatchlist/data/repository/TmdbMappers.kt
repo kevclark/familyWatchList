@@ -1,0 +1,113 @@
+package org.seg7.familywatchlist.data.repository
+
+import org.seg7.familywatchlist.data.local.entity.AttrType
+import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
+import org.seg7.familywatchlist.data.local.entity.ProviderKind
+import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
+import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
+import org.seg7.familywatchlist.data.remote.dto.MovieDetailDto
+import org.seg7.familywatchlist.data.remote.dto.TvDetailDto
+import org.seg7.familywatchlist.data.remote.dto.WatchProvidersResponseDto
+
+private const val GB = "GB"
+private const val MAX_CAST = 10
+
+fun MovieDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
+    tmdbId = id,
+    mediaType = MediaType.MOVIE,
+    title = title,
+    year = releaseDate.yearOrNull(),
+    posterPath = posterPath,
+    backdropPath = backdropPath,
+    overview = overview,
+    runtimeMin = runtime,
+    certification = releaseDates?.gbCertification(),
+    voteAverage = voteAverage,
+    popularity = popularity,
+    fetchedAt = fetchedAt,
+)
+
+fun TvDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
+    tmdbId = id,
+    mediaType = MediaType.TV,
+    title = name,
+    year = firstAirDate.yearOrNull(),
+    posterPath = posterPath,
+    backdropPath = backdropPath,
+    overview = overview,
+    runtimeMin = episodeRunTime.firstOrNull(),
+    certification = contentRatings?.results?.firstOrNull { it.iso3166_1 == GB }?.rating?.takeIf { it.isNotBlank() },
+    voteAverage = voteAverage,
+    popularity = popularity,
+    fetchedAt = fetchedAt,
+)
+
+fun MovieDetailDto.toAttributes(): List<TitleAttributeEntity> = buildList {
+    genres.forEach { add(TitleAttributeEntity(id, MediaType.MOVIE, AttrType.GENRE, it.id, it.name, null)) }
+    credits?.cast.orEmpty().sortedBy { it.order }.take(MAX_CAST).forEach {
+        add(TitleAttributeEntity(id, MediaType.MOVIE, AttrType.CAST, it.id, it.name, it.order))
+    }
+    credits?.crew.orEmpty().filter { it.job == "Director" }.forEach {
+        add(TitleAttributeEntity(id, MediaType.MOVIE, AttrType.CREW, it.id, it.name, null))
+    }
+    keywords?.keywords.orEmpty().forEach {
+        add(TitleAttributeEntity(id, MediaType.MOVIE, AttrType.KEYWORD, it.id, it.name, null))
+    }
+}
+
+fun TvDetailDto.toAttributes(): List<TitleAttributeEntity> = buildList {
+    genres.forEach { add(TitleAttributeEntity(id, MediaType.TV, AttrType.GENRE, it.id, it.name, null)) }
+    credits?.cast.orEmpty().sortedBy { it.order }.take(MAX_CAST).forEach {
+        add(TitleAttributeEntity(id, MediaType.TV, AttrType.CAST, it.id, it.name, it.order))
+    }
+    createdBy.forEach {
+        add(TitleAttributeEntity(id, MediaType.TV, AttrType.CREW, it.id, it.name, null))
+    }
+    keywords?.results.orEmpty().forEach {
+        add(TitleAttributeEntity(id, MediaType.TV, AttrType.KEYWORD, it.id, it.name, null))
+    }
+}
+
+fun MovieDetailDto.toAvailability(fetchedAt: Long): List<ProviderAvailabilityEntity> =
+    watchProviders.toAvailability(id, MediaType.MOVIE, fetchedAt)
+
+fun TvDetailDto.toAvailability(fetchedAt: Long): List<ProviderAvailabilityEntity> =
+    watchProviders.toAvailability(id, MediaType.TV, fetchedAt)
+
+private fun WatchProvidersResponseDto?.toAvailability(
+    tmdbId: Int,
+    mediaType: MediaType,
+    fetchedAt: Long,
+): List<ProviderAvailabilityEntity> {
+    val gb = this?.results?.get(GB) ?: return emptyList()
+    return buildList {
+        gb.flatrate.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FLATRATE, fetchedAt)) }
+        gb.free.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FREE, fetchedAt)) }
+    }
+}
+
+/** Discover/recommendations/search results only ever carry a summary — no runtime or certification. */
+fun MediaSummaryDto.toStubTitleEntity(mediaType: MediaType, fetchedAt: Long): TitleEntity = TitleEntity(
+    tmdbId = id,
+    mediaType = mediaType,
+    title = (title ?: name).orEmpty(),
+    year = (releaseDate ?: firstAirDate).yearOrNull(),
+    posterPath = posterPath,
+    backdropPath = backdropPath,
+    overview = overview,
+    runtimeMin = null,
+    certification = null,
+    voteAverage = voteAverage,
+    popularity = popularity,
+    fetchedAt = fetchedAt,
+)
+
+private fun org.seg7.familywatchlist.data.remote.dto.ReleaseDatesDto.gbCertification(): String? =
+    results.firstOrNull { it.iso3166_1 == GB }
+        ?.releaseDates
+        ?.firstOrNull { it.certification.isNotBlank() }
+        ?.certification
+
+private fun String?.yearOrNull(): Int? = this?.take(4)?.toIntOrNull()
