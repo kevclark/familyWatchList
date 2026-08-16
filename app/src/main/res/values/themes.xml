@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns all in-app styling; this theme only shapes the window itself. -->
+    <style name="Theme.FamilyWatchList" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
