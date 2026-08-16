@@ -111,6 +111,8 @@ shortlists, family scope, weekly WorkManager job + Monday notification.
 - [ ] Settings: services toggles, profile management, About
 - [ ] JSON backup/restore via Storage Access Framework (user data only, no TMDB cache)
 - [ ] Attribution pass: TMDB notice verbatim + JustWatch on every availability UI
+- [ ] README.md for the repo: what/why, screenshots, build & preview instructions,
+      TMDB/JustWatch attribution
 - [ ] Compose UI test for the log-watch flow
 - [ ] `./gradlew test assembleDebug` green
 
