@@ -51,12 +51,20 @@ The working route is to let the **laptop's scrcpy talk to agent101's adb server*
 
 ### Prerequisite on the laptop (once)
 
+Kev's laptop is **EndeavourOS** (Arch-based); both packages live in the official `extra` repo:
+
 ```bash
-# Debian/Ubuntu
-sudo apt install scrcpy adb
-# macOS
-brew install scrcpy android-platform-tools
+# EndeavourOS / Arch (adb ships in android-tools)
+sudo pacman -S scrcpy android-tools
+
+# other distros, for reference:
+# Debian/Ubuntu:  sudo apt install scrcpy adb
+# macOS:          brew install scrcpy android-platform-tools
 ```
+
+Arch notes: no extra udev/plugdev group setup is needed for this workflow — the laptop's adb
+only talks to agent101's adb *server* over TCP, never to a USB device. If `scrcpy` ever
+complains about missing video codecs, install `ffmpeg` (normally already present).
 
 scrcpy must be **v2.0 or newer** (`scrcpy --version`) for `--tunnel-host`.
 
