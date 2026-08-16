@@ -236,7 +236,7 @@ Everything user-space under `~/android-dev/` unless noted:
 | M1 | Data layer | Room schema + DAOs, TMDB client with throttling/caching, repositories; JVM unit tests (MockWebServer, in-memory Room) pass |
 | M2 | Core flows | Profiles, search, title details, Want-to-Watch list, log-watch sheet, history — usable end-to-end |
 | M3 | Recommender | Scoring engine (incl. watchlist signal) + fixture-based unit tests, Home shortlists, family scope, weekly WorkManager job + Monday notification |
-| M4 | Polish | Trailers, transitions/placeholders, dismiss flow, settings, backup/restore, attribution pass |
+| M4 | Polish | Trailers, transitions/placeholders, dismiss flow, settings, backup/restore, attribution pass, decent repo README.md (what/why, screenshots, build & preview instructions, TMDB/JustWatch attribution) |
 | M5 | Ship | Install on Kev's phone via wireless ADB; `docs/PREVIEW.md` verified from laptop |
 
 Orchestrator keeps `PROGRESS.md` (checkbox per milestone item) so any session can resume cold.
