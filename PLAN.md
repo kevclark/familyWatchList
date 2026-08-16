@@ -4,8 +4,15 @@ Status: **awaiting Kev's approval**. No implementation starts until this is appr
 Decisions locked with Kev on 2026-08-16: multi-tag watch events, thumbs up/neutral/down ratings,
 subscribed services configurable in-app, toolchain agent on Opus 4.8, feature agent on Sonnet 5,
 **Want-to-Watch list is a core feature**, TV tracked at series level, weekly shortlist announced
-via local notification, preview = emulator on agent101 + scrcpy viewer on the laptop.
-KVM access confirmed on agent101 (kvm group) → **no sudo needed anywhere in this project**.
+via local notification, preview = emulator on agent101 + scrcpy viewer (EndeavourOS) on the
+laptop, README.md added to M4 scope. KVM access confirmed on agent101 (kvm group) →
+**no sudo needed anywhere in this project**. compileSdk bumped 35→37 (approved, applied in M1).
+
+M1 spec questions resolved (2026-08-16): trailerKey persisted on Title now (free, same API
+call); DiscoverCacheEntity blessed as part of the data model (§2); compileSdk 37 confirmed as
+the intended target; Robolectric DAO tests pin `@Config(sdk=[34])` because Robolectric's SDK 36
+shadows need JDK 21 (this box has JDK 17) — a test-harness ceiling only, not an app gap; revisit
+if JDK 21 ever gets installed alongside 17.
 
 ---
 
@@ -53,7 +60,9 @@ Profile           id PK, name, avatarKey (preset emoji+colour), ageRatingCap TEX
 
 Title             tmdbId+mediaType composite PK. mediaType MOVIE|TV. title, year,
                   posterPath, backdropPath, overview, runtimeMin, certification (UK),
-                  voteAverage, popularity, fetchedAt.
+                  voteAverage, popularity, trailerKey TEXT? (YouTube key from the same
+                  append_to_response=videos call; persisted at M1 even though trailer UI is
+                  M4 — it's free on a call we're already making, avoids a re-fetch), fetchedAt.
 
 TitleAttribute    (tmdbId, mediaType, attrType, attrId) PK. attrType GENRE|CAST|CREW|KEYWORD.
                   name, ord (cast billing order; crew: director/creator only).
@@ -83,6 +92,11 @@ ProviderAvailability (tmdbId, mediaType, providerId) PK. kind FLATRATE|FREE, fet
 ShortlistEntry    (weekStart, scopeKey, tmdbId, mediaType) PK. scopeKey = profileId or "FAMILY".
                   score REAL, reasons TEXT (JSON: top contributing attributes → "Because you
                   liked …"), state SUGGESTED|DISMISSED|WATCHED.
+
+DiscoverCache     (queryHash) PK. resultTmdbIds TEXT (JSON array), fetchedAt.
+                  Added in M1, not in the original table list: the concrete mechanism behind
+                  §3's "discover/candidate pages cached 24h by query hash." TMDB cache, so it's
+                  excluded from backup/restore like the rest of the fetched data below.
 ```
 
 Backup/restore: Settings → export/import a single JSON of Profiles, WatchEvents, Ratings,
