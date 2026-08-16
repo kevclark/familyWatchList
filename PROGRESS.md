@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-16 (M0 complete, by `toolchain-setup`).
+Last updated: 2026-08-16 (M1 complete + approved compileSdk bump, by `feature-builder`).
 
 ---
 
@@ -19,7 +19,7 @@ Done means: `./gradlew assembleDebug` green; APK boots on the emulator.
 - [x] Env exported for fish (`~/.config/fish/conf.d/android.fish`) and bash (`env.sh`)
 - [x] `git init` + `.gitignore` (ignores `local.properties`) before any Android files landed
 - [x] Gradle wrapper pinned to 8.14.5 (`distributionSha256Sum` set)
-- [x] Single-module Kotlin + Compose app: minSdk 26, target/compileSdk 35, Material 3
+- [x] Single-module Kotlin + Compose app: minSdk 26, target/compileSdk 35 (bumped to 37 — see below), Material 3
 - [x] Version catalog `gradle/libs.versions.toml`
 - [x] kotlinx.serialization + KSP plugins wired (KSP runs; serialization proven by unit test)
 - [x] `TMDB_ACCESS_TOKEN` read from git-ignored `local.properties` into `BuildConfig`
@@ -32,30 +32,44 @@ Done means: `./gradlew assembleDebug` green; APK boots on the emulator.
 - [x] `docs/PREVIEW.md` — scrcpy-over-TCP from the laptop + wireless ADB pairing for the phone
 - [x] `PROGRESS.md` (this file)
 
-**Open decision for Kev:** PLAN.md §1 pins compileSdk 35, but as of Aug 2026 the current
-AndroidX/Compose generation requires compileSdk 37 + AGP 9.1. The build is pinned to the newest
-libraries that still accept 35 (see comments in `libs.versions.toml`). Moving to
-compileSdk 36/37 later is a one-line change plus a dependency bump — it needs Kev's sign-off.
+**Open decision for Kev: RESOLVED 2026-08-16.** Kev signed off on moving to the current stable
+toolchain before M1 started. Landed: compileSdk/targetSdk 35→37 (Android 17, platform
+`android-37.1`), AGP 8.13.2→9.3.1, Kotlin 2.3.21→2.4.10, Gradle wrapper 8.14.5→9.5.0, Compose
+BOM 2026.06.01→2026.08.00, plus coreKtx/lifecycle/activityCompose to their current stable
+releases. The ceiling comments in `libs.versions.toml` are gone. One real toolchain change
+fell out of AGP 9: it has built-in Kotlin support, so the `org.jetbrains.kotlin.android`
+plugin is no longer applied in `build.gradle.kts`/`app/build.gradle.kts` (kotlin-compose,
+kotlin-serialization, and ksp are unaffected). `./gradlew test assembleDebug` verified green
+on the bumped toolchain before any M1 code was written, per the task's isolation requirement.
 
 ---
 
-## M1 — Data layer
+## M1 — Data layer ✅
 
 Done means: Room schema + DAOs, TMDB client with throttling/caching, repositories;
 JVM unit tests (MockWebServer, in-memory Room) pass.
 
-- [ ] Room entities per PLAN.md §2: `Profile`, `Title`, `TitleAttribute`, `WatchEvent`,
+- [x] Room entities per PLAN.md §2: `Profile`, `Title`, `TitleAttribute`, `WatchEvent`,
       `WatchEventProfile`, `Rating`, `WatchlistEntry`, `Provider`, `ProviderAvailability`,
-      `ShortlistEntry`
-- [ ] DAOs + `AppDatabase` (KSP room-compiler), exported schemas checked in
-- [ ] TMDB Retrofit/OkHttp client: Bearer auth interceptor from `BuildConfig.TMDB_ACCESS_TOKEN`
-- [ ] Throttle to 4 req/s + 429 retry-after handling (PLAN.md §3)
-- [ ] `append_to_response=credits,keywords,videos,watch/providers,release_dates` detail call
-- [ ] TTL cache policy: titles 30d, providers 7d, discover pages 24h
-- [ ] Repositories reconciling Room ⇄ TMDB (Room is the UI's source of truth)
-- [ ] `AppContainer` manual DI wired into `FamilyWatchListApp`
-- [ ] Unit tests: MockWebServer for the API client, in-memory Room for DAOs
-- [ ] `./gradlew test assembleDebug` green
+      `ShortlistEntry` — plus `DiscoverCacheEntity`, an implementation detail for §3's
+      discover-page TTL that §2 doesn't name as a standalone table (see its kdoc)
+- [x] DAOs + `AppDatabase` (KSP room-compiler), exported schema checked in at
+      `app/schemas/org.seg7.familywatchlist.data.local.AppDatabase/1.json`
+- [x] TMDB Retrofit/OkHttp client: Bearer auth interceptor from `BuildConfig.TMDB_ACCESS_TOKEN`
+- [x] Throttle to 4 req/s + 429 retry-after handling (PLAN.md §3)
+- [x] `append_to_response=credits,keywords,videos,watch/providers,release_dates` (movie) /
+      `...,content_ratings` (tv) detail calls
+- [x] TTL cache policy: titles/providers 30d/7d off one shared `Title.fetchedAt` (they're
+      always refreshed together by the same detail call — see `TitleRepository` kdoc),
+      discover pages 24h by query hash
+- [x] Repositories reconciling Room ⇄ TMDB (Room is the UI's source of truth): Profile, Title,
+      Discover, Provider, Watchlist, Rating, WatchEvent
+- [x] `AppContainer` manual DI wired into `FamilyWatchListApp`
+- [x] Unit tests: MockWebServer for the API client (auth header, throttle, 429 retry, DTO
+      decoding from realistic fixtures), in-memory Room for DAOs (via Robolectric — see
+      spec-questions note below), repository TTL/refresh tests with a fake clock — 66 tests,
+      19 test classes, all passing
+- [x] `./gradlew test assembleDebug` green
 
 ## M2 — Core flows
 

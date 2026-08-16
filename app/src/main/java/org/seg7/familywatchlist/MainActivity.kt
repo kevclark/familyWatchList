@@ -66,7 +66,7 @@ fun ScaffoldStatus(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyMedium,
         )
         Text(
-            text = "minSdk 26 · compileSdk 35 · Compose Material 3",
+            text = "minSdk 26 · compileSdk 37 · Compose Material 3",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

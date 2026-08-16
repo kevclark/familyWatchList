@@ -1,17 +1,16 @@
 [versions]
 # --- Build plugins -----------------------------------------------------------
-agp = "8.13.2"
-kotlin = "2.3.21"
+agp = "9.3.1"
+kotlin = "2.4.10"
 ksp = "2.3.11"
 
 # --- AndroidX / Compose ------------------------------------------------------
-# PLAN.md §1 pins compileSdk 35. These are the NEWEST releases of each library whose
-# AAR metadata still declares minCompileSdk <= 35 — anything newer demands compileSdk 37
-# and AGP 9.1+. Bump these together with compileSdk, never on their own.
-coreKtx = "1.16.0"           # 1.17.0+ -> minCompileSdk 36
-lifecycle = "2.10.0"         # 2.11.0 -> minCompileSdk 37 (compose artifacts)
-activityCompose = "1.10.1"   # 1.11.0+ -> minCompileSdk 36
-composeBom = "2026.06.01"    # compose-ui 1.11.4 / material3 1.4.0; 2026.08.00 -> ui 1.12 needs 37
+# compileSdk 37 (Android 17), AGP 9.3.1 — bumped from compileSdk 35/AGP 8.13.2 on
+# 2026-08-16 with Kev's sign-off. Current stable releases as of that date.
+coreKtx = "1.19.0"
+lifecycle = "2.11.0"
+activityCompose = "1.13.0"
+composeBom = "2026.08.00"    # compose-ui 1.12 / material3 latest
 navigationCompose = "2.9.8"
 
 # --- Data / network (wired up in M1) ----------------------------------------
@@ -20,6 +19,7 @@ retrofit = "3.0.0"
 retrofitSerialization = "1.0.0"
 okhttp = "5.5.0"
 kotlinxSerialization = "1.11.0"
+kotlinxCoroutines = "1.11.0"
 coil = "3.5.0"
 datastore = "1.2.1"
 work = "2.11.2"
@@ -28,6 +28,11 @@ work = "2.11.2"
 junit = "4.13.2"
 androidxJunit = "1.3.0"
 espressoCore = "3.7.0"
+# Room DAO tests run as JVM unit tests (no emulator, PLAN.md §7 M1) via Robolectric's SQLite
+# shadow. Robolectric 4.16 tops out shadowing SDK 36, and SDK 36 shadows need JDK 21 — this
+# box is pinned to JDK 17 — so DAO tests explicitly target @Config(sdk = [34]) regardless of
+# the app's compileSdk 37; that's a robolectric-and-JDK ceiling, not an app minSdk change.
+robolectric = "4.16.1"
 
 [libraries]
 # AndroidX core
@@ -54,13 +59,15 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 
 # Network (M1)
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-kotlinx-serialization = { group = "com.jakewharton.retrofit", name = "retrofit2-kotlinx-serialization-converter", version.ref = "retrofitSerialization" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
-okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver3", version.ref = "okhttp" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 
 # Images / storage / background (M1+)
@@ -73,10 +80,10 @@ androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx"
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
