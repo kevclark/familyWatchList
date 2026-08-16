@@ -14,6 +14,9 @@ interface ProviderDao {
     @Query("SELECT * FROM providers ORDER BY displayPriority ASC")
     fun observeAll(): Flow<List<ProviderEntity>>
 
+    @Query("SELECT * FROM providers ORDER BY displayPriority ASC")
+    suspend fun getAll(): List<ProviderEntity>
+
     @Query("SELECT * FROM providers WHERE subscribed = 1 ORDER BY displayPriority ASC")
     fun observeSubscribed(): Flow<List<ProviderEntity>>
 

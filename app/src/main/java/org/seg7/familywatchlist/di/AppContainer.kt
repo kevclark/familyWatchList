@@ -1,6 +1,10 @@
 package org.seg7.familywatchlist.di
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
 import org.seg7.familywatchlist.BuildConfig
 import org.seg7.familywatchlist.common.AppClock
@@ -13,6 +17,7 @@ import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchEventRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
@@ -60,5 +65,16 @@ class AppContainer(context: Context) {
 
     val watchEventRepository: WatchEventRepository by lazy {
         WatchEventRepository(database.watchEventDao(), database.watchlistDao())
+    }
+
+    // Onboarding-complete flag + active profile (M2a, PLAN.md §1/§5).
+    private val userPreferencesDataStore: DataStore<Preferences> by lazy {
+        PreferenceDataStoreFactory.create(
+            produceFile = { appContext.preferencesDataStoreFile("user_prefs") },
+        )
+    }
+
+    val userPreferencesRepository: UserPreferencesRepository by lazy {
+        UserPreferencesRepository(userPreferencesDataStore)
     }
 }

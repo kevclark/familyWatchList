@@ -28,6 +28,22 @@ class ProviderRepository(
 
     suspend fun setSubscribed(providerId: Int, subscribed: Boolean) = providerDao.setSubscribed(providerId, subscribed)
 
+    /**
+     * PLAN.md §2: "Default-on at onboarding: Netflix, Disney+, Amazon Prime Video, BBC iPlayer,
+     * Channel 4, ITVX — user confirms/edits." Matched by name (case-insensitive, with a couple
+     * of known TMDB naming variants) rather than hard-coded provider IDs, since those aren't
+     * stable across regions/catalog changes. Only acts if nothing is subscribed yet, so it's
+     * safe to call every time onboarding is (re-)entered — e.g. from Settings later — without
+     * clobbering a user's own edits.
+     */
+    suspend fun applyOnboardingDefaults() {
+        if (providerDao.getSubscribed().isNotEmpty()) return
+        val matches = providerDao.getAll().filter { provider ->
+            DEFAULT_SUBSCRIBED_ALIASES.any { aliases -> provider.name.lowercase() in aliases }
+        }
+        matches.forEach { providerDao.setSubscribed(it.providerId, true) }
+    }
+
     private fun WatchProviderDto.toEntity(): ProviderEntity = ProviderEntity(
         providerId = providerId,
         name = providerName,
@@ -35,4 +51,15 @@ class ProviderRepository(
         subscribed = false,
         displayPriority = displayPriority,
     )
+
+    companion object {
+        private val DEFAULT_SUBSCRIBED_ALIASES: List<Set<String>> = listOf(
+            setOf("netflix"),
+            setOf("disney plus", "disney+"),
+            setOf("amazon prime video", "prime video"),
+            setOf("bbc iplayer"),
+            setOf("channel 4", "all 4"),
+            setOf("itvx", "itv hub", "itv hub+"),
+        )
+    }
 }

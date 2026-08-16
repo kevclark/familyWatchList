@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-16 (M1 complete + approved compileSdk bump, by `feature-builder`).
+Last updated: 2026-08-16 (M2a complete — onboarding, profiles, Home shell — by `feature-builder`).
 
 ---
 
@@ -77,14 +77,34 @@ Done means: profiles, search, title details, Want-to-Watch list, log-watch sheet
 usable end-to-end. Split into two passes at Kev's request (2026-08-16) so he gets a scrcpy
 look at onboarding/profiles/Home before the rest of the milestone builds on that foundation.
 
-### M2a — Onboarding, profiles, Home shell (build first, review before M2b)
+### M2a — Onboarding, profiles, Home shell (build first, review before M2b) ✅
 
-- [ ] Onboarding: attribution, subscribed-services picker (GB defaults), first profile
-- [ ] Profile picker: avatar grid, add/edit/delete, max 10 enforced in the repository,
+- [x] Onboarding: attribution, subscribed-services picker (GB defaults), first profile
+- [x] Profile picker: avatar grid, add/edit/delete, max 10 enforced in the repository,
       optional age-rating cap
-- [ ] Home shell + navigation (screens/rows can be stubs — this pass is nav + profile UX)
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Screenshot(s) captured for Kev's review (`docs/`), per the M0 first-boot.png pattern
+- [x] Home shell + navigation (screens/rows can be stubs — this pass is nav + profile UX)
+- [x] `./gradlew test assembleDebug` green
+- [x] Screenshot(s) captured for Kev's review (`docs/`), per the M0 first-boot.png pattern —
+      `docs/m2a-onboarding-attribution.png`, `docs/m2a-onboarding-services.png`,
+      `docs/m2a-onboarding-profile.png`, `docs/m2a-profiles.png`, `docs/m2a-home.png`
+
+Implementation notes for whoever picks up M2b:
+- Top-level screen choice (Onboarding / ProfilePicker / Home) is driven reactively by
+  `ui/AppViewModel.kt`'s `resolveStartState`, off two DataStore flags
+  (`UserPreferencesRepository`: `onboardingComplete`, `activeProfileId`) combined with the live
+  profile list — no explicit nav callbacks needed between those three; completing onboarding or
+  deleting the active profile just flips the state.
+- `ProviderRepository.applyOnboardingDefaults()` (new) pre-ticks the PLAN.md §2 GB default
+  services by name match (Netflix, Disney Plus, Amazon Prime Video, BBC iPlayer, Channel 4,
+  All 4, ITVX/ITV Hub) and only acts while nothing is yet subscribed, so it's safe to call again
+  when onboarding is re-entered from Settings.
+- Settings (`ui/settings/SettingsScreen.kt`) is still an M4 stub, but two rows are wired for
+  real already since PLAN.md calls for them outside M4: "Switch profile" (clears the active
+  profile) and "Services & attribution setup" (flips `onboardingComplete` back to false) — plus
+  the TMDB/JustWatch attribution text per §3's "Settings → About and on onboarding" requirement.
+- Avatar presets/encoding live in `ui/avatar/` — `AvatarOption`, `AVATAR_PRESETS`, and
+  `toAvatarKey()`/`avatarKeyToOption()` round-tripping through `ProfileEntity.avatarKey` as
+  `"<emoji>|<RRGGBB>"`.
 
 ### M2b — Search, details, watchlist, logging, history (after Kev reviews M2a)
 
