@@ -74,12 +74,20 @@ JVM unit tests (MockWebServer, in-memory Room) pass.
 ## M2 — Core flows
 
 Done means: profiles, search, title details, Want-to-Watch list, log-watch sheet, history —
-usable end-to-end.
+usable end-to-end. Split into two passes at Kev's request (2026-08-16) so he gets a scrcpy
+look at onboarding/profiles/Home before the rest of the milestone builds on that foundation.
+
+### M2a — Onboarding, profiles, Home shell (build first, review before M2b)
 
 - [ ] Onboarding: attribution, subscribed-services picker (GB defaults), first profile
 - [ ] Profile picker: avatar grid, add/edit/delete, max 10 enforced in the repository,
       optional age-rating cap
-- [ ] Home shell + navigation
+- [ ] Home shell + navigation (screens/rows can be stubs — this pass is nav + profile UX)
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Screenshot(s) captured for Kev's review (`docs/`), per the M0 first-boot.png pattern
+
+### M2b — Search, details, watchlist, logging, history (after Kev reviews M2a)
+
 - [ ] Search (`/search/multi`) with movie/TV filter chips and quick add-to-list
 - [ ] Title details: hero, cast chips, availability badges + JustWatch attribution
 - [ ] Want-to-Watch list (shared family list, added-by tag, My List row)
