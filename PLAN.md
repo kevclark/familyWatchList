@@ -218,6 +218,16 @@ This is all deterministic Kotlin — unit-testable with fixture data, no runtime
 Polish bar: Coil crossfade placeholders, shared-element-style transition into details,
 Material 3 dynamic colour with dark default, predictive back. Feels like a streamer, not a form.
 
+**Design tone note (Kev, after reviewing M2a screenshots, 2026-08-16):** onboarding/profile
+screens read as "a bit primary school" — the bright saturated avatar palette and emoji-forward
+layout skew more playful-kids-app than premium streamer. Course-correct for M2b and the M4
+polish pass: pull the accent palette in line with actual streaming-app restraint (Netflix/
+Disney+/Prime all lean muted dark surfaces + one confident accent colour, not a rainbow of
+avatar swatches), let poster/backdrop imagery carry the visual interest rather than iconography,
+and keep emoji avatars as one *option* among more neutral choices (initials, solid colour tiles)
+rather than the only style. Applies most directly to M2b's poster-grid/detail screens (where
+photography should dominate) and any M4 revisit of the M2a onboarding/profile screens.
+
 ---
 
 ## 6. Build environment & preview (agent101)
