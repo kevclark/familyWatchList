@@ -3,6 +3,7 @@ package org.seg7.familywatchlist.data.repository
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.Flow
 import org.seg7.familywatchlist.common.AppClock
+import org.seg7.familywatchlist.data.local.dao.AvailabilityBadge
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
 import org.seg7.familywatchlist.data.local.dao.TitleAttributeDao
 import org.seg7.familywatchlist.data.local.dao.TitleDao
@@ -32,6 +33,15 @@ class TitleRepository(
 
     fun observeAttributes(tmdbId: Int, mediaType: MediaType): Flow<List<TitleAttributeEntity>> =
         titleAttributeDao.observeForTitle(tmdbId, mediaType)
+
+    /**
+     * GB availability with real provider names (PLAN.md §5 screen 4). Every UI that renders
+     * these must also render the "Streaming data by JustWatch" credit — see
+     * [org.seg7.familywatchlist.ui.components.AvailabilityRow], which pairs them so the credit
+     * can't be forgotten.
+     */
+    fun observeAvailability(tmdbId: Int, mediaType: MediaType): Flow<List<AvailabilityBadge>> =
+        providerAvailabilityDao.observeBadges(tmdbId, mediaType)
 
     fun isMetadataStale(title: TitleEntity): Boolean =
         clock.nowMillis() - title.fetchedAt >= METADATA_TTL_MS

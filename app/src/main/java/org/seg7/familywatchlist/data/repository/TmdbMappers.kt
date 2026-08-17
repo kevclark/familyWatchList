@@ -26,6 +26,7 @@ fun MovieDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
     certification = releaseDates?.gbCertification(),
     voteAverage = voteAverage,
     popularity = popularity,
+    trailerKey = videos.youTubeTrailerKey(),
     fetchedAt = fetchedAt,
 )
 
@@ -41,6 +42,7 @@ fun TvDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
     certification = contentRatings?.results?.firstOrNull { it.iso3166_1 == GB }?.rating?.takeIf { it.isNotBlank() },
     voteAverage = voteAverage,
     popularity = popularity,
+    trailerKey = videos.youTubeTrailerKey(),
     fetchedAt = fetchedAt,
 )
 
@@ -101,6 +103,8 @@ fun MediaSummaryDto.toStubTitleEntity(mediaType: MediaType, fetchedAt: Long): Ti
     certification = null,
     voteAverage = voteAverage,
     popularity = popularity,
+    // Summary payloads carry no videos array; the key arrives with the first detail fetch.
+    trailerKey = null,
     fetchedAt = fetchedAt,
 )
 
@@ -109,5 +113,18 @@ private fun org.seg7.familywatchlist.data.remote.dto.ReleaseDatesDto.gbCertifica
         ?.releaseDates
         ?.firstOrNull { it.certification.isNotBlank() }
         ?.certification
+
+/**
+ * PLAN.md §1/§2: "trailer key -> Intent to YouTube. Filter to site == YouTube && type ==
+ * Trailer." Official trailers win over fan-uploaded ones; a Teaser is accepted only when the
+ * title has no trailer at all, since "no button" is worse than "a teaser".
+ */
+private fun org.seg7.familywatchlist.data.remote.dto.VideosDto?.youTubeTrailerKey(): String? {
+    val youTube = this?.results.orEmpty().filter { it.site.equals("YouTube", ignoreCase = true) }
+    val trailers = youTube.filter { it.type.equals("Trailer", ignoreCase = true) }
+    val teasers = youTube.filter { it.type.equals("Teaser", ignoreCase = true) }
+    return (trailers.firstOrNull { it.official } ?: trailers.firstOrNull()
+        ?: teasers.firstOrNull { it.official } ?: teasers.firstOrNull())?.key
+}
 
 private fun String?.yearOrNull(): Int? = this?.take(4)?.toIntOrNull()

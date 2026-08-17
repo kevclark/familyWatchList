@@ -118,6 +118,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
 
+    // Poster/backdrop imagery with disk+memory caching and crossfade (PLAN.md §1, §5a motion).
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+
     // Room (M1)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
@@ -137,6 +141,10 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.junit)
+    // Compose UI test for the log-watch flow, run on the JVM via Robolectric (PLAN.md §7
+    // testing bar) so it lands in `./gradlew test` rather than needing a booted emulator.
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -21,4 +21,15 @@ interface RatingDao {
 
     @Query("SELECT * FROM ratings WHERE profileId = :profileId")
     suspend fun getForProfile(profileId: Long): List<RatingEntity>
+
+    /** Every profile's thumbs on one title — the details screen and the log-watch sheet both need this. */
+    @Query("SELECT * FROM ratings WHERE tmdbId = :tmdbId AND mediaType = :mediaType")
+    fun observeForTitle(tmdbId: Int, mediaType: MediaType): Flow<List<RatingEntity>>
+
+    @Query("SELECT * FROM ratings WHERE tmdbId = :tmdbId AND mediaType = :mediaType")
+    suspend fun getForTitle(tmdbId: Int, mediaType: MediaType): List<RatingEntity>
+
+    /** Clearing a thumbs is distinct from setting NEUTRAL — "no opinion recorded" vs "meh". */
+    @Query("DELETE FROM ratings WHERE profileId = :profileId AND tmdbId = :tmdbId AND mediaType = :mediaType")
+    suspend fun delete(profileId: Long, tmdbId: Int, mediaType: MediaType)
 }

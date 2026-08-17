@@ -127,6 +127,7 @@ class TitleRepositoryTest {
         certification = null,
         voteAverage = null,
         popularity = null,
+        trailerKey = null,
         fetchedAt = fetchedAt,
     )
 

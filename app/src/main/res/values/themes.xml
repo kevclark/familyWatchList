@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose owns all in-app styling; this theme only shapes the window itself. -->
-    <style name="Theme.FamilyWatchList" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        Compose owns all in-app styling; this theme only shapes the window itself.
+
+        The app is dark-first by identity (PLAN.md §5/§5a), so there is deliberately no
+        light variant and no values-night override: the window is always the same near-black
+        as Compose's `Ink` token. Without this the launch window flashed Material's default
+        grey for the duration of the cold start before Compose painted — a small thing that
+        reads as unpolished on the very first impression.
+    -->
+    <style name="Theme.FamilyWatchList" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
 </resources>

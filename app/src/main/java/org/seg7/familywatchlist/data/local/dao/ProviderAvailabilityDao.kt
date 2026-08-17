@@ -22,6 +22,22 @@ interface ProviderAvailabilityDao {
     @Query("SELECT * FROM provider_availability WHERE tmdbId = :tmdbId AND mediaType = :mediaType")
     suspend fun getForTitle(tmdbId: Int, mediaType: MediaType): List<ProviderAvailabilityEntity>
 
+    /**
+     * Availability badges with real provider names (PLAN.md §5 screen 4). Subscribed services
+     * sort first so "you can watch this tonight" is the first thing the eye lands on.
+     */
+    @Query(
+        """
+        SELECT p.providerId AS providerId, p.name AS name, p.logoPath AS logoPath,
+               pa.kind AS kind, p.subscribed AS subscribed
+        FROM provider_availability pa
+        INNER JOIN providers p ON p.providerId = pa.providerId
+        WHERE pa.tmdbId = :tmdbId AND pa.mediaType = :mediaType
+        ORDER BY p.subscribed DESC, p.displayPriority ASC
+        """
+    )
+    fun observeBadges(tmdbId: Int, mediaType: MediaType): Flow<List<AvailabilityBadge>>
+
     /** Replaces availability for a title in one go — PLAN.md §3's 7-day TTL always refetches the full set. */
     @Transaction
     suspend fun replaceForTitle(tmdbId: Int, mediaType: MediaType, rows: List<ProviderAvailabilityEntity>) {

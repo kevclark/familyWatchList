@@ -30,6 +30,7 @@ class TitleDaoTest {
         certification = "PG",
         voteAverage = 7.2,
         popularity = 33.1,
+        trailerKey = "dQw4w9WgXcQ",
         fetchedAt = fetchedAt,
     )
 

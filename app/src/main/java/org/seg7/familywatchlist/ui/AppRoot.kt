@@ -1,5 +1,6 @@
 package org.seg7.familywatchlist.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -14,6 +15,8 @@ import androidx.lifecycle.viewmodel.initializer
 import org.seg7.familywatchlist.ui.nav.MainScaffold
 import org.seg7.familywatchlist.ui.onboarding.OnboardingScreen
 import org.seg7.familywatchlist.ui.profile.ProfilePickerScreen
+import org.seg7.familywatchlist.ui.theme.Accent
+import org.seg7.familywatchlist.ui.theme.Ink
 
 /**
  * Top-level screen switch, driven by [AppViewModel.uiState] rather than a nav-graph start
@@ -36,11 +39,14 @@ fun AppRoot(modifier: Modifier = Modifier) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     when (val current = state) {
-        AppStartState.Loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+        AppStartState.Loading -> Box(
+            modifier.fillMaxSize().background(Ink),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(color = Accent)
         }
 
-        AppStartState.Onboarding -> OnboardingScreen(modifier = modifier)
+        is AppStartState.Onboarding -> OnboardingScreen(mode = current.mode, modifier = modifier)
         AppStartState.ProfilePicker -> ProfilePickerScreen(modifier = modifier)
         is AppStartState.Home -> MainScaffold(activeProfile = current.activeProfile, modifier = modifier)
     }

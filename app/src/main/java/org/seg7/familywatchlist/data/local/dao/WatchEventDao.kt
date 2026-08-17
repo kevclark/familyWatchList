@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 import org.seg7.familywatchlist.data.local.entity.WatchEventEntity
 import org.seg7.familywatchlist.data.local.entity.WatchEventProfileEntity
@@ -59,4 +60,42 @@ interface WatchEventDao {
 
     @Query("SELECT count(*) FROM watch_events we INNER JOIN watch_event_profiles wep ON wep.watchEventId = we.id WHERE wep.profileId = :profileId")
     suspend fun countForProfile(profileId: Long): Int
+
+    @Query("SELECT * FROM watch_events WHERE id = :id")
+    suspend fun getEvent(id: Long): WatchEventEntity?
+
+    @Query("DELETE FROM watch_events WHERE id = :id")
+    suspend fun deleteEventById(id: Long)
+
+    @Update
+    suspend fun updateEvent(event: WatchEventEntity)
+
+    /**
+     * History's read-model (PLAN.md §5 screen 7): every event joined to its cached title, newest
+     * first. Profile filtering is applied *in the ViewModel* off [observeAllTags] rather than by
+     * a second parameterised query, because History also renders "who watched it" chips on every
+     * row — so the tag map has to be in memory anyway, and filtering it there avoids re-querying
+     * the whole list every time the filter chip changes.
+     */
+    @Query(
+        """
+        SELECT we.id AS id, we.tmdbId AS tmdbId, we.mediaType AS mediaType,
+               we.watchedAt AS watchedAt, we.note AS note,
+               t.title AS title, t.posterPath AS posterPath, t.year AS year
+        FROM watch_events we
+        LEFT JOIN titles t ON t.tmdbId = we.tmdbId AND t.mediaType = we.mediaType
+        ORDER BY we.watchedAt DESC, we.id DESC
+        """
+    )
+    fun observeAllItems(): Flow<List<WatchEventItem>>
+
+    @Query("SELECT * FROM watch_event_profiles")
+    fun observeAllTags(): Flow<List<WatchEventProfileEntity>>
+
+    /** Replaces an event's profile tags wholesale — editing "who watched" in the log-watch sheet. */
+    @Transaction
+    suspend fun replaceTags(watchEventId: Long, profileIds: List<Long>) {
+        deleteTagsForEvent(watchEventId)
+        insertTags(profileIds.map { WatchEventProfileEntity(watchEventId = watchEventId, profileId = it) })
+    }
 }
