@@ -88,8 +88,11 @@ In a **second laptop shell**:
 # 2. Point local adb/scrcpy at the forwarded server and mirror.
 export ADB_SERVER_SOCKET=tcp:localhost:5037
 adb devices                       # should list emulator-5554 (agent101's emulator)
-scrcpy --tunnel-host=localhost -s emulator-5554
+scrcpy --tunnel-host=127.0.0.1 -s emulator-5554
 ```
+
+> scrcpy's `--tunnel-host` wants a literal IP, not a hostname — `localhost` fails with
+> `ERROR: Invalid IPv4 address: localhost` on scrcpy 4.x. Use `127.0.0.1`.
 
 Useful scrcpy flags: `--max-size=1080` (less bandwidth), `--stay-awake`,
 `--window-title="family_test"`, `--no-audio` (audio forwarding needs Android 11+ and adds load).
@@ -191,7 +194,7 @@ Same as §2 Option A, just target the phone's serial:
 
 ```bash
 export ADB_SERVER_SOCKET=tcp:localhost:5037     # with the SSH tunnel running
-scrcpy --tunnel-host=localhost -s 192.168.1.42:41235
+scrcpy --tunnel-host=127.0.0.1 -s 192.168.1.42:41235
 ```
 
 ---
