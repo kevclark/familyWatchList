@@ -74,8 +74,13 @@ On the **laptop**:
 
 ```bash
 # 1. Forward buildhost's adb server port to the laptop. Keep this shell open.
-ssh -N -L 5037:localhost:5037 kev@buildhost
+ssh -4 -N -L 5037:localhost:5037 kev@buildhost
 ```
+
+> `-4` forces IPv4. Without it, some systems (Linux included, if IPv6 loopback is
+> disabled) fail with `bind [::1]:5037: Cannot assign requested address` — ssh tries the
+> IPv6 loopback first and never falls back. No output after running this command is
+> expected and means it worked; it just holds the tunnel open silently.
 
 In a **second laptop shell**:
 
