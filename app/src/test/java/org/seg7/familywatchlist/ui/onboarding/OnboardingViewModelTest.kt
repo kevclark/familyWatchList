@@ -42,6 +42,7 @@ class OnboardingViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var server: MockWebServer
     private lateinit var userPreferencesRepository: UserPreferencesRepository
+    private lateinit var providerRepository: ProviderRepository
     private lateinit var viewModel: OnboardingViewModel
 
     @Before
@@ -55,12 +56,16 @@ class OnboardingViewModelTest {
             produceFile = { context.preferencesDataStoreFile("onboarding_vm_test_${System.nanoTime()}") },
         )
         userPreferencesRepository = UserPreferencesRepository(dataStore)
-        viewModel = OnboardingViewModel(
-            ProviderRepository(db.providerDao(), api),
-            ProfileRepository(db.profileDao(), FakeClock()),
-            userPreferencesRepository,
-        )
+        providerRepository = ProviderRepository(db.providerDao(), api)
+        viewModel = buildViewModel(OnboardingMode.FIRST_RUN)
     }
+
+    private fun buildViewModel(mode: OnboardingMode) = OnboardingViewModel(
+        providerRepository,
+        ProfileRepository(db.profileDao(), FakeClock()),
+        userPreferencesRepository,
+        mode,
+    )
 
     @After
     fun tearDown() {
@@ -129,5 +134,106 @@ class OnboardingViewModelTest {
         assertTrue(viewModel.completionState.first() is OnboardingCompletionState.Error)
         assertEquals(0, db.profileDao().count())
         assertEquals(false, userPreferencesRepository.onboardingComplete.first())
+    }
+
+    // --- M2b: PLAN.md §5a known defects #1 (no filter) and #2 (no way back) ---
+
+    @Test
+    fun `the services filter matches provider names on a case-insensitive substring`() = runTest {
+        enqueueProviderFixtures()
+        viewModel.onAttributionAcknowledged()
+        viewModel.providers.first { it.size == 3 }
+
+        viewModel.onServiceQueryChange("net")
+        assertEquals(listOf("Netflix"), viewModel.providers.first { it.size == 1 }.map { it.name })
+
+        // Case-insensitive, and matching mid-name — not just a prefix.
+        viewModel.onServiceQueryChange("PLUS")
+        assertEquals(listOf("Disney Plus"), viewModel.providers.first { it.size == 1 }.map { it.name })
+
+        viewModel.onServiceQueryChange("")
+        assertEquals(3, viewModel.providers.first { it.size == 3 }.size)
+    }
+
+    @Test
+    fun `a filter matching nothing yields an empty list rather than the unfiltered one`() = runTest {
+        enqueueProviderFixtures()
+        viewModel.onAttributionAcknowledged()
+        viewModel.providers.first { it.size == 3 }
+
+        viewModel.onServiceQueryChange("zzzz")
+
+        assertTrue(viewModel.providers.first { it.isEmpty() }.isEmpty())
+    }
+
+    @Test
+    fun `subscribed services sort to the top of the picker`() = runTest {
+        enqueueProviderFixtures()
+        viewModel.onAttributionAcknowledged()
+        // Netflix and Disney Plus are GB defaults; Apple TV is not.
+        val providers = viewModel.providers.first { list -> list.count { it.subscribed } == 2 }
+
+        assertTrue(providers.take(2).all { it.subscribed })
+        assertEquals("Apple TV", providers.last().name)
+    }
+
+    @Test
+    fun `the subscribed count is a total, not a count of what the filter happens to show`() = runTest {
+        enqueueProviderFixtures()
+        viewModel.onAttributionAcknowledged()
+        viewModel.providers.first { list -> list.count { it.subscribed } == 2 }
+
+        viewModel.onServiceQueryChange("netflix")
+        viewModel.providers.first { it.size == 1 }
+
+        assertEquals(2, viewModel.subscribedCount.first { it == 2 })
+    }
+
+    @Test
+    fun `re-configuration starts on the services step, not the welcome screen`() = runTest {
+        enqueueProviderFixtures()
+
+        val reconfigure = buildViewModel(OnboardingMode.RECONFIGURE)
+
+        assertEquals(OnboardingStep.SERVICES, reconfigure.step.first())
+        // …and its data loads without waiting for an attribution "Continue" that never comes.
+        assertEquals(
+            ServicesLoadState.Loaded,
+            reconfigure.servicesLoadState.first { it != ServicesLoadState.Loading },
+        )
+    }
+
+    @Test
+    fun `re-configuration offers a way out, a first run does not`() = runTest {
+        assertTrue(buildViewModel(OnboardingMode.RECONFIGURE).canDismiss)
+        assertTrue(!buildViewModel(OnboardingMode.FIRST_RUN).canDismiss)
+    }
+
+    @Test
+    fun `closing re-configuration clears the flag and never disturbs onboarding-complete`() = runTest {
+        userPreferencesRepository.setOnboardingComplete(true)
+        userPreferencesRepository.setServicesSetupRequested(true)
+        val reconfigure = buildViewModel(OnboardingMode.RECONFIGURE)
+
+        reconfigure.dismiss()
+
+        assertEquals(false, userPreferencesRepository.servicesSetupRequested.first { !it })
+        // This is the actual M2a bug: re-entry used to flip this to false and strand the user.
+        assertEquals(true, userPreferencesRepository.onboardingComplete.first())
+    }
+
+    @Test
+    fun `Done on the re-configuration services step leaves instead of advancing to profile creation`() = runTest {
+        enqueueProviderFixtures()
+        userPreferencesRepository.setOnboardingComplete(true)
+        userPreferencesRepository.setServicesSetupRequested(true)
+        val reconfigure = buildViewModel(OnboardingMode.RECONFIGURE)
+        reconfigure.servicesLoadState.first { it != ServicesLoadState.Loading }
+
+        reconfigure.onServicesConfirmed()
+
+        assertEquals(false, userPreferencesRepository.servicesSetupRequested.first { !it })
+        assertEquals(OnboardingStep.SERVICES, reconfigure.step.first())
+        assertEquals("no second profile is created on re-configuration", 0, db.profileDao().count())
     }
 }

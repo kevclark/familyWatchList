@@ -95,7 +95,7 @@ class DiscoverRepositoryTest {
                 tmdbId = 38700, mediaType = MediaType.MOVIE, title = "Paddington",
                 year = 2014, posterPath = null, backdropPath = null, overview = "full overview",
                 runtimeMin = 95, certification = "PG", voteAverage = 7.2, popularity = 33.1,
-                fetchedAt = clock.current,
+                trailerKey = "dQw4w9WgXcQ", fetchedAt = clock.current,
             )
         )
         server.enqueue(MockResponse(body = discoverPageJson(id = 38700, title = "Paddington")))

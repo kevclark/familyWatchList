@@ -19,6 +19,28 @@ interface WatchlistDao {
     @Query("SELECT * FROM watchlist_entries WHERE state = :state ORDER BY addedAt DESC")
     fun observeByState(state: WatchlistState): Flow<List<WatchlistEntryEntity>>
 
+    @Query("SELECT * FROM watchlist_entries WHERE tmdbId = :tmdbId AND mediaType = :mediaType")
+    fun observe(tmdbId: Int, mediaType: MediaType): Flow<WatchlistEntryEntity?>
+
+    /**
+     * The "My List" read-model: entries joined to their cached title row. LEFT JOIN because an
+     * entry can briefly outlive its cached title (Room is the source of truth for the UI, and
+     * the title refetches lazily on view) — the UI shows a placeholder tile rather than
+     * dropping the row.
+     */
+    @Query(
+        """
+        SELECT w.tmdbId AS tmdbId, w.mediaType AS mediaType, t.title AS title,
+               t.posterPath AS posterPath, t.year AS year,
+               w.addedByProfileId AS addedByProfileId, w.addedAt AS addedAt
+        FROM watchlist_entries w
+        LEFT JOIN titles t ON t.tmdbId = w.tmdbId AND t.mediaType = w.mediaType
+        WHERE w.state = :state
+        ORDER BY w.addedAt DESC
+        """
+    )
+    fun observeItemsByState(state: WatchlistState): Flow<List<WatchlistItem>>
+
     @Query("UPDATE watchlist_entries SET state = :state WHERE tmdbId = :tmdbId AND mediaType = :mediaType")
     suspend fun updateState(tmdbId: Int, mediaType: MediaType, state: WatchlistState)
 

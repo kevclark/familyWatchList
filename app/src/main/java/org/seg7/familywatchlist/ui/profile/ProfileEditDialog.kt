@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -17,10 +18,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.seg7.familywatchlist.ui.avatar.AVATAR_PRESETS
 import org.seg7.familywatchlist.ui.avatar.AvatarPickerGrid
 import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
+import org.seg7.familywatchlist.ui.avatar.defaultAvatarOption
 import org.seg7.familywatchlist.ui.avatar.toAvatarKey
+import org.seg7.familywatchlist.ui.theme.Accent
+import org.seg7.familywatchlist.ui.theme.Chalk
+import org.seg7.familywatchlist.ui.theme.ChalkFaint
+import org.seg7.familywatchlist.ui.theme.ChalkMuted
+import org.seg7.familywatchlist.ui.theme.InkHairline
+import org.seg7.familywatchlist.ui.theme.InkRaised
 
 /** Shared add/edit form (PLAN.md §5 screen 2). `initial == null` means "add"; otherwise "edit". */
 data class ProfileEditInitial(
@@ -37,12 +44,15 @@ fun ProfileEditDialog(
 ) {
     var name by remember { mutableStateOf(initial?.name.orEmpty()) }
     var avatar by remember {
-        mutableStateOf(initial?.avatarKey?.let(::avatarKeyToOption) ?: AVATAR_PRESETS.first())
+        mutableStateOf(initial?.avatarKey?.let(::avatarKeyToOption) ?: defaultAvatarOption())
     }
     var ageRatingCap by remember { mutableStateOf(initial?.ageRatingCap) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = InkRaised,
+        titleContentColor = Chalk,
+        textContentColor = ChalkMuted,
         title = { Text(if (initial == null) "Add profile" else "Edit profile") },
         text = {
             // The Column scrolls (dialogs get a bounded max height from AlertDialog itself,
@@ -56,27 +66,37 @@ fun ProfileEditDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text("Name", color = ChalkFaint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Accent,
+                        unfocusedBorderColor = InkHairline,
+                        cursorColor = Accent,
+                        focusedTextColor = Chalk,
+                        unfocusedTextColor = Chalk,
+                    ),
                 )
-                Text("Avatar")
+                Text("Avatar", color = ChalkMuted)
+                // `name` is threaded in so an INITIAL-style tile previews the real letter as
+                // it's typed, rather than a placeholder the user has to imagine past.
                 AvatarPickerGrid(
                     selected = avatar,
                     onSelect = { avatar = it },
-                    modifier = Modifier.fillMaxWidth().height(230.dp),
+                    name = name,
+                    modifier = Modifier.fillMaxWidth().height(216.dp),
                 )
-                Text("Age rating cap")
+                Text("Age rating cap", color = ChalkMuted)
                 AgeRatingCapSelector(selected = ageRatingCap, onSelect = { ageRatingCap = it })
             }
         },
         confirmButton = {
             TextButton(onClick = { onSave(name, avatar.toAvatarKey(), ageRatingCap) }) {
-                Text("Save")
+                Text("Save", color = Accent)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text("Cancel", color = ChalkMuted) }
         },
     )
 }

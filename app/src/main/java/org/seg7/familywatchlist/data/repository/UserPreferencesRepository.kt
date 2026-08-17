@@ -22,8 +22,26 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
     val activeProfileId: Flow<Long?> =
         dataStore.data.map { it[ACTIVE_PROFILE_ID] }
 
+    /**
+     * Set when the user opens Settings → "Services & attribution setup" (PLAN.md §5a known
+     * defect: re-entered onboarding had no way back).
+     *
+     * This is a *separate* flag rather than reusing [onboardingComplete], which is what M2a
+     * did — flipping onboardingComplete back to false made re-configuration indistinguishable
+     * from a first run, so the flow replayed attribution and profile creation and offered no
+     * exit. Keeping the two apart means the app can tell "this user has never set up" from
+     * "this user wants to change their services", show the right entry step, and offer a close
+     * button that just clears this flag and drops them back where they were.
+     */
+    val servicesSetupRequested: Flow<Boolean> =
+        dataStore.data.map { it[SERVICES_SETUP_REQUESTED] ?: false }
+
     suspend fun setOnboardingComplete(complete: Boolean) {
         dataStore.edit { it[ONBOARDING_COMPLETE] = complete }
+    }
+
+    suspend fun setServicesSetupRequested(requested: Boolean) {
+        dataStore.edit { it[SERVICES_SETUP_REQUESTED] = requested }
     }
 
     suspend fun setActiveProfileId(id: Long) {
@@ -37,5 +55,7 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
     companion object {
         val ONBOARDING_COMPLETE: Preferences.Key<Boolean> = booleanPreferencesKey("onboarding_complete")
         val ACTIVE_PROFILE_ID: Preferences.Key<Long> = longPreferencesKey("active_profile_id")
+        val SERVICES_SETUP_REQUESTED: Preferences.Key<Boolean> =
+            booleanPreferencesKey("services_setup_requested")
     }
 }

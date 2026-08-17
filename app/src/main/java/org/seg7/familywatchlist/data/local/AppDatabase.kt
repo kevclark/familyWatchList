@@ -3,6 +3,9 @@ package org.seg7.familywatchlist.data.local
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import org.seg7.familywatchlist.data.local.dao.DiscoverCacheDao
 import org.seg7.familywatchlist.data.local.dao.ProfileDao
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
@@ -43,7 +46,7 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         ShortlistEntryEntity::class,
         DiscoverCacheEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -61,5 +64,18 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val NAME = "family_watchlist.db"
+
+        /**
+         * v1 → v2: adds `titles.trailerKey` (PLAN.md §2 called for it at M1; it was missed).
+         * A real migration rather than a destructive fallback, because the same table holds
+         * cached metadata for anything already on a user's watchlist or in their history —
+         * dropping it would silently blank out their list until each title refetched.
+         * Existing rows get NULL and pick the key up on their next TTL refresh.
+         */
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE titles ADD COLUMN trailerKey TEXT")
+            }
+        }
     }
 }

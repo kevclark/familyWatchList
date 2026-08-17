@@ -3,7 +3,8 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-16 (M2a complete — onboarding, profiles, Home shell — by `feature-builder`).
+Last updated: 2026-08-17 (M2b complete — search, details, watchlist, logging, history, plus the
+M2a visual rework against PLAN.md §5a — by `feature-builder`).
 
 ---
 
@@ -113,21 +114,56 @@ Netflix/Prime look-and-feel. Root cause diagnosed as under-specified design dire
 model capability — PLAN.md §5a now has concrete colour/type/layout tokens to build against.
 This pass covers both the original M2b scope AND reworking M2a's visuals to match §5a.
 
-- [ ] Apply PLAN.md §5a design system to M2a's existing screens (onboarding, profile picker,
-      Home shell) — colour tokens, typography, layout, avatar restraint
-- [ ] Fix: services picker search/filter field (PLAN.md §5a known defects)
-- [ ] Fix: onboarding re-entered from Settings needs a back/close affordance
-- [ ] Fix: "Who's watching?" copy clarifying one-profile-per-person + multi-select elsewhere
-- [ ] Search (`/search/multi`) with movie/TV filter chips and quick add-to-list
-- [ ] Title details: hero, cast chips, availability badges + JustWatch attribution
-- [ ] Want-to-Watch list (shared family list, added-by tag, My List row)
-- [ ] Log-watch sheet: date, profile multi-select, per-profile thumbs; auto-flips list state
-- [ ] History: reverse-chronological, filter by profile, edit/delete
-- [ ] Home: real poster carousels wired to search/discover results (single continuous feed,
-      not per-section tabs — PLAN.md §5a) — full personalised scoring still waits for M3, but
-      Home shouldn't still be placeholder text boxes after this pass
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Fresh screenshots for Kev's review, replacing the M2a set
+- [x] Apply PLAN.md §5a design system to M2a's existing screens (onboarding, profile picker,
+      Home shell) — colour tokens (`ui/theme/Color.kt`), condensed display typography
+      (`ui/theme/Type.kt`), layout tokens (`ui/theme/Dimens.kt`), restrained avatars
+      (`ui/avatar/`). Material dynamic colour and the light scheme are both **removed** — see
+      the "Decisions for Kev" note below
+- [x] Fix: services picker search/filter field (substring match, subscribed pinned to top,
+      running "N services selected" count)
+- [x] Fix: onboarding re-entered from Settings needs a back/close affordance — new
+      `servicesSetupRequested` DataStore flag drives an `OnboardingMode.RECONFIGURE` that
+      enters at the services step and shows a close (×); `onboardingComplete` is never
+      un-set any more
+- [x] Fix: "Who's watching?" copy clarifying one-profile-per-person + multi-select elsewhere
+      (profile picker subtitle and the onboarding first-profile step both say it)
+- [x] Search (`/search/multi`) with movie/TV filter chips and quick add-to-list
+- [x] Title details: hero, cast chips, availability badges + JustWatch attribution,
+      ▶ Trailer (YouTube intent), ＋ My List toggle, Log watch, thumbs rating
+- [x] Want-to-Watch list (shared family list, added-by tag, My List row + full My List screen
+      with a whole-family / added-by-me toggle)
+- [x] Log-watch sheet: date, profile multi-select, per-profile thumbs; auto-flips list state
+- [x] History: reverse-chronological, filter by profile, edit/delete
+- [x] Home: real poster carousels wired to discover results (single continuous feed, not
+      per-section tabs — PLAN.md §5a). Rows built: **My List** and **Popular films / series on
+      your services**. The *For {profile}* and *Family night* rows are **deliberately omitted**
+      rather than stubbed — see the note below
+- [x] `./gradlew test assembleDebug` green — 132 tests, 0 failures
+- [x] Fresh screenshots for Kev's review, replacing the M2a set (`docs/m2b-*.png`)
+
+**Also landed in this pass (not originally in the M2b list):**
+- [x] `TitleEntity.trailerKey` — PLAN.md §2 called for it at M1 and it was missed. Added with a
+      real Room migration (schema v1 → v2, `AppDatabase.MIGRATION_1_2`, exported as
+      `app/schemas/.../2.json`) plus the mapper that extracts the YouTube key, so the ▶ Trailer
+      button on details has something to open
+- [x] Coil 3 wired up (it was in the version catalog but never a dependency) with its own
+      unauthenticated OkHttp client, so posters don't carry the TMDB bearer token or queue
+      behind §3's 4 req/s API throttle
+- [x] Launch window painted `Ink` instead of Material grey (`values/themes.xml`); the
+      `values-night` variant is gone since the app is dark-only
+
+**Decisions for Kev in this pass (flagged, not silently taken):**
+- **Accent colour is unpicked.** Three candidates are defined in `ui/theme/Color.kt` —
+  `AccentEmber` (#FF7A45, currently active), `AccentAurora` (#3ADFB0), `AccentOrchid` (#A779FF).
+  Switching is a one-line change to the `Accent` val; nothing else names a candidate.
+- **Material dynamic colour is off, and there is no light theme.** §5's earlier "dynamic colour
+  with dark default" is in direct tension with §5a's "one confident accent colour"; §5a is newer
+  and more specific, so it won. Reversible.
+- **No personalised Home rows.** *For {profile}* and *Family night* need M3's scorer; filling
+  them with popular titles would be a lie, and stubbing them is what produced M2a's "wall of
+  text boxes". A single line of footer copy says they're coming instead.
+- **Deleting a watch event does not un-flip its watchlist entry back to ACTIVE** — see the
+  kdoc on `WatchEventRepository.deleteWatch`.
 
 ## M3 — Recommender
 
@@ -155,7 +191,8 @@ shortlists, family scope, weekly WorkManager job + Monday notification.
 - [ ] Attribution pass: TMDB notice verbatim + JustWatch on every availability UI
 - [ ] README.md for the repo: what/why, screenshots, build & preview instructions,
       TMDB/JustWatch attribution
-- [ ] Compose UI test for the log-watch flow
+- [x] Compose UI test for the log-watch flow — landed early in M2b
+      (`LogWatchFlowUiTest`, JVM/Robolectric so it runs in `./gradlew test`)
 - [ ] `./gradlew test assembleDebug` green
 
 ## M5 — Ship

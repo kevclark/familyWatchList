@@ -16,6 +16,7 @@ import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
+import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchEventRepository
@@ -32,6 +33,7 @@ class AppContainer(context: Context) {
     val clock: AppClock = SystemAppClock()
 
     val database: AppDatabase = Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.NAME)
+        .addMigrations(AppDatabase.MIGRATION_1_2)
         .build()
 
     val tmdbApi: TmdbApi = TmdbClient.create(
@@ -49,6 +51,10 @@ class AppContainer(context: Context) {
 
     val discoverRepository: DiscoverRepository by lazy {
         DiscoverRepository(database.discoverCacheDao(), database.titleDao(), tmdbApi, clock)
+    }
+
+    val searchRepository: SearchRepository by lazy {
+        SearchRepository(database.titleDao(), tmdbApi, clock)
     }
 
     val providerRepository: ProviderRepository by lazy {
