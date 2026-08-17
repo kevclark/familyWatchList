@@ -218,15 +218,53 @@ This is all deterministic Kotlin — unit-testable with fixture data, no runtime
 Polish bar: Coil crossfade placeholders, shared-element-style transition into details,
 Material 3 dynamic colour with dark default, predictive back. Feels like a streamer, not a form.
 
-**Design tone note (Kev, after reviewing M2a screenshots, 2026-08-16):** onboarding/profile
-screens read as "a bit primary school" — the bright saturated avatar palette and emoji-forward
-layout skew more playful-kids-app than premium streamer. Course-correct for M2b and the M4
-polish pass: pull the accent palette in line with actual streaming-app restraint (Netflix/
-Disney+/Prime all lean muted dark surfaces + one confident accent colour, not a rainbow of
-avatar swatches), let poster/backdrop imagery carry the visual interest rather than iconography,
-and keep emoji avatars as one *option* among more neutral choices (initials, solid colour tiles)
-rather than the only style. Applies most directly to M2b's poster-grid/detail screens (where
-photography should dominate) and any M4 revisit of the M2a onboarding/profile screens.
+### 5a. Visual design system (locked in after Kev's M2a review, 2026-08-17)
+
+M2a's first pass ("primary school", "a bit dull", "not on par with Netflix/Prime") was built
+against prose ("polished", "feels like a streamer") with no concrete tokens — that's the root
+cause, not the model. Replacing the earlier design-tone note with actual specification so the
+next build pass has something unambiguous to execute against:
+
+- **Colour:** near-black background (`#0B0B0D`–`#121214` range, not Material's default dark
+  grey), one confident accent colour used sparingly (buttons, active states, badges/ticks) —
+  not yet chosen; feature-builder proposes 2–3 candidate swatches (avoid Netflix red / Disney
+  blue directly) and Kev picks. Surfaces gain depth from gradient scrims over imagery
+  (dark-to-transparent behind titles on hero/backdrop images), not flat elevated cards.
+- **Typography:** bold/condensed display type for titles and section headers, restrained body
+  text; imagery-to-text ratio should visibly favour imagery — a screen with more text than
+  poster art is wrong for this app.
+- **Layout:** posters are 2:3 thumbnails in edge-to-edge `LazyRow` carousels with tight
+  inter-card spacing, no Material card borders/shadows/boxed backgrounds around them. Minimal
+  chrome — a transparent/scrim top bar over hero content, not a solid Material app bar wherever
+  imagery is present.
+- **Home structure:** one continuous scrollable feed of stacked horizontal carousels (My List /
+  For You / Family Night / Popular), matching Netflix/Prime directly — not per-section tabs.
+  (Disney+/Apple TV's tabbed-sections pattern is a legitimate alternative but adds real nav
+  complexity; revisit only if the single feed becomes unwieldy once M3 adds more rows.)
+- **Avatars:** keep emoji as one option, not the default aesthetic — add neutral choices
+  (initials on a solid tile, single muted colour) and pull the 12-swatch palette in toward
+  restraint, not primary-colour brightness.
+- **Motion:** Coil crossfade on image load, subtle scale-on-press for poster cards, and pull
+  the M4-planned shared-element-style transition into title details forward if it's cheap to
+  do now rather than waiting — first-impression screens (Home → details) matter most for "does
+  this feel dazzling" and are worth front-loading polish on.
+
+### Known defects from M2a review (fix before/within M2b, 2026-08-17)
+
+- **Services picker has no filter.** With the full GB provider list it's a long unsearchable
+  list — add a search/filter field (substring match on provider name is enough; no need for
+  true fuzzy matching).
+- **Re-entering onboarding from Settings has no way back.** Settings → "Services & attribution
+  setup" flips `onboardingComplete` false and drops the user into the full onboarding flow
+  (starting at the attribution/"Welcome" screen) with no back/close affordance — if they didn't
+  mean to redo the whole flow, they're stuck. Fix: onboarding entered from Settings needs a
+  visible back/close action, and arguably should jump straight to the services step rather than
+  replaying attribution + profile creation.
+- **"Who's watching?" doesn't explain the model.** Unclear from the screen alone whether to
+  create one profile per family member or a single shared "Family" profile. Fix: subtitle copy
+  clarifying — one profile per person (up to 10); selecting several at once (for family movie
+  night / the family shortlist scope) happens elsewhere (log-watch sheet, Home's who's-watching
+  chips), not by creating a group profile.
 
 ---
 
