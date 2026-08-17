@@ -106,14 +106,28 @@ Implementation notes for whoever picks up M2b:
   `toAvatarKey()`/`avatarKeyToOption()` round-tripping through `ProfileEntity.avatarKey` as
   `"<emoji>|<RRGGBB>"`.
 
-### M2b — Search, details, watchlist, logging, history (after Kev reviews M2a)
+### M2b — Search, details, watchlist, logging, history + M2a rework (Kev reviewed 2026-08-17)
 
+Kev's review of M2a (docs/m2a-*.png, live scrcpy): "primary school", "a bit dull", wants real
+Netflix/Prime look-and-feel. Root cause diagnosed as under-specified design direction, not
+model capability — PLAN.md §5a now has concrete colour/type/layout tokens to build against.
+This pass covers both the original M2b scope AND reworking M2a's visuals to match §5a.
+
+- [ ] Apply PLAN.md §5a design system to M2a's existing screens (onboarding, profile picker,
+      Home shell) — colour tokens, typography, layout, avatar restraint
+- [ ] Fix: services picker search/filter field (PLAN.md §5a known defects)
+- [ ] Fix: onboarding re-entered from Settings needs a back/close affordance
+- [ ] Fix: "Who's watching?" copy clarifying one-profile-per-person + multi-select elsewhere
 - [ ] Search (`/search/multi`) with movie/TV filter chips and quick add-to-list
 - [ ] Title details: hero, cast chips, availability badges + JustWatch attribution
 - [ ] Want-to-Watch list (shared family list, added-by tag, My List row)
 - [ ] Log-watch sheet: date, profile multi-select, per-profile thumbs; auto-flips list state
 - [ ] History: reverse-chronological, filter by profile, edit/delete
+- [ ] Home: real poster carousels wired to search/discover results (single continuous feed,
+      not per-section tabs — PLAN.md §5a) — full personalised scoring still waits for M3, but
+      Home shouldn't still be placeholder text boxes after this pass
 - [ ] `./gradlew test assembleDebug` green
+- [ ] Fresh screenshots for Kev's review, replacing the M2a set
 
 ## M3 — Recommender
 
