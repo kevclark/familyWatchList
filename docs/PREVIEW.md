@@ -73,10 +73,17 @@ scrcpy must be **v2.0 or newer** (`scrcpy --version`) for `--tunnel-host`.
 On the **laptop**:
 
 ```bash
-# 1. Forward agent101's adb server port to the laptop. Keep this shell open.
-ssh -4 -N -L 5037:localhost:5037 kev@agent101
+# 1. Forward agent101's adb server port (5037) AND the scrcpy video-tunnel port (27183).
+#    Keep this shell open.
+ssh -4 -N -L 5037:localhost:5037 -L 27183:localhost:27183 kev@agent101
 ```
 
+> **Why two ports:** `adb forward` (which scrcpy uses under the hood) always binds its
+> listening socket on the machine running the *adb server* — agent101 — never on the
+> client. So forwarding only 5037 (the adb control channel) leaves the client with nowhere
+> to connect for the actual video stream. This two-port recipe is scrcpy's own documented
+> pattern for exactly this "adb server on a remote machine" setup.
+>
 > `-4` forces IPv4. Without it, some systems (EndeavourOS included, if IPv6 loopback is
 > disabled) fail with `bind [::1]:5037: Cannot assign requested address` — ssh tries the
 > IPv6 loopback first and never falls back. No output after running this command is
@@ -88,11 +95,16 @@ In a **second laptop shell**:
 # 2. Point local adb/scrcpy at the forwarded server and mirror.
 export ADB_SERVER_SOCKET=tcp:localhost:5037
 adb devices                       # should list emulator-5554 (agent101's emulator)
-scrcpy --tunnel-host=127.0.0.1 -s emulator-5554
+scrcpy --tunnel-host=127.0.0.1 --port=27183 -s emulator-5554
 ```
 
 > scrcpy's `--tunnel-host` wants a literal IP, not a hostname — `localhost` fails with
 > `ERROR: Invalid IPv4 address: localhost` on scrcpy 4.x. Use `127.0.0.1`.
+>
+> `--port=27183` pins the video-tunnel port to match what was forwarded in step 1 —
+> without it scrcpy may pick a different port from its default range and the connection
+> will fail with repeated `connect: Connection refused` (the SSH tunnel not covering
+> whatever port it actually picked).
 
 Useful scrcpy flags: `--max-size=1080` (less bandwidth), `--stay-awake`,
 `--window-title="family_test"`, `--no-audio` (audio forwarding needs Android 11+ and adds load).
@@ -193,8 +205,8 @@ Full re-pair is only needed if the phone forgets agent101.
 Same as §2 Option A, just target the phone's serial:
 
 ```bash
-export ADB_SERVER_SOCKET=tcp:localhost:5037     # with the SSH tunnel running
-scrcpy --tunnel-host=127.0.0.1 -s 192.168.1.42:41235
+export ADB_SERVER_SOCKET=tcp:localhost:5037     # with the two-port SSH tunnel running (§2)
+scrcpy --tunnel-host=127.0.0.1 --port=27183 -s 192.168.1.42:41235
 ```
 
 ---
