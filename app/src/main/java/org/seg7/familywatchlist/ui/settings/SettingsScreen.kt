@@ -1,7 +1,9 @@
 package org.seg7.familywatchlist.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,21 +12,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.R
+import org.seg7.familywatchlist.data.repository.AccentColor
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
 import org.seg7.familywatchlist.ui.theme.Chalk
@@ -33,6 +44,8 @@ import org.seg7.familywatchlist.ui.theme.ChalkMuted
 import org.seg7.familywatchlist.ui.theme.Dimens
 import org.seg7.familywatchlist.ui.theme.Ink
 import org.seg7.familywatchlist.ui.theme.InkRaised
+import org.seg7.familywatchlist.ui.theme.displayName
+import org.seg7.familywatchlist.ui.theme.toColor
 
 /**
  * PLAN.md §5 screen 8. Services toggles, JSON backup/restore and full profile management are
@@ -49,6 +62,8 @@ import org.seg7.familywatchlist.ui.theme.InkRaised
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
+    val activeAccent by container.userPreferencesRepository.accentColor
+        .collectAsStateWithLifecycle(initialValue = AccentColor.OBSIDIAN)
 
     Column(
         modifier = modifier
@@ -78,6 +93,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 onClick = { scope.launch { container.userPreferencesRepository.setServicesSetupRequested(true) } },
             )
         }
+
+        Text(
+            text = "APPEARANCE",
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+            modifier = Modifier.padding(start = Dimens.Gutter, top = 28.dp, bottom = 10.dp),
+        )
+        AccentColorRow(
+            active = activeAccent,
+            onSelect = { accent -> scope.launch { container.userPreferencesRepository.setAccentColor(accent) } },
+            modifier = Modifier.padding(horizontal = Dimens.Gutter),
+        )
 
         Text(
             text = "ABOUT",
@@ -130,6 +157,78 @@ private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
             contentDescription = null,
             tint = ChalkFaint,
             modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+/**
+ * PLAN.md §5a "Post-M2b decisions": the four accent candidates as tappable swatches, checkmark
+ * on the active one. Picking one calls [onSelect], which persists via
+ * [org.seg7.familywatchlist.data.repository.UserPreferencesRepository.setAccentColor] — the
+ * whole app recolours live off the back of that (see `ui/theme/Theme.kt`), so there's no local
+ * "applying…" state to manage here.
+ */
+@Composable
+private fun AccentColorRow(
+    active: AccentColor,
+    onSelect: (AccentColor) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(InkRaised)
+            .padding(horizontal = 14.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        AccentColor.entries.forEach { candidate ->
+            AccentSwatch(
+                candidate = candidate,
+                selected = candidate == active,
+                onClick = { onSelect(candidate) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccentSwatch(candidate: AccentColor, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .clickableNoRipple(onClick)
+            .semantics {
+                this.selected = selected
+                contentDescription = "${candidate.displayName} accent colour"
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(candidate.toColor())
+                .border(
+                    width = if (selected) 2.dp else 0.dp,
+                    color = if (selected) Chalk else Color.Transparent,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = Chalk,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        Text(
+            text = candidate.displayName,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) Chalk else ChalkMuted,
         )
     }
 }

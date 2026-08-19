@@ -18,22 +18,24 @@ import org.seg7.familywatchlist.data.repository.WatchlistRepository
 /**
  * Home's single continuous feed (PLAN.md §5 screen 3, restructured by §5a).
  *
- * ## Which rows exist, and why the personalised ones don't yet
+ * ## Which rows exist, and why one of them is still a placeholder
  * PLAN.md §5 names four rows: *My List*, *For {profile}*, *Family night*, *Popular on your
  * services*. Two of those are M3's output — [org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity]
  * has no rows until the recommender exists, and "For Kev" filled with popular titles would be a
  * lie dressed as personalisation. M2a shipped all four as empty placeholder boxes, which is
- * exactly the "wall of text boxes" Kev called out.
+ * exactly the "wall of text boxes" Kev called out; M2b then swung the other way and omitted the
+ * personalised rows outright.
  *
- * So this pass builds only rows it can honestly populate:
+ * This VM builds the rows it can honestly populate with real data:
  *  - **My List** — real, from [WatchlistRepository].
  *  - **Popular films / series on your services** — real, from `/discover` filtered to the
  *    subscribed GB providers. This is also PLAN.md §4's cold-start fallback ("< 5 watch events
  *    → popular-on-your-services"), so M3 inherits it rather than replacing it.
  *
- * The personalised rows are omitted outright rather than stubbed. A single honest feed of real
- * posters looks like a product; the same feed with a "Coming soon" band through the middle
- * looks like a demo. M3 adds them when they have something to say.
+ * **For You** (PLAN.md §5a "Post-M2b decisions", 2026-08-19) is *not* built here — it's a static,
+ * always-visible pre-M3 placeholder rendered directly in [HomeScreen]
+ * (`ForYouPlaceholder`), since it has no data dependency yet. See that composable's kdoc for why
+ * it's always shown and what M3 needs to do to retire it.
  */
 class HomeViewModel(
     private val discoverRepository: DiscoverRepository,

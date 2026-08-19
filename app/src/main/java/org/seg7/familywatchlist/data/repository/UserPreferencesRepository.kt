@@ -5,8 +5,18 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+
+/**
+ * PLAN.md §5a "Post-M2b decisions": the app's single accent colour, now a user preference
+ * instead of a fixed build-time token. The four candidates from `ui/theme/Color.kt`'s
+ * `AccentEmber`/`AccentAurora`/`AccentOrchid`/`AccentObsidian` swatches — kept here as a plain
+ * enum (not `androidx.compose.ui.graphics.Color`) so the data layer doesn't depend on Compose;
+ * `ui/theme/Color.kt`'s `AccentColor.toColor()` maps a value back to its swatch.
+ */
+enum class AccentColor { EMBER, AURORA, ORCHID, OBSIDIAN }
 
 /**
  * PLAN.md §5 screens 1-2: the onboarding-complete flag (one-time, but reachable again from
@@ -36,6 +46,17 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
     val servicesSetupRequested: Flow<Boolean> =
         dataStore.data.map { it[SERVICES_SETUP_REQUESTED] ?: false }
 
+    /**
+     * PLAN.md §5a "Post-M2b decisions": accent colour as a live preference, default
+     * [AccentColor.OBSIDIAN]. Stored as the enum's name; an unrecognised or missing value falls
+     * back to the default rather than crashing, same defensive posture as the rest of this file.
+     */
+    val accentColor: Flow<AccentColor> =
+        dataStore.data.map { prefs ->
+            prefs[ACCENT_COLOR]?.let { raw -> runCatching { AccentColor.valueOf(raw) }.getOrNull() }
+                ?: AccentColor.OBSIDIAN
+        }
+
     suspend fun setOnboardingComplete(complete: Boolean) {
         dataStore.edit { it[ONBOARDING_COMPLETE] = complete }
     }
@@ -52,10 +73,15 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it.remove(ACTIVE_PROFILE_ID) }
     }
 
+    suspend fun setAccentColor(accent: AccentColor) {
+        dataStore.edit { it[ACCENT_COLOR] = accent.name }
+    }
+
     companion object {
         val ONBOARDING_COMPLETE: Preferences.Key<Boolean> = booleanPreferencesKey("onboarding_complete")
         val ACTIVE_PROFILE_ID: Preferences.Key<Long> = longPreferencesKey("active_profile_id")
         val SERVICES_SETUP_REQUESTED: Preferences.Key<Boolean> =
             booleanPreferencesKey("services_setup_requested")
+        val ACCENT_COLOR: Preferences.Key<String> = stringPreferencesKey("accent_color")
     }
 }
