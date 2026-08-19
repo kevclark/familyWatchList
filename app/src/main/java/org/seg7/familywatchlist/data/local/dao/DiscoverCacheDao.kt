@@ -14,6 +14,10 @@ interface DiscoverCacheDao {
     @Query("DELETE FROM discover_cache WHERE queryHash = :queryHash")
     suspend fun deleteForQuery(queryHash: String)
 
+    /** Invalidates every cached discover/recommendations page — see [DiscoverRepository.invalidateAllCachedPages]. */
+    @Query("DELETE FROM discover_cache")
+    suspend fun deleteAll()
+
     @Query("SELECT * FROM discover_cache WHERE queryHash = :queryHash ORDER BY ord ASC")
     suspend fun getForQuery(queryHash: String): List<DiscoverCacheEntity>
 

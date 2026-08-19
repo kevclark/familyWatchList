@@ -10,6 +10,7 @@ import org.seg7.familywatchlist.data.remote.dto.WatchProviderDto
 class ProviderRepository(
     private val providerDao: ProviderDao,
     private val api: TmdbApi,
+    private val discoverRepository: DiscoverRepository,
 ) {
     fun observeAll(): Flow<List<ProviderEntity>> = providerDao.observeAll()
 
@@ -26,7 +27,17 @@ class ProviderRepository(
         providerDao.upsertAll(merged.map { it.toEntity() })
     }
 
-    suspend fun setSubscribed(providerId: Int, subscribed: Boolean) = providerDao.setSubscribed(providerId, subscribed)
+    /**
+     * Changing which services are subscribed changes what "popular on your services" should
+     * mean — a previously-cached discover page reflects the *old* provider set and would
+     * otherwise keep being served for up to [DiscoverRepository.DISCOVER_TTL_MS] (24h) after a
+     * toggle here (PLAN.md §7 M2e). Invalidate every cached discover/recommendations page on any
+     * subscription change so Home's next refresh re-fetches against the current provider set.
+     */
+    suspend fun setSubscribed(providerId: Int, subscribed: Boolean) {
+        providerDao.setSubscribed(providerId, subscribed)
+        discoverRepository.invalidateAllCachedPages()
+    }
 
     /**
      * PLAN.md §2: "Default-on at onboarding: Netflix, Disney+, Amazon Prime Video, BBC iPlayer,

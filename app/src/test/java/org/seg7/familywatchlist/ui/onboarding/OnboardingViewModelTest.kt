@@ -18,6 +18,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.remote.TmdbClient
+import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
@@ -56,7 +57,8 @@ class OnboardingViewModelTest {
             produceFile = { context.preferencesDataStoreFile("onboarding_vm_test_${System.nanoTime()}") },
         )
         userPreferencesRepository = UserPreferencesRepository(dataStore)
-        providerRepository = ProviderRepository(db.providerDao(), api)
+        val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, FakeClock())
+        providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         viewModel = buildViewModel(OnboardingMode.FIRST_RUN)
     }
 

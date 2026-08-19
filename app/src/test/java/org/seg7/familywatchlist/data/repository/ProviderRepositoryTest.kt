@@ -12,8 +12,11 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
+import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
+import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.remote.TmdbClient
+import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.buildInMemoryDb
 
 @RunWith(RobolectricTestRunner::class)
@@ -21,6 +24,7 @@ import org.seg7.familywatchlist.testutil.buildInMemoryDb
 class ProviderRepositoryTest {
     private lateinit var db: AppDatabase
     private lateinit var server: MockWebServer
+    private lateinit var discoverRepository: DiscoverRepository
     private lateinit var repo: ProviderRepository
 
     @Before
@@ -29,7 +33,8 @@ class ProviderRepositoryTest {
         server = MockWebServer()
         server.start()
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
-        repo = ProviderRepository(db.providerDao(), api)
+        discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, FakeClock(startMillis = 1_000_000L))
+        repo = ProviderRepository(db.providerDao(), api, discoverRepository)
     }
 
     @After
@@ -77,6 +82,22 @@ class ProviderRepositoryTest {
         repo.setSubscribed(8, true)
 
         assertEquals(listOf(8), repo.getSubscribedIds())
+    }
+
+    @Test
+    fun `setSubscribed invalidates every cached discover page — M2e, stale filtering after a provider change`() = runTest {
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = false, displayPriority = 1)))
+        db.discoverCacheDao().upsertAll(
+            listOf(
+                DiscoverCacheEntity(queryHash = "discover_movie:9:1", tmdbId = 634649, mediaType = MediaType.MOVIE, ord = 0, fetchedAt = 1L),
+                DiscoverCacheEntity(queryHash = "discover_tv:9:1", tmdbId = 100088, mediaType = MediaType.TV, ord = 0, fetchedAt = 1L),
+            )
+        )
+
+        repo.setSubscribed(8, true)
+
+        assertEquals(null, db.discoverCacheDao().fetchedAtForQuery("discover_movie:9:1"))
+        assertEquals(null, db.discoverCacheDao().fetchedAtForQuery("discover_tv:9:1"))
     }
 
     @Test

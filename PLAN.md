@@ -458,14 +458,20 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
 - **Stretch (post-M5, only if credit remains):** embedded trailer player, episode-level TV
   tracking (v1 tracks TV at series level), Play-Feature-style "leaving soon" via provider-TTL
   diffing.
-- **Home hero banner showing an unavailable title (queued as M2e, 2026-08-19).** Kev found
-  Spider-Man: No Way Home as Home's hero despite zero confirmed UK availability — the hero is
-  `discover.movies.firstOrNull()`, meant to be filtered to subscribed GB providers, so this is
-  a genuine filtering bug, not intentional randomness. Two candidate causes found in code, not
-  yet confirmed which: `DiscoverRepository.toProviderParam()` silently drops the
-  `with_watch_providers` filter entirely when the subscribed list is empty (rather than
-  failing safe / returning nothing), and/or the 24h discover cache is serving a stale page.
-  Full checklist in PROGRESS.md M2e.
+- **Home hero banner showing an unavailable title — ✅ ROOT-CAUSED 2026-08-19 (`feature-builder`).**
+  Kev found Spider-Man: No Way Home as Home's hero despite zero confirmed UK availability.
+  Live on-device DB inspection (same `run-as sqlite3` technique as M2d) ruled out **both**
+  candidate code-bug hypotheses: `subscribedProviderIds` was not empty at fetch time (the
+  cached discover page's queryHash encoded the correct 6-provider set), and the 24h cache was
+  not stale (~21.4h old, fetched with that same already-finalised provider set). A live call
+  to TMDB's own `/movie/634649/watch/providers` confirmed TMDB's GB data genuinely lists the
+  title free on BBC iPlayer right now, matching our cached `ProviderAvailability` row exactly
+  — this is the TMDB provider-data-quality risk already named above ("best effort" UK
+  catch-up data), not an app filtering defect; not fixable app-side. The latent
+  `toProviderParam()`-drops-filter-on-empty-list bug was real regardless and got fixed
+  unconditionally (`discoverMovies`/`discoverTv` now return empty rather than falling back to
+  an unfiltered page), plus discover-cache invalidation on subscribed-provider change was
+  added as defense-in-depth. Full writeup in PROGRESS.md M2e.
 - **Region should be configurable, not hardcoded (queued as M2f, 2026-08-19).** Kev's
   request: TMDB doesn't do IP geolocation — `watch_region=GB` is an explicit parameter our own
   code sends, never inferred from server location (confirmed in §5a's region-gating work) — so

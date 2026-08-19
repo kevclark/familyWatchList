@@ -20,7 +20,16 @@ class DiscoverRepository(
     private val api: TmdbApi,
     private val clock: AppClock,
 ) {
+    /**
+     * A `with_watch_providers` value of `null` gets dropped from the Retrofit request entirely
+     * (Retrofit omits `null` `@Query` params from the URL), which would silently turn "popular
+     * on your services" into "popular in the UK, unfiltered" — a real bug, not intentional
+     * randomness, if it were ever allowed to reach the network call. So when nothing is
+     * subscribed there is nothing to show: short-circuit before [toProviderParam] or the
+     * network/cache are even touched, rather than falling back to an unfiltered page.
+     */
     suspend fun discoverMovies(subscribedProviderIds: List<Int>, page: Int = 1): List<TitleEntity> {
+        if (subscribedProviderIds.isEmpty()) return emptyList()
         val queryHash = queryHash("discover_movie", subscribedProviderIds, page)
         return cachedOrFetch(queryHash, MediaType.MOVIE) {
             api.discoverMovies(withWatchProviders = subscribedProviderIds.toProviderParam(), page = page).results
@@ -28,11 +37,20 @@ class DiscoverRepository(
     }
 
     suspend fun discoverTv(subscribedProviderIds: List<Int>, page: Int = 1): List<TitleEntity> {
+        if (subscribedProviderIds.isEmpty()) return emptyList()
         val queryHash = queryHash("discover_tv", subscribedProviderIds, page)
         return cachedOrFetch(queryHash, MediaType.TV) {
             api.discoverTv(withWatchProviders = subscribedProviderIds.toProviderParam(), page = page).results
         }
     }
+
+    /**
+     * Subscribed-provider changes must invalidate previously-cached discover pages: otherwise
+     * unsubscribing from a service (or subscribing to a new one) can keep serving a stale
+     * "popular on your services" page — reflecting the *old* provider set — for up to
+     * [DISCOVER_TTL_MS]. Called from [org.seg7.familywatchlist.data.repository.ProviderRepository.setSubscribed].
+     */
+    suspend fun invalidateAllCachedPages() = discoverCacheDao.deleteAll()
 
     suspend fun movieRecommendations(tmdbId: Int, page: Int = 1): List<TitleEntity> {
         val queryHash = queryHash("movie_recs_$tmdbId", emptyList(), page)

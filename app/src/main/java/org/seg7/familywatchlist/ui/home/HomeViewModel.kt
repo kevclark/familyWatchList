@@ -74,8 +74,9 @@ class HomeViewModel(
             _discover.value = _discover.value.copy(isLoading = true, error = null)
             runCatching {
                 val subscribed = providerRepository.getSubscribedIds()
-                // No services picked yet → an unfiltered /discover still beats an empty screen,
-                // and the row title changes to match (see HomeScreen).
+                // No services picked yet → DiscoverRepository returns empty results rather than
+                // an unfiltered "popular in the UK" page (PLAN.md §7 M2e); the hero/rows collapse
+                // to Home's existing empty state (HomeHeroEmpty / PosterCarousel hiding on empty).
                 val movies = discoverRepository.discoverMovies(subscribed)
                 val tv = discoverRepository.discoverTv(subscribed)
                 Triple(subscribed.isNotEmpty(), movies, tv)
