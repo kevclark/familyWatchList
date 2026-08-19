@@ -178,7 +178,7 @@ fun LogWatchSheetContent(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("WHEN", style = MaterialTheme.typography.labelSmall, color = ChalkFaint)
             FilterPill(
-                label = state.watchedAt.displayLabel(),
+                label = state.watchedAt.displayLabel(state.today),
                 selected = true,
                 onClick = { showDatePicker = true },
             )
@@ -353,12 +353,18 @@ private fun Modifier.semanticsFor(label: String, isSelected: Boolean): Modifier 
 
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy")
 
-/** "Today"/"Yesterday" read faster than a date, and those are by far the two common cases. */
-private fun LocalDate.displayLabel(): String {
-    val today = LocalDate.now()
-    return when (this) {
-        today -> "Today"
-        today.minusDays(1) -> "Yesterday"
-        else -> format(DATE_FORMAT)
-    }
+/**
+ * "Today"/"Yesterday" read faster than a date, and those are by far the two common cases.
+ *
+ * Compares against the sheet's own [today] (the [LogWatchViewModel] constructor param it was
+ * opened with) rather than the wall clock: this was previously `LocalDate.now()` internally,
+ * which is a real-clock dependency wearing a pure-function disguise — harmless in the app itself
+ * (the sheet's `today` always *is* the real "today" there), but it made this label silently drift
+ * out of sync with a test's deliberately-pinned `today` the moment a run crossed a real midnight,
+ * which is exactly what broke `LogWatchFlowUiTest` mid-session here.
+ */
+private fun LocalDate.displayLabel(today: LocalDate): String = when (this) {
+    today -> "Today"
+    today.minusDays(1) -> "Yesterday"
+    else -> format(DATE_FORMAT)
 }

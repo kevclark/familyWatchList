@@ -2,9 +2,11 @@ package org.seg7.familywatchlist.ui.details
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -16,6 +18,7 @@ import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
+import org.seg7.familywatchlist.data.repository.WatchlistAddResult
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
 data class TitleDetailUiState(
@@ -30,6 +33,11 @@ data class TitleDetailUiState(
     val isRefreshing: Boolean = false,
     val errorMessage: String? = null,
 )
+
+/** PLAN.md §5a: one-shot UI event — a blocked ＋ My List tap, surfaced as a Snackbar rather than a silent no-op. */
+sealed interface TitleDetailUiEvent {
+    data class WatchlistBlocked(val message: String) : TitleDetailUiEvent
+}
 
 /**
  * PLAN.md §5 screen 4. Offline-first exactly as §3 requires: everything rendered comes from
@@ -52,6 +60,8 @@ class TitleDetailViewModel(
 
     private val _refreshing = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
+    private val _events = MutableSharedFlow<TitleDetailUiEvent>()
+    val events = _events.asSharedFlow()
 
     val uiState: StateFlow<TitleDetailUiState> = combine(
         titleRepository.observeTitle(tmdbId, mediaType),
@@ -91,9 +101,25 @@ class TitleDetailViewModel(
         }
     }
 
-    /** PLAN.md §5 screen 4's "＋ My List toggle". */
+    /**
+     * PLAN.md §5 screen 4's "＋ My List toggle". PLAN.md §5a: blocked with an explanatory event
+     * (not a silent no-op) unless the title currently has GB availability on a subscribed
+     * provider — this is the main real-world path into that gate, since details is reachable
+     * ungated from History for a title that's since stopped streaming anywhere the family pays
+     * for. Removing is never blocked.
+     */
     fun toggleWatchlist() {
-        viewModelScope.launch { watchlistRepository.toggle(tmdbId, mediaType, activeProfileId) }
+        viewModelScope.launch {
+            val title = uiState.value.title
+            when (watchlistRepository.toggle(tmdbId, mediaType, activeProfileId)) {
+                WatchlistAddResult.UNAVAILABLE -> _events.emit(
+                    TitleDetailUiEvent.WatchlistBlocked(
+                        "${title?.title ?: "This title"} isn't currently on any of your services, so it can't be added."
+                    )
+                )
+                WatchlistAddResult.ADDED, WatchlistAddResult.REMOVED -> Unit
+            }
+        }
     }
 
     /** Thumbs for the active profile; tapping the current value again clears it. */

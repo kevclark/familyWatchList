@@ -43,11 +43,29 @@ class TitleRepository(
     fun observeAvailability(tmdbId: Int, mediaType: MediaType): Flow<List<AvailabilityBadge>> =
         providerAvailabilityDao.observeBadges(tmdbId, mediaType)
 
+    /** Raw GB provider ids with availability for a title — used by [AvailabilityGate], which pairs it with [ProviderRepository]'s subscribed set. */
+    suspend fun getAvailabilityProviderIds(tmdbId: Int, mediaType: MediaType): Set<Int> =
+        providerAvailabilityDao.getForTitle(tmdbId, mediaType).map { it.providerId }.toSet()
+
     fun isMetadataStale(title: TitleEntity): Boolean =
         clock.nowMillis() - title.fetchedAt >= METADATA_TTL_MS
 
+    /**
+     * True once the 7-day TTL has elapsed, **or** [title] is only ever been a stub. A search or
+     * discover hit persists a stub with its own fresh `fetchedAt` (so the row exists offline
+     * before its details screen loads) — without the stub check, a title reached moments after
+     * being stubbed would look "fresh" by timestamp alone and [ensureFresh] would return it
+     * as-is, forever, never actually fetching the one call that fills provider availability.
+     * PLAN.md §5a's gate hits this exact path: it calls [ensureFresh] on a result [SearchRepository]
+     * just stubbed a moment earlier, so this distinction is what makes the gate see real
+     * availability instead of "nothing cached yet" for every uncached search result.
+     */
     fun isProviderDataStale(title: TitleEntity): Boolean =
-        clock.nowMillis() - title.fetchedAt >= PROVIDER_TTL_MS
+        title.isStubOnly || clock.nowMillis() - title.fetchedAt >= PROVIDER_TTL_MS
+
+    /** Same "has this row ever been through a full detail fetch" heuristic [SearchRepository]/[DiscoverRepository] use to decide whether a hit is safe to overwrite. */
+    private val TitleEntity.isStubOnly: Boolean
+        get() = runtimeMin == null && certification == null
 
     /** Offline-first entry point: returns the cached row unless it's missing or provider-stale, in which case it refreshes first. */
     suspend fun ensureFresh(tmdbId: Int, mediaType: MediaType): TitleEntity {

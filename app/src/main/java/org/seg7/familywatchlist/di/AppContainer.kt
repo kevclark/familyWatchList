@@ -12,6 +12,7 @@ import org.seg7.familywatchlist.common.SystemAppClock
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.TmdbClient
+import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -53,16 +54,22 @@ class AppContainer(context: Context) {
         DiscoverRepository(database.discoverCacheDao(), database.titleDao(), tmdbApi, clock)
     }
 
-    val searchRepository: SearchRepository by lazy {
-        SearchRepository(database.titleDao(), tmdbApi, clock)
-    }
-
     val providerRepository: ProviderRepository by lazy {
         ProviderRepository(database.providerDao(), tmdbApi)
     }
 
+    // PLAN.md §5a: shared "is this on a service we pay for" check, reused by search and the
+    // watchlist add path so the two can't disagree about what "available" means.
+    val availabilityGate: AvailabilityGate by lazy {
+        AvailabilityGate(titleRepository, providerRepository)
+    }
+
+    val searchRepository: SearchRepository by lazy {
+        SearchRepository(database.titleDao(), tmdbApi, clock, availabilityGate)
+    }
+
     val watchlistRepository: WatchlistRepository by lazy {
-        WatchlistRepository(database.watchlistDao(), clock)
+        WatchlistRepository(database.watchlistDao(), clock, availabilityGate::isAvailableOnSubscribedProvider)
     }
 
     val ratingRepository: RatingRepository by lazy {

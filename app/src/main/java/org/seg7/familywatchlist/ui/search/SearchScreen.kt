@@ -24,9 +24,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -75,8 +79,20 @@ fun SearchScreen(
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    Column(modifier = modifier.fillMaxSize().background(Ink)) {
+    // PLAN.md §5a: a blocked quick-add (title not on a subscribed provider) surfaces as a
+    // Snackbar rather than a silent no-op — same one-shot event pattern as ProfilePickerScreen.
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is SearchUiEvent.WatchlistBlocked -> snackbarHostState.showSnackbar(event.message)
+            }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize().background(Ink)) {
+      Column(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.statusBarsPadding().padding(horizontal = Dimens.Gutter),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -181,7 +197,10 @@ fun SearchScreen(
 
                 state.hasSearched -> CenteredMessage {
                     Text(
-                        text = "Nothing matched “${state.query}”.",
+                        // PLAN.md §5a: results are gated to what's on a subscribed service, so
+                        // "no matches" here also covers "matched, but not available anywhere
+                        // you're subscribed" — the wording says so rather than implying a typo.
+                        text = "Nothing available on your services matched “${state.query}”.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = ChalkMuted,
                         textAlign = TextAlign.Center,
@@ -204,6 +223,8 @@ fun SearchScreen(
                 }
             }
         }
+      }
+      SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 
