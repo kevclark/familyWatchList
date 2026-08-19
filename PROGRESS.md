@@ -153,17 +153,34 @@ This pass covers both the original M2b scope AND reworking M2a's visuals to matc
       `values-night` variant is gone since the app is dark-only
 
 **Decisions for Kev in this pass (flagged, not silently taken):**
-- **Accent colour is unpicked.** Three candidates are defined in `ui/theme/Color.kt` —
-  `AccentEmber` (#FF7A45, currently active), `AccentAurora` (#3ADFB0), `AccentOrchid` (#A779FF).
-  Switching is a one-line change to the `Accent` val; nothing else names a candidate.
+- **Accent colour is unpicked.** ~~Three candidates~~ RESOLVED — see M2c below.
 - **Material dynamic colour is off, and there is no light theme.** §5's earlier "dynamic colour
   with dark default" is in direct tension with §5a's "one confident accent colour"; §5a is newer
-  and more specific, so it won. Reversible.
-- **No personalised Home rows.** *For {profile}* and *Family night* need M3's scorer; filling
-  them with popular titles would be a lie, and stubbing them is what produced M2a's "wall of
-  text boxes". A single line of footer copy says they're coming instead.
+  and more specific, so it won. Reversible. Kev confirmed 2026-08-19: dark-only is correct,
+  no further action needed.
+- **No personalised Home rows.** ~~*For {profile}* and *Family night* need M3's scorer~~
+  RESOLVED — see M2c below (this was an orchestrator instruction gap, not a bad call: PLAN.md
+  §4 already specified cold-start placeholder behaviour that M2b's brief didn't reference).
 - **Deleting a watch event does not un-flip its watchlist entry back to ACTIVE** — see the
-  kdoc on `WatchEventRepository.deleteWatch`.
+  kdoc on `WatchEventRepository.deleteWatch`. Still open, no complaint from Kev yet.
+
+## M2c — Accent preference + always-visible "For You" placeholder
+
+Kev's follow-up after picking a colour from the mocked-up candidates (Artifact "Watchlist
+Accent Palette", 2026-08-19): ship Obsidian as default, but make accent a real user
+preference rather than a hardcoded token. Bundled with the For-You fix since both are small
+and touch Settings/Home. See PLAN.md §5a "Post-M2b decisions" for full spec.
+
+- [ ] `AccentObsidian` (#8B5CF6) added to `ui/theme/Color.kt`; default preference is OBSIDIAN
+- [ ] Accent colour persisted in `UserPreferencesRepository` (DataStore), same pattern as
+      `onboardingComplete`/`activeProfileId`
+- [ ] Settings: accent picker row (4 swatches, checkmark on active), live-updates the theme
+- [ ] `Theme.kt`'s fixed `val Accent = AccentEmber` replaced with the stored preference
+- [ ] Home: "For You" section always visible, pre-M3 "coming soon" copy (not §4's cold-start
+      wording — see PLAN.md §5a for why), CTA into logging a watch
+- [ ] Tests: preference default/round-trip, settings selection logic
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Screenshot(s) confirming Obsidian applied app-wide + the new For You card
 
 ## M3 — Recommender
 
