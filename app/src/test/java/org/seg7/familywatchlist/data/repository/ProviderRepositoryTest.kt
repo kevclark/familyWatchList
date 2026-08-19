@@ -66,6 +66,20 @@ class ProviderRepositoryTest {
         assertTrue(db.providerDao().getSubscribed().isEmpty())
     }
 
+    /** PLAN.md §7 M2f: region is a real call-time parameter, threaded to both provider-list calls. */
+    @Test
+    fun `seedIfEmpty sends the given region to both provider-list calls, not a hardcoded GB`() = runTest {
+        server.enqueue(MockResponse(body = """{"results": []}"""))
+        server.enqueue(MockResponse(body = """{"results": []}"""))
+
+        repo.seedIfEmpty(region = "US")
+
+        val movieRequest = server.takeRequest()
+        val tvRequest = server.takeRequest()
+        assertTrue(movieRequest.target.contains("watch_region=US"))
+        assertTrue(tvRequest.target.contains("watch_region=US"))
+    }
+
     @Test
     fun `seedIfEmpty is a no-op once already seeded`() = runTest {
         db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -111,7 +112,11 @@ class OnboardingViewModel(
         viewModelScope.launch {
             _servicesLoadState.value = ServicesLoadState.Loading
             runCatching {
-                providerRepository.seedIfEmpty()
+                // PLAN.md §7 M2f: seedIfEmpty only ever acts before any provider exists at all
+                // (see its kdoc), so this is only ever the current region in practice — but
+                // threading the live value through rather than relying on the GB default keeps
+                // this call site honest about where region comes from.
+                providerRepository.seedIfEmpty(userPreferencesRepository.region.first())
                 providerRepository.applyOnboardingDefaults()
             }.onSuccess {
                 _servicesLoadState.value = ServicesLoadState.Loaded
@@ -142,7 +147,12 @@ class OnboardingViewModel(
      * disturbed.
      */
     fun dismiss() {
-        viewModelScope.launch { userPreferencesRepository.setServicesSetupRequested(false) }
+        viewModelScope.launch {
+            userPreferencesRepository.setServicesSetupRequested(false)
+            // PLAN.md §7 M2f: revisiting the services step (even just to back out of it) is the
+            // documented "easy path to fix it" for a region-change mismatch — clear the notice.
+            userPreferencesRepository.clearRegionServicesMismatch()
+        }
     }
 
     fun onBack() {

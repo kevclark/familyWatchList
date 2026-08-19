@@ -12,6 +12,7 @@ import org.seg7.familywatchlist.data.local.dao.WatchlistItem
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
 /**
@@ -44,12 +45,14 @@ class MyListViewModel(
     private val watchlistRepository: WatchlistRepository,
     profileRepository: ProfileRepository,
     private val activeProfileId: Long,
+    userPreferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
 
     private val _mineOnly = MutableStateFlow(false)
 
     val uiState: StateFlow<MyListUiState> = combine(
-        watchlistRepository.observeActiveItemsWithAvailability(),
+        // PLAN.md §7 M2f: live region Flow — see HomeViewModel.myList's kdoc for why.
+        watchlistRepository.observeActiveItemsWithAvailability(userPreferencesRepository.region),
         profileRepository.observeAll(),
         _mineOnly,
     ) { items, profiles, mineOnly ->

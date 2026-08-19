@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.dao.AvailabilityBadge
@@ -18,6 +19,7 @@ import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistAddResult
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
@@ -56,6 +58,7 @@ class TitleDetailViewModel(
     private val tmdbId: Int,
     private val mediaType: MediaType,
     private val activeProfileId: Long,
+    private val userPreferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
 
     private val _refreshing = MutableStateFlow(false)
@@ -95,8 +98,10 @@ class TitleDetailViewModel(
         viewModelScope.launch {
             _refreshing.value = true
             _error.value = null
-            runCatching { titleRepository.ensureFresh(tmdbId, mediaType) }
-                .onFailure { _error.value = it.message ?: "Couldn't refresh this title" }
+            runCatching {
+                val region = userPreferencesRepository.region.first()
+                titleRepository.ensureFresh(tmdbId, mediaType, region)
+            }.onFailure { _error.value = it.message ?: "Couldn't refresh this title" }
             _refreshing.value = false
         }
     }
@@ -111,7 +116,8 @@ class TitleDetailViewModel(
     fun toggleWatchlist() {
         viewModelScope.launch {
             val title = uiState.value.title
-            when (watchlistRepository.toggle(tmdbId, mediaType, activeProfileId)) {
+            val region = userPreferencesRepository.region.first()
+            when (watchlistRepository.toggle(tmdbId, mediaType, activeProfileId, region)) {
                 WatchlistAddResult.UNAVAILABLE -> _events.emit(
                     TitleDetailUiEvent.WatchlistBlocked(
                         "${title?.title ?: "This title"} isn't currently on any of your services, so it can't be added."

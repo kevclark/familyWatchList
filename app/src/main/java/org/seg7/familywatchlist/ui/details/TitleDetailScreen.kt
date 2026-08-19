@@ -107,6 +107,7 @@ fun TitleDetailScreen(
                     tmdbId,
                     mediaType,
                     activeProfileId,
+                    container.userPreferencesRepository,
                 )
             }
         },

@@ -87,6 +87,7 @@ fun HomeScreen(
                     container.discoverRepository,
                     container.providerRepository,
                     container.watchlistRepository,
+                    container.userPreferencesRepository,
                 )
             }
         },

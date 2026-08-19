@@ -1,5 +1,8 @@
 package org.seg7.familywatchlist.ui.search
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.Channel
@@ -33,12 +36,14 @@ import org.seg7.familywatchlist.data.remote.dto.ProviderListResponseDto
 import org.seg7.familywatchlist.data.remote.dto.CountryWatchProvidersDto
 import org.seg7.familywatchlist.data.remote.dto.TvDetailDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProviderDto
+import org.seg7.familywatchlist.data.remote.dto.WatchProviderRegionsResponseDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProvidersResponseDto
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.MainDispatcherRule
@@ -68,6 +73,7 @@ class SearchViewModelTest {
     private lateinit var viewModel: SearchViewModel
     private lateinit var watchlistRepository: WatchlistRepository
     private lateinit var providerRepository: ProviderRepository
+    private lateinit var userPreferencesRepository: UserPreferencesRepository
 
     private val activeProfileId = 42L
 
@@ -76,6 +82,10 @@ class SearchViewModelTest {
         db = buildInMemoryDb()
         server = MockWebServer()
         server.start()
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        userPreferencesRepository = UserPreferencesRepository(
+            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("search_vm_prefs") }),
+        )
         buildViewModel(TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" }))
     }
 
@@ -97,6 +107,7 @@ class SearchViewModelTest {
             watchlistRepository = watchlistRepository,
             providerRepository = providerRepository,
             activeProfileId = activeProfileId,
+            userPreferencesRepository = userPreferencesRepository,
         )
     }
 
@@ -280,6 +291,33 @@ class SearchViewModelTest {
         assertEquals(0, server.requestCount)
     }
 
+    /**
+     * PLAN.md §7 M2f: the availability gate must resolve against the *live* region preference,
+     * not a hardcoded GB — a title only available in the US should surface once the user has
+     * switched region to US, using the exact same GB-shaped search flow otherwise.
+     */
+    @Test
+    fun `search resolves availability against the live region preference, not a hardcoded GB`() = runTest {
+        subscribeNetflixOnly()
+        userPreferencesRepository.setRegion("US")
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = SINGLE_MOVIE_RESULT_JSON) },
+                "/movie/38700" to {
+                    MockResponse(
+                        body = """{"id": 38700, "title": "Paddington", "release_date": "2014-11-28", "watch/providers": {"results": {"US": {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]}}}}"""
+                    )
+                },
+            )
+        )
+
+        viewModel.onQueryChange("paddington")
+        viewModel.onSubmit()
+
+        val state = viewModel.uiState.first { it.hasSearched }
+        assertEquals(listOf("Paddington"), state.results.map { it.title })
+    }
+
     @Test
     fun `a failing search surfaces an error instead of crashing`() = runTest {
         server.enqueue(MockResponse(code = 500, body = "{}"))
@@ -391,6 +429,9 @@ class SearchViewModelTest {
             error("not used in this test")
 
         override suspend fun configuration(): ConfigurationDto = error("not used in this test")
+
+        override suspend fun watchProviderRegions(): WatchProviderRegionsResponseDto =
+            error("not used in this test")
     }
 
     private fun movieDetailJson(id: Int, title: String, providerIds: List<Int>): String {

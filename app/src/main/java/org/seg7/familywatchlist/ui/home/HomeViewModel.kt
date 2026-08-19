@@ -7,12 +7,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistItemAvailability
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
@@ -44,11 +46,16 @@ class HomeViewModel(
     private val discoverRepository: DiscoverRepository,
     private val providerRepository: ProviderRepository,
     private val watchlistRepository: WatchlistRepository,
+    private val userPreferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
 
     private val _discover = MutableStateFlow(DiscoverState())
-    val myList: StateFlow<List<WatchlistItemAvailability>> = watchlistRepository.observeActiveItemsWithAvailability()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // PLAN.md §7 M2f: live region Flow, not a one-shot read — a region change made in Settings
+    // re-resolves every My List card's availability immediately if Home is already open.
+    val myList: StateFlow<List<WatchlistItemAvailability>> =
+        watchlistRepository.observeActiveItemsWithAvailability(userPreferencesRepository.region)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val uiState: StateFlow<HomeUiState> = combine(myList, _discover) { list, discover ->
         HomeUiState(
@@ -77,11 +84,12 @@ class HomeViewModel(
             _discover.value = _discover.value.copy(isLoading = true, error = null)
             runCatching {
                 val subscribed = providerRepository.getSubscribedIds()
+                val region = userPreferencesRepository.region.first()
                 // No services picked yet → DiscoverRepository returns empty results rather than
                 // an unfiltered "popular in the UK" page (PLAN.md §7 M2e); the hero/rows collapse
                 // to Home's existing empty state (HomeHeroEmpty / PosterCarousel hiding on empty).
-                val movies = discoverRepository.discoverMovies(subscribed)
-                val tv = discoverRepository.discoverTv(subscribed)
+                val movies = discoverRepository.discoverMovies(subscribed, region)
+                val tv = discoverRepository.discoverTv(subscribed, region)
                 Triple(subscribed.isNotEmpty(), movies, tv)
             }.onSuccess { (hasServices, movies, tv) ->
                 _discover.value = DiscoverState(

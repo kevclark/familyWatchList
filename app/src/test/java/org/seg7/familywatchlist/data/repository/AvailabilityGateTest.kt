@@ -84,6 +84,31 @@ class AvailabilityGateTest {
         assertEquals(0, server.requestCount)
     }
 
+    /** PLAN.md §7 M2f: the gate resolves against the given region, not a hardcoded GB. */
+    @Test
+    fun `resolves availability for the given region, not a hardcoded GB`() = runTest {
+        subscribeProviders(subscribed = setOf(9), unsubscribed = setOf(8))
+        server.enqueue(
+            MockResponse(
+                body = """
+                    {
+                      "id": 38700,
+                      "title": "Paddington",
+                      "release_date": "2014-11-28",
+                      "watch/providers": {
+                        "results": {
+                          "GB": {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]},
+                          "US": {"flatrate": [{"provider_id": 9, "provider_name": "Amazon Prime Video"}]}
+                        }
+                      }
+                    }
+                """.trimIndent()
+            )
+        )
+
+        assertTrue(gate.isAvailableOnSubscribedProvider(38700, MediaType.MOVIE, region = "US"))
+    }
+
     @Test
     fun `a second check within the 7-day TTL reuses cached rows instead of refetching`() = runTest {
         subscribeProviders(subscribed = setOf(8), unsubscribed = emptySet())

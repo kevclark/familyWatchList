@@ -34,7 +34,11 @@ class TitleRepositoryTest {
         db = buildInMemoryDb()
         server = MockWebServer()
         server.start()
-        clock = FakeClock(startMillis = 1_000_000L)
+        // A realistic (year-scale) start, not just an arbitrary small number: M2f's
+        // invalidateAllProviderData test resets fetchedAt to the real epoch (0) and needs "now"
+        // to be more than PROVIDER_TTL_MS past that to read as stale — true for any real
+        // wall-clock timestamp, so the fake clock should behave the same way here.
+        clock = FakeClock(startMillis = TimeUnit.DAYS.toMillis(365))
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
         repo = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
     }
@@ -63,6 +67,49 @@ class TitleRepositoryTest {
         val availability = db.providerAvailabilityDao().getForTitle(38700, MediaType.MOVIE)
         assertEquals(1, availability.size)
         assertEquals(8, availability.first().providerId)
+    }
+
+    /**
+     * PLAN.md §7 M2f: the detail call itself has no watch_region param — TMDB returns every
+     * country in one response — so [region] only matters at extraction time, picking which
+     * country's key comes out of the multi-country `watch/providers` payload.
+     */
+    @Test
+    fun `refresh extracts availability for the given region, not a hardcoded GB`() = runTest {
+        server.enqueue(MockResponse(body = MULTI_REGION_DETAIL_JSON))
+
+        val us = repo.refresh(38700, MediaType.MOVIE, region = "US")
+        val usAvailability = db.providerAvailabilityDao().getForTitle(38700, MediaType.MOVIE)
+        assertEquals(setOf(9), usAvailability.map { it.providerId }.toSet())
+
+        server.enqueue(MockResponse(body = MULTI_REGION_DETAIL_JSON))
+        repo.refresh(38700, MediaType.MOVIE, region = "GB")
+        val gbAvailability = db.providerAvailabilityDao().getForTitle(38700, MediaType.MOVIE)
+        assertEquals(setOf(8), gbAvailability.map { it.providerId }.toSet())
+    }
+
+    /**
+     * PLAN.md §7 M2f: provider_availability rows carry no region column, so a title fetched
+     * fresh under the old region would otherwise look fresh for up to 7 more days after a
+     * region switch — invalidateAllProviderData forces every title stale so the next
+     * ensureFresh does a real refetch instead of serving stale cross-region data.
+     */
+    @Test
+    fun `invalidateAllProviderData forces a refetch on the next ensureFresh, even for a just-fetched title`() = runTest {
+        db.titleDao().upsert(cachedTitle(fetchedAt = clock.current))
+        assertFalse(repo.isProviderDataStale(db.titleDao().get(1, MediaType.MOVIE)!!))
+
+        repo.invalidateAllProviderData()
+
+        // fetchedAt reset to the epoch — real-clock-independent proof of the invalidation,
+        // rather than relying on FakeClock's arbitrary (small) start value to cross the 7-day TTL.
+        assertEquals(0L, db.titleDao().get(1, MediaType.MOVIE)!!.fetchedAt)
+        assertTrue(repo.isProviderDataStale(db.titleDao().get(1, MediaType.MOVIE)!!))
+        server.enqueue(MockResponse(body = MOVIE_DETAIL_JSON))
+        // Row id=1 was cached-but-now-invalidated; ensureFresh must hit the network for it
+        // rather than trusting the pre-invalidation fetchedAt.
+        repo.ensureFresh(1, MediaType.MOVIE)
+        assertEquals(1, server.requestCount)
     }
 
     @Test
@@ -166,6 +213,20 @@ class TitleRepositoryTest {
     )
 
     private companion object {
+        val MULTI_REGION_DETAIL_JSON = """
+            {
+              "id": 38700,
+              "title": "Paddington",
+              "release_date": "2014-11-28",
+              "watch/providers": {
+                "results": {
+                  "GB": {"flatrate": [{"provider_id": 8, "provider_name": "Netflix", "display_priority": 1}]},
+                  "US": {"flatrate": [{"provider_id": 9, "provider_name": "Amazon Prime Video", "display_priority": 1}]}
+                }
+              }
+            }
+        """.trimIndent()
+
         val MOVIE_DETAIL_JSON = """
             {
               "id": 38700,

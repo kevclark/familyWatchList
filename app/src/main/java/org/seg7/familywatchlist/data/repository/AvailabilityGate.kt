@@ -1,6 +1,7 @@
 package org.seg7.familywatchlist.data.repository
 
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
 
 /**
  * PLAN.md §5a "Search & watchlist availability gating": the one place that answers "can this
@@ -20,14 +21,15 @@ class AvailabilityGate(
     private val providerRepository: ProviderRepository,
 ) {
     /**
-     * True when [tmdbId]/[mediaType] currently has GB availability on at least one provider the
-     * family is subscribed to. With nothing subscribed, nothing can ever pass — there is no
-     * provider to be "available on".
+     * True when [tmdbId]/[mediaType] currently has [region] availability on at least one
+     * provider the family is subscribed to. With nothing subscribed, nothing can ever pass —
+     * there is no provider to be "available on". [region] (PLAN.md §7 M2f) defaults to
+     * [REGION_GB]; real callers thread the live `UserPreferencesRepository.region` value through.
      */
-    suspend fun isAvailableOnSubscribedProvider(tmdbId: Int, mediaType: MediaType): Boolean {
+    suspend fun isAvailableOnSubscribedProvider(tmdbId: Int, mediaType: MediaType, region: String = REGION_GB): Boolean {
         val subscribedIds = providerRepository.getSubscribedIds()
         if (subscribedIds.isEmpty()) return false
-        titleRepository.ensureFresh(tmdbId, mediaType)
+        titleRepository.ensureFresh(tmdbId, mediaType, region)
         val availableProviderIds = titleRepository.getAvailabilityProviderIds(tmdbId, mediaType)
         return availableProviderIds.any { it in subscribedIds }
     }

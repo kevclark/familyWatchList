@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.stateIn
@@ -21,6 +22,7 @@ import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistAddResult
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
@@ -101,6 +103,7 @@ class SearchViewModel(
     private val watchlistRepository: WatchlistRepository,
     private val providerRepository: ProviderRepository,
     private val activeProfileId: Long,
+    private val userPreferencesRepository: UserPreferencesRepository,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -178,7 +181,8 @@ class SearchViewModel(
 
     fun toggleWatchlist(title: TitleEntity) {
         viewModelScope.launch {
-            when (watchlistRepository.toggle(title.tmdbId, title.mediaType, activeProfileId)) {
+            val region = userPreferencesRepository.region.first()
+            when (watchlistRepository.toggle(title.tmdbId, title.mediaType, activeProfileId, region)) {
                 WatchlistAddResult.UNAVAILABLE -> _events.emit(
                     SearchUiEvent.WatchlistBlocked(
                         "${title.title} isn't currently on any of your services, so it can't be added."
@@ -220,7 +224,8 @@ class SearchViewModel(
         searchJob?.cancel()
         _search.value = SearchInternal(isSearching = true)
         searchJob = viewModelScope.launch {
-            searchRepository.search(query)
+            val region = userPreferencesRepository.region.first()
+            searchRepository.search(query, region)
                 // Flow's `catch` never intercepts `CancellationException` (cancellation
                 // transparency) — only genuine failures (a bad network call, a decode error)
                 // land here, so a cancelled-by-requery job falls straight through to

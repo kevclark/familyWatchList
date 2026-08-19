@@ -13,6 +13,7 @@ import org.seg7.familywatchlist.data.local.dao.TitleDao
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.remote.TmdbApi
+import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
 import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
 
 /**
@@ -51,7 +52,11 @@ class SearchRepository(
      * query's results — see [org.seg7.familywatchlist.ui.search.SearchViewModel] for the
      * cancel-on-requery wiring.
      */
-    fun search(query: String, page: Int = 1): Flow<List<TitleEntity>> = channelFlow {
+    /**
+     * [region] (PLAN.md §7 M2f) defaults to [REGION_GB]; real callers (`SearchViewModel`) thread
+     * the live `UserPreferencesRepository.region` value through.
+     */
+    fun search(query: String, region: String = REGION_GB, page: Int = 1): Flow<List<TitleEntity>> = channelFlow {
         val candidates = fetchCandidates(query, page)
         if (candidates.isEmpty()) {
             send(emptyList())
@@ -68,7 +73,7 @@ class SearchRepository(
         val checks = candidates.mapIndexed { index, candidate ->
             launch {
                 concurrencyLimit.withPermit {
-                    val available = availabilityGate.isAvailableOnSubscribedProvider(candidate.tmdbId, candidate.mediaType)
+                    val available = availabilityGate.isAvailableOnSubscribedProvider(candidate.tmdbId, candidate.mediaType, region)
                     if (available) {
                         sendMutex.withLock {
                             slots[index] = candidate

@@ -3,8 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-19 (M2g — Search's zero-services empty state and unavailable watchlist
-item dimming + direct remove — by `feature-builder`).
+Last updated: 2026-08-19 (M2f — configurable region — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -343,31 +342,94 @@ call to TMDB's own `/movie/{id}/watch/providers`, per M2d's precedent:
       suite updated for the new `DiscoverRepository` constructor parameter.
 - [x] `./gradlew test assembleDebug` green (155 tests, 31 classes, 0 failures/errors)
 
-## M2f — Configurable region (queued, not yet launched)
+## M2f — Configurable region ✅
 
 Kev's request, 2026-08-19: TMDB doesn't do IP geolocation (confirmed — `watch_region=GB` is
 an explicit hardcoded parameter throughout, never inferred from the server's location), so if
 he's ever travelling, the app would silently keep showing UK-only results with no way to
 check what's actually available where he is. Low priority, no urgency — queued behind M2d/M2e.
 
-- [ ] Region becomes a `UserPreferencesRepository` preference (same DataStore pattern as
-      `accentColor`), default `GB`
-- [ ] `TmdbApi`'s various `watch_region` query params — currently a compile-time default
-      (`REGION_GB`) baked into the interface — become a real parameter threaded through from
-      repositories, sourced from the live preference (same pattern `discoverMovies`/
-      `discoverTv` already use for `subscribedProviderIds`)
-- [ ] Settings: a region/country picker. Source the list from TMDB's own
-      `/watch/providers/regions` endpoint (live, always current) rather than hand-maintaining
-      one
-- [ ] **Open design question, not yet resolved:** subscribed-provider IDs are region-specific
-      (BBC iPlayer/Channel 4/ITVX don't exist outside the UK; even shared services like
-      Netflix may need reconfirming per region). Switching region with the same subscribed-ID
-      list won't error, but will likely return sparse/empty "Popular on your services" results
-      until services are reconfirmed for the new region. Needs a decision on whether switching
-      region should prompt re-running the services picker, or just accept degraded results
-      until the user fixes it manually in Settings
-- [ ] Tests: preference default/round-trip, region threading through discover/search calls
-- [ ] `./gradlew test assembleDebug` green
+- [x] Region becomes a `UserPreferencesRepository` preference (same DataStore pattern as
+      `accentColor`), default `GB`. Stored as a plain string (not an enum — the valid set comes
+      from TMDB's own region list, not a fixed set this app hand-maintains); a missing or
+      malformed value (anything not exactly 2 characters) falls back to `GB`
+- [x] `TmdbApi`'s `watch_region` query params on `discoverMovies`/`discoverTv`/`movieProviders`/
+      `tvProviders` are unchanged at the interface level (still default to `REGION_GB` — purely
+      a test convenience, see below), but every repository method that reaches them
+      (`DiscoverRepository.discoverMovies`/`discoverTv`, `ProviderRepository.seedIfEmpty`) now
+      takes `region` as a real parameter and every production call site (`HomeViewModel`,
+      `OnboardingViewModel`) threads the live `UserPreferencesRepository.region` value through
+      explicitly, same pattern `discoverMovies`/`discoverTv` already use for
+      `subscribedProviderIds`. `TitleRepository.ensureFresh`/`refresh`, `AvailabilityGate`,
+      `SearchRepository.search`, and `WatchlistRepository.add`/`toggle` all gained the same
+      `region` parameter — the detail call itself (`movieDetail`/`tvDetail`) has no
+      `watch_region` param at all (TMDB returns every country in one response), so region only
+      matters at *extraction* time: `TmdbMappers.toAvailability` now picks the given region's key
+      out of the multi-country `watch/providers` payload instead of a hardcoded `"GB"`. UK
+      certification extraction (`gbCertification()`) is deliberately left hardcoded to GB — see
+      the judgment-call note below.
+- [x] Settings: a region/country picker (`RegionPickerSheet` in `SettingsScreen.kt`), a modal
+      bottom sheet with the same substring-filter pattern as the onboarding services picker.
+      Sourced from TMDB's own `/watch/providers/regions` (new `RegionCatalogRepository`,
+      `TmdbApi.watchProviderRegions()`) rather than a hand-maintained country list. Cached
+      in-memory for the process's life (no TTL logic — this data changes essentially never)
+- [x] **Open design question, resolved:** subscribed-provider IDs are region-specific.
+      Recommended default implemented as specified in PLAN.md §8: switching region does **not**
+      auto-clear the subscribed list (would be surprising/lossy) — instead
+      `UserPreferencesRepository.regionServicesMismatch` flags true on any genuine region change,
+      driving a dismissible **inline notice** in Settings (not a blocking modal) with a
+      "Review services" button into the existing services picker; the flag clears once that
+      picker has actually been revisited (`OnboardingViewModel.dismiss()`/
+      `onServicesConfirmed()`), not the instant the button is tapped. Verified live: switching
+      GB→US showed the notice immediately; switching back US→GB re-showed it (any genuine change
+      flags it, symmetrically).
+      **Real correctness fix that fell out of this (not scope creep — silently wrong data
+      otherwise):** `provider_availability` rows carry no region column (PLAN.md §2 modelled
+      them as GB-only), so a title detail-fetched under the old region would otherwise look
+      "fresh" for up to 7 more days and keep showing the *old* region's providers mislabeled as
+      the new region's. `TitleRepository.invalidateAllProviderData()` (new, backed by
+      `TitleDao.expireAllFetchedAt()`) forces every cached title stale on a region change,
+      called from the region picker's `onSelect`. Discover pages needed no equivalent explicit
+      invalidation: region is now folded into `DiscoverRepository`'s cache-key hash, so an
+      old-region page simply sits unreached under its own hash rather than being served as if it
+      were the new region's data — same "invalidate on preference change" precedent as M2e's
+      `setSubscribed` → `invalidateAllCachedPages`.
+- [x] Tests: preference default/round-trip + corrupted-value fallback + mismatch-flag
+      set/clear (`UserPreferencesRepositoryTest`), region threading through
+      discover/search/provider/watchlist calls with an assertion that a non-GB region actually
+      reaches the network/mapper (`DiscoverRepositoryTest`, `TitleRepositoryTest`,
+      `ProviderRepositoryTest`, `AvailabilityGateTest`, `SearchRepositoryTest`,
+      `SearchViewModelTest`, `WatchlistRepositoryTest`, `HomeViewModelTest`), regions-list
+      fetch/cache logic (`RegionCatalogRepositoryTest`, `TmdbApiTest`), and
+      `invalidateAllProviderData` forcing a real refetch (`TitleRepositoryTest`)
+- [x] `./gradlew test assembleDebug` green — 184 tests, 33 classes, 0 failures/errors;
+      assembleDebug clean
+
+**Judgment call, not previously flagged:** region parameters default to `TmdbApi.REGION_GB` at
+the repository-method level (mirroring the interface-level convenience that already existed)
+rather than being strictly required with no default. This meant the ~15 pre-existing tests that
+construct these repositories or call these methods and have nothing to do with region didn't
+need touching just to pass a literal `"GB"` they don't care about. Every real production call
+site threads the live preference explicitly regardless of the default — verified by dedicated
+new tests that a non-GB region actually reaches the network/mapper. If Kev would rather these be
+strictly required (no default) to close off any chance of a future call site silently forgetting
+to pass region, that's a mechanical follow-up, not a design change.
+
+**Live verification (emulator, `-gpu swangle`, renderer confirmed via
+`dumpsys SurfaceFlinger | grep GLES:` before trusting the session):** opened Settings → Region,
+confirmed the picker lists live TMDB regions (fetched, not hand-maintained) with working
+substring filter; selected United States — Settings' Region row updated to "US right now" and
+the inline mismatch notice appeared immediately with a working "Review services" button; on-device
+`sqlite3` inspection of `family_watchlist.db` confirmed every title's `fetchedAt` reset to `0` at
+that exact moment (`invalidateAllProviderData` firing) and `discover_cache.queryHash` now
+carries the region (e.g. `discover_movie:...:GB:1`). Opened Spider-Man: No Way Home's details
+screen (same title from M2e/M2g) under the US region — "Where to watch" correctly showed **Disney
+Plus** (real US TMDB data), replacing GB's BBC iPlayer/Sky Go/Now TV Cinema; on-device DB
+confirmed `provider_availability` now held `providerId=337` (Disney Plus) only. Switched back to
+United Kingdom — the mismatch notice re-appeared (symmetric), `fetchedAt` reset to `0` again, and
+the details screen correctly reverted to **BBC iPlayer (FREE) / Sky Go / Now TV Cinema**,
+matching M2e's original GB findings exactly. Full round-trip (GB→US→GB) verified against live
+TMDB data, not a mock.
 
 ## M2g — Search empty-state message + unavailable watchlist item treatment ✅
 

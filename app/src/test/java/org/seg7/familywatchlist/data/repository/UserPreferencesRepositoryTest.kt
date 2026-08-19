@@ -1,12 +1,15 @@
 package org.seg7.familywatchlist.data.repository
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -20,12 +23,15 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class UserPreferencesRepositoryTest {
 
-    private fun newRepo(name: String): UserPreferencesRepository {
+    private fun newRepo(name: String): UserPreferencesRepository = newRepoAndStore(name).first
+
+    /** Also returns the raw [androidx.datastore.core.DataStore] for tests that need to write a corrupt/unrecognised value directly, bypassing the repository's own setters. */
+    private fun newRepoAndStore(name: String): Pair<UserPreferencesRepository, androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>> {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val dataStore = PreferenceDataStoreFactory.create(
             produceFile = { context.preferencesDataStoreFile(name) },
         )
-        return UserPreferencesRepository(dataStore)
+        return UserPreferencesRepository(dataStore) to dataStore
     }
 
     @Test
@@ -71,5 +77,66 @@ class UserPreferencesRepositoryTest {
             repo.setAccentColor(candidate)
             assertEquals(candidate, repo.accentColor.first())
         }
+    }
+
+    @Test
+    fun `region defaults to GB`() = runTest {
+        val repo = newRepo("prefs_region_defaults")
+
+        assertEquals("GB", repo.region.first())
+    }
+
+    @Test
+    fun `setRegion round-trips`() = runTest {
+        val repo = newRepo("prefs_region_roundtrip")
+
+        for (code in listOf("US", "FR", "GB", "AU")) {
+            repo.setRegion(code)
+            assertEquals(code, repo.region.first())
+        }
+    }
+
+    @Test
+    fun `region falls back to the default on a corrupted stored value`() = runTest {
+        val (repo, dataStore) = newRepoAndStore("prefs_region_corrupt")
+        dataStore.updateData { it.toMutablePreferences().apply { this[stringPreferencesKey("region")] = "not-a-code" } }
+
+        assertEquals("GB", repo.region.first())
+    }
+
+    @Test
+    fun `regionServicesMismatch starts false`() = runTest {
+        val repo = newRepo("prefs_region_mismatch_default")
+
+        assertFalse(repo.regionServicesMismatch.first())
+    }
+
+    @Test
+    fun `setRegion to a genuinely different value flags regionServicesMismatch`() = runTest {
+        val repo = newRepo("prefs_region_mismatch_flip")
+
+        repo.setRegion("US")
+
+        assertTrue(repo.regionServicesMismatch.first())
+    }
+
+    @Test
+    fun `setRegion to the same value already in effect does not flag a mismatch`() = runTest {
+        val repo = newRepo("prefs_region_mismatch_noop")
+
+        repo.setRegion("GB") // same as the implicit default already in effect
+
+        assertFalse(repo.regionServicesMismatch.first())
+    }
+
+    @Test
+    fun `clearRegionServicesMismatch resets the flag`() = runTest {
+        val repo = newRepo("prefs_region_mismatch_clear")
+        repo.setRegion("US")
+        assertTrue(repo.regionServicesMismatch.first())
+
+        repo.clearRegionServicesMismatch()
+
+        assertFalse(repo.regionServicesMismatch.first())
     }
 }
