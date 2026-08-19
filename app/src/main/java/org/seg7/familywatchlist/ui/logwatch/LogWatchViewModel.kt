@@ -56,6 +56,7 @@ class LogWatchViewModel(
             profiles = profiles,
             titleName = title?.title,
             posterPath = title?.posterPath,
+            today = today,
             watchedAt = form.watchedAt,
             selectedProfileIds = form.selectedProfileIds,
             ratings = form.ratings,
@@ -178,6 +179,8 @@ data class LogWatchUiState(
     val profiles: List<ProfileEntity> = emptyList(),
     val titleName: String? = null,
     val posterPath: String? = null,
+    /** The sheet's notion of "today" (its constructor's [LogWatchViewModel] `today` param) — the "Today"/"Yesterday" label compares [watchedAt] against this, not the wall clock, so tests can pin it. */
+    val today: LocalDate = LocalDate.now(),
     val watchedAt: LocalDate = LocalDate.now(),
     val selectedProfileIds: Set<Long> = emptySet(),
     val ratings: Map<Long, RatingValue> = emptyMap(),

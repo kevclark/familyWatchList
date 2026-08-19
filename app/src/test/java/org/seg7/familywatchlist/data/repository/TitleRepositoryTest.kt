@@ -76,6 +76,22 @@ class TitleRepositoryTest {
     }
 
     @Test
+    fun `ensureFresh refetches a stub-only row even though its fetchedAt is brand new`() = runTest {
+        // PLAN.md §5a's availability gate calls ensureFresh on a title SearchRepository just
+        // stubbed a moment earlier — the stub's own fetchedAt is fresh, but it was never
+        // actually detail-fetched, so serving it as-is would mean provider availability (and
+        // thus the gate) never resolves for any newly-searched title. isProviderDataStale must
+        // treat "no runtime and no certification" as stale regardless of how recent fetchedAt is.
+        db.titleDao().upsert(stubTitle(fetchedAt = clock.current))
+        server.enqueue(MockResponse(body = MOVIE_DETAIL_JSON))
+
+        val entity = repo.ensureFresh(38700, MediaType.MOVIE)
+
+        assertEquals(1, server.requestCount)
+        assertEquals("PG", entity.certification)
+    }
+
+    @Test
     fun `ensureFresh refetches once the 7-day provider TTL has elapsed`() = runTest {
         db.titleDao().upsert(cachedTitle(fetchedAt = clock.current))
         clock.advanceBy(TimeUnit.DAYS.toMillis(8))
@@ -115,6 +131,7 @@ class TitleRepositoryTest {
         assertTrue(repo.isMetadataStale(title))
     }
 
+    /** A row that's already been through a full detail fetch — has runtime/certification, the signal [TitleRepository.isProviderDataStale] uses to tell it apart from a search/discover stub. */
     private fun cachedTitle(fetchedAt: Long) = TitleEntity(
         tmdbId = 1,
         mediaType = MediaType.MOVIE,
@@ -123,10 +140,27 @@ class TitleRepositoryTest {
         posterPath = null,
         backdropPath = null,
         overview = null,
-        runtimeMin = null,
-        certification = null,
+        runtimeMin = 95,
+        certification = "PG",
         voteAverage = null,
         popularity = null,
+        trailerKey = null,
+        fetchedAt = fetchedAt,
+    )
+
+    /** A search/discover-shaped stub — no runtime, no certification, exactly what [SearchRepository]/[DiscoverRepository] persist before any detail fetch. */
+    private fun stubTitle(fetchedAt: Long) = TitleEntity(
+        tmdbId = 38700,
+        mediaType = MediaType.MOVIE,
+        title = "Paddington",
+        year = 2014,
+        posterPath = "/poster.jpg",
+        backdropPath = null,
+        overview = null,
+        runtimeMin = null,
+        certification = null,
+        voteAverage = 7.2,
+        popularity = 33.1,
         trailerKey = null,
         fetchedAt = fetchedAt,
     )

@@ -222,25 +222,30 @@ unfiltered finder" design — never actually his requirement, an unvalidated age
 this orchestrator wrongly represented as settled. Full spec (including the two rejected
 alternatives and why) in PLAN.md §5a "Search & watchlist availability gating".
 
-- [ ] Search results filtered to GB availability on a subscribed provider — search-then-check
+- [x] Search results filtered to GB availability on a subscribed provider — search-then-check
       against cached/fetched `ProviderAvailability`, not a TMDB query param (doesn't exist)
-- [ ] Availability checks throttled at the existing 4 req/s; results settle progressively
+- [x] Availability checks throttled at the existing 4 req/s; results settle progressively
       (accepted UX trade-off, not a bug to "fix" later)
-- [ ] In-flight availability checks cancelled on a new query (extend the existing search
+- [x] In-flight availability checks cancelled on a new query (extend the existing search
       dedupe/cancellation pattern in `SearchViewModel`) — avoid a stale batch overwriting
       a newer query's results
-- [ ] `WatchlistRepository.add()`/`toggle()` blocked with a clear message unless the title has
+- [x] `WatchlistRepository.add()`/`toggle()` blocked with a clear message unless the title has
       GB availability on a subscribed provider — reuse search's resolution logic, don't
       duplicate it
-- [ ] Existing watchlist entries are NOT retroactively removed if they later lose availability
+- [x] Existing watchlist entries are NOT retroactively removed if they later lose availability
       — gate applies at add-time only (default Kev hasn't explicitly confirmed — flag if wrong)
-- [ ] Log-watch and History remain explicitly ungated — do not extend the restriction there
-- [ ] `SearchRepository`'s now-incorrect kdoc ("§5 screen 5 is a title finder") updated to
+- [x] Log-watch and History remain explicitly ungated — do not extend the restriction there
+- [x] `SearchRepository`'s now-incorrect kdoc ("§5 screen 5 is a title finder") updated to
       reflect the real, gated behaviour
-- [ ] Tests: availability-check filtering logic, cancellation-on-requery, watchlist add
+- [x] Tests: availability-check filtering logic, cancellation-on-requery, watchlist add
       rejection when unavailable
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Screenshot(s)/live verification of gated search + a blocked watchlist-add attempt
+- [x] `./gradlew test assembleDebug` green
+- [x] Screenshot(s)/live verification of gated search (live TMDB data, confirmed against the
+      on-device DB — see report). Blocked watchlist-add Snackbar not captured live: the only UI
+      path to it is a details screen reached for a title that's lost availability, which isn't
+      reachable without a deep link given this session's on-device data, and the emulator hit its
+      known hero/gradient-scrim crash twice navigating the details screen. Covered instead by
+      dedicated JVM tests (`WatchlistRepositoryTest`, `SearchViewModelTest`'s blocked-add case).
 
 ## M2e — Home hero/discover filtering bug (queued, not yet launched)
 
