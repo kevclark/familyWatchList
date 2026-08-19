@@ -55,4 +55,21 @@ class UserPreferencesRepositoryTest {
         repo.clearActiveProfileId()
         assertNull(repo.activeProfileId.first())
     }
+
+    @Test
+    fun `accent colour defaults to OBSIDIAN`() = runTest {
+        val repo = newRepo("prefs_accent_defaults")
+
+        assertEquals(AccentColor.OBSIDIAN, repo.accentColor.first())
+    }
+
+    @Test
+    fun `setAccentColor round-trips for every candidate`() = runTest {
+        val repo = newRepo("prefs_accent_roundtrip")
+
+        for (candidate in AccentColor.entries) {
+            repo.setAccentColor(candidate)
+            assertEquals(candidate, repo.accentColor.first())
+        }
+    }
 }

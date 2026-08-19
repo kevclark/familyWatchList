@@ -3,8 +3,8 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-17 (M2b complete — search, details, watchlist, logging, history, plus the
-M2a visual rework against PLAN.md §5a — by `feature-builder`).
+Last updated: 2026-08-19 (M2c complete — accent colour as a live user preference defaulting to
+Obsidian, always-visible pre-M3 "For You" placeholder on Home — by `feature-builder`).
 
 ---
 
@@ -171,16 +171,44 @@ Accent Palette", 2026-08-19): ship Obsidian as default, but make accent a real u
 preference rather than a hardcoded token. Bundled with the For-You fix since both are small
 and touch Settings/Home. See PLAN.md §5a "Post-M2b decisions" for full spec.
 
-- [ ] `AccentObsidian` (#8B5CF6) added to `ui/theme/Color.kt`; default preference is OBSIDIAN
-- [ ] Accent colour persisted in `UserPreferencesRepository` (DataStore), same pattern as
-      `onboardingComplete`/`activeProfileId`
-- [ ] Settings: accent picker row (4 swatches, checkmark on active), live-updates the theme
-- [ ] `Theme.kt`'s fixed `val Accent = AccentEmber` replaced with the stored preference
-- [ ] Home: "For You" section always visible, pre-M3 "coming soon" copy (not §4's cold-start
-      wording — see PLAN.md §5a for why), CTA into logging a watch
-- [ ] Tests: preference default/round-trip, settings selection logic
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Screenshot(s) confirming Obsidian applied app-wide + the new For You card
+- [x] `AccentObsidian` (#8B5CF6) added to `ui/theme/Color.kt`; default preference is OBSIDIAN
+- [x] Accent colour persisted in `UserPreferencesRepository` (DataStore), same pattern as
+      `onboardingComplete`/`activeProfileId` — new `AccentColor` enum (EMBER/AURORA/ORCHID/
+      OBSIDIAN), stored as its name via a `stringPreferencesKey`, default OBSIDIAN on
+      missing/unrecognised value
+- [x] Settings: accent picker row (4 swatches, checkmark on active), live-updates the theme —
+      verified live on the emulator (tap Ember → whole app recolours immediately, incl. the
+      bottom-nav Settings icon; tap back to Obsidian → reverts)
+- [x] `Theme.kt`'s fixed `val Accent = AccentEmber` replaced with the stored preference —
+      `Accent` is now a Compose-state var so the ~70 existing call sites across the app pick
+      up the change without modification; `FamilyWatchListTheme` takes the resolved
+      `AccentColor` as a parameter (collected in `MainActivity`) rather than reaching into
+      `LocalAppContainer` itself, so it stays usable from Compose UI tests that render a
+      screen without a full `AppContainer` in scope
+- [x] Home: "For You" section always visible, pre-M3 "coming soon" copy (not §4's cold-start
+      wording — see PLAN.md §5a for why). CTA goes to **Search**, not the log-watch sheet —
+      log-watch needs a specific title picked first, which Home's placeholder doesn't have;
+      Search is the more natural next action with nothing logged yet, and `onOpenSearch` was
+      already wired into `HomeScreen`. Flagging this as the one real judgement call in this
+      pass, per spec's "use your judgement, both are reasonable."
+- [x] Tests: preference default/round-trip (`UserPreferencesRepositoryTest`, 2 new tests,
+      covers OBSIDIAN default + all 4 candidates round-tripping). No separate settings-selection
+      test: there's no `SettingsViewModel` — `SettingsScreen` calls
+      `userPreferencesRepository.setAccentColor(candidate)` directly on tap, same pattern as
+      its other rows (`clearActiveProfileId`, `setServicesSetupRequested`), so there's no
+      branching logic beyond what the repository test already covers
+- [x] `./gradlew test assembleDebug` green — 134 tests, 1 pre-existing failure (see note below),
+      assembleDebug clean
+- [x] Screenshots confirming Obsidian applied app-wide + the new For You card
+      (`docs/m2c-home.png`, `docs/m2c-settings-accent.png`, `docs/m2c-obsidian-detail.png`)
+
+**Pre-existing test failure, unrelated to this pass:** `LogWatchFlowUiTest`'s "the common case
+is one tap…" fails on an assertion at line 161 (`dismissed` flag not set in time) in this
+environment. Verified via `git stash` + `./gradlew test --rerun-tasks` that this reproduces
+identically on the unmodified M2b commit (`64d53d9`), with zero M2c code in play — a
+timing/environment flake in this sandbox (`createComposeRule`'s `UnconfinedTestDispatcher`
+racing the save coroutine), not something this pass introduced or can fix without touching a
+test outside its scope. Not weakened or skipped.
 
 ## M3 — Recommender
 

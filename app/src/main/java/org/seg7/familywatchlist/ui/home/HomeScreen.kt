@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -46,6 +47,7 @@ import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
 import org.seg7.familywatchlist.ui.components.BottomScrim
 import org.seg7.familywatchlist.ui.components.PosterCard
 import org.seg7.familywatchlist.ui.components.PosterCarousel
+import org.seg7.familywatchlist.ui.components.SectionHeader
 import org.seg7.familywatchlist.ui.components.TopScrim
 import org.seg7.familywatchlist.ui.components.backdropUrl
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
@@ -127,6 +129,10 @@ fun HomeScreen(
                 }
             }
 
+            item(key = "for-you") {
+                ForYouPlaceholder(onOpenSearch = onOpenSearch)
+            }
+
             item(key = "popular-movies") {
                 PosterCarousel(
                     title = "Popular films$servicesSuffix",
@@ -155,7 +161,7 @@ fun HomeScreen(
                 }
             }
 
-            item(key = "footer") { HomeFooter(activeProfile.name) }
+            item(key = "footer") { HomeFooter() }
         }
 
         // Floating chrome over the hero: scrim first, then the controls on top of it.
@@ -323,21 +329,57 @@ private fun HomeHeroEmpty(
 }
 
 /**
- * Closes the feed. Says plainly that personalised rows are still to come — a one-line note
- * rather than PLAN.md §5's *For {profile}* / *Family night* rows rendered as empty boxes, which
- * is what M2a did and what Kev called "a wall of text boxes".
+ * Pre-M3 placeholder for PLAN.md §5's *For {profile}* row.
+ *
+ * PLAN.md §5a "Post-M2b decisions" (2026-08-19): this section is **always visible** on Home,
+ * never omitted regardless of how much the active profile has logged — that's a change from
+ * M2b, which dropped personalised rows entirely rather than showing §4's cold-start placeholder.
+ * The copy here is deliberately *not* §4's real cold-start wording ("not enough watched yet"):
+ * that phrasing implies logging more titles unlocks personalisation today, which isn't true
+ * pre-M3 — the scoring engine simply doesn't exist yet, independent of log count.
+ *
+ * **Retire this, don't extend it.** Once M3 ships the real recommender, this whole composable
+ * (and its call site in [HomeScreen]) gets replaced by §4's actual behaviour: <5 logged events
+ * → "Popular on your services" (already built, see `popular-movies`/`popular-tv` above), 5+ →
+ * real scored picks. Nothing here should grow new logic in the meantime.
  */
 @Composable
-private fun HomeFooter(profileName: String) {
+private fun ForYouPlaceholder(onOpenSearch: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(title = "For You")
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.Gutter)
+                .clip(MaterialTheme.shapes.medium)
+                .background(InkRaised)
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "We're still learning what you like — personalised picks arrive in a " +
+                    "future update.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ChalkMuted,
+            )
+            Button(
+                onClick = onOpenSearch,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text("Find something to watch", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/** Closes the feed with the JustWatch attribution required on every availability-adjacent screen. */
+@Composable
+private fun HomeFooter() {
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = Dimens.Gutter, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            text = "Picks for $profileName and family night arrive once there's enough watch history to learn from.",
-            style = MaterialTheme.typography.bodySmall,
-            color = ChalkFaint,
-        )
         Text(
             text = stringResource(R.string.justwatch_attribution),
             style = MaterialTheme.typography.labelSmall,

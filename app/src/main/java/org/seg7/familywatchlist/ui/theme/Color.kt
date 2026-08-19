@@ -1,6 +1,10 @@
 package org.seg7.familywatchlist.ui.theme
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import org.seg7.familywatchlist.data.repository.AccentColor
 
 /**
  * PLAN.md §5a colour tokens. Replaces M2a's Material-default-ish dark grey palette, which read
@@ -26,26 +30,58 @@ val ChalkFaint = Color(0xFF6A6A74)
  * ## Accent candidates (PLAN.md §5a: "one confident accent colour … feature-builder proposes
  * 2–3 candidate swatches and Kev picks")
  *
- * All three are deliberately away from Netflix red (`#E50914`) and Disney blue (`#0063E5`), and
- * all three clear WCAG AA (4.5:1) against [Ink] for text and pass 3:1 for UI/graphical elements,
+ * All four are deliberately away from Netflix red (`#E50914`) and Disney blue (`#0063E5`), and
+ * all four clear WCAG AA (4.5:1) against [Ink] for text and pass 3:1 for UI/graphical elements,
  * so any of them can be swapped in without a legibility re-check.
  *
- * - [AccentEmber]  — warm amber-coral. Cinema-marquee warmth, closest in spirit to the app's
- *                    "family movie night" subject; reads as premium rather than alarming.
- * - [AccentAurora] — cool mint-teal. The most distinctive of the three (nobody in UK streaming
- *                    owns it), and the strongest "tech product" signal.
- * - [AccentOrchid] — electric violet. Splits the difference: rich and modern, and the one that
- *                    sits most comfortably next to varied poster art without clashing.
+ * - [AccentEmber]    — warm amber-coral. Cinema-marquee warmth, closest in spirit to the app's
+ *                      "family movie night" subject; reads as premium rather than alarming.
+ * - [AccentAurora]   — cool mint-teal. The most distinctive of the four (nobody in UK streaming
+ *                      owns it), and the strongest "tech product" signal.
+ * - [AccentOrchid]   — electric violet, a lighter lift. Splits the difference: rich and modern,
+ *                      and the one that sits most comfortably next to varied poster art.
+ * - [AccentObsidian] — deeper, more saturated violet than Orchid, same family. **Kev's pick,
+ *                      PLAN.md §5a "Post-M2b decisions" (2026-08-19) — now the default.**
  *
- * **[Accent] is the single switch.** Point it at a different candidate and the whole app
- * follows — nothing else in the codebase names a candidate directly.
+ * PLAN.md §5a's "Post-M2b decisions" turned accent choice into a live user preference
+ * ([org.seg7.familywatchlist.data.repository.UserPreferencesRepository.accentColor]) rather
+ * than a fixed build-time constant — see [Accent] below, which is what actually resolves that
+ * preference to a colour for the rest of the app to read.
  */
 val AccentEmber = Color(0xFFFF7A45)
 val AccentAurora = Color(0xFF3ADFB0)
 val AccentOrchid = Color(0xFFA779FF)
+val AccentObsidian = Color(0xFF8B5CF6)
 
-/** Currently selected accent — Kev's pick swaps this one line. Defaults to Ember. */
-val Accent = AccentEmber
+/** Maps a persisted [AccentColor] preference to its actual swatch. */
+fun AccentColor.toColor(): Color = when (this) {
+    AccentColor.EMBER -> AccentEmber
+    AccentColor.AURORA -> AccentAurora
+    AccentColor.ORCHID -> AccentOrchid
+    AccentColor.OBSIDIAN -> AccentObsidian
+}
+
+/** Short label for the swatch picker in Settings. */
+val AccentColor.displayName: String
+    get() = when (this) {
+        AccentColor.EMBER -> "Ember"
+        AccentColor.AURORA -> "Aurora"
+        AccentColor.ORCHID -> "Orchid"
+        AccentColor.OBSIDIAN -> "Obsidian"
+    }
+
+/**
+ * Currently selected accent. Backed by Compose [mutableStateOf] rather than a plain `val` so
+ * that every one of the ~70 call sites across the app that read `Accent` directly (buttons,
+ * chips, badges, the Home wordmark…) recomposes automatically the moment the preference
+ * changes — without threading a new parameter through all of them. [org.seg7.familywatchlist
+ * .ui.theme.FamilyWatchListTheme] is the sole writer: it collects
+ * [org.seg7.familywatchlist.data.repository.UserPreferencesRepository.accentColor] and assigns
+ * here on every change. Defaults to [AccentObsidian] until that first collection lands, matching
+ * the repository's own default.
+ */
+var Accent: Color by mutableStateOf(AccentObsidian)
+    internal set
 
 /** Text/icon colour to place *on top of* [Accent]-filled surfaces. */
 val OnAccent = Color(0xFF170B05)
