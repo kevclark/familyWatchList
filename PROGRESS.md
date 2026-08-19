@@ -264,6 +264,32 @@ which (or both) is the actual cause yet:
       confirmed current GB availability on a subscribed provider
 - [ ] `./gradlew test assembleDebug` green
 
+## M2f — Configurable region (queued, not yet launched)
+
+Kev's request, 2026-08-19: TMDB doesn't do IP geolocation (confirmed — `watch_region=GB` is
+an explicit hardcoded parameter throughout, never inferred from the server's location), so if
+he's ever travelling, the app would silently keep showing UK-only results with no way to
+check what's actually available where he is. Low priority, no urgency — queued behind M2d/M2e.
+
+- [ ] Region becomes a `UserPreferencesRepository` preference (same DataStore pattern as
+      `accentColor`), default `GB`
+- [ ] `TmdbApi`'s various `watch_region` query params — currently a compile-time default
+      (`REGION_GB`) baked into the interface — become a real parameter threaded through from
+      repositories, sourced from the live preference (same pattern `discoverMovies`/
+      `discoverTv` already use for `subscribedProviderIds`)
+- [ ] Settings: a region/country picker. Source the list from TMDB's own
+      `/watch/providers/regions` endpoint (live, always current) rather than hand-maintaining
+      one
+- [ ] **Open design question, not yet resolved:** subscribed-provider IDs are region-specific
+      (BBC iPlayer/Channel 4/ITVX don't exist outside the UK; even shared services like
+      Netflix may need reconfirming per region). Switching region with the same subscribed-ID
+      list won't error, but will likely return sparse/empty "Popular on your services" results
+      until services are reconfirmed for the new region. Needs a decision on whether switching
+      region should prompt re-running the services picker, or just accept degraded results
+      until the user fixes it manually in Settings
+- [ ] Tests: preference default/round-trip, region threading through discover/search calls
+- [ ] `./gradlew test assembleDebug` green
+
 ## M3 — Recommender
 
 Done means: scoring engine (incl. watchlist signal) + fixture-based unit tests, Home
