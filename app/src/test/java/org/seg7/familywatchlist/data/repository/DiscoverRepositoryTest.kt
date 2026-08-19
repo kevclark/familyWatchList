@@ -6,6 +6,7 @@ import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -103,6 +104,29 @@ class DiscoverRepositoryTest {
 
         assertEquals(2, server.requestCount)
         assertEquals(listOf("Paddington (refetched)"), results.map { it.title })
+    }
+
+    /** PLAN.md §7 M2f: region is a real call-time parameter, threaded all the way to the network call. */
+    @Test
+    fun `discoverMovies sends the given region, not a hardcoded GB`() = runTest {
+        server.enqueue(MockResponse(body = discoverPageJson(id = 38700, title = "Paddington")))
+
+        repo.discoverMovies(subscribedProviderIds = listOf(8), region = "US")
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.target.contains("watch_region=US"))
+    }
+
+    @Test
+    fun `a different region is a different query hash — switching region never serves stale cross-region data`() = runTest {
+        server.enqueue(MockResponse(body = discoverPageJson(id = 1, title = "GB Result")))
+        repo.discoverMovies(subscribedProviderIds = listOf(8), region = "GB")
+        server.enqueue(MockResponse(body = discoverPageJson(id = 2, title = "US Result")))
+
+        val results = repo.discoverMovies(subscribedProviderIds = listOf(8), region = "US")
+
+        assertEquals(2, server.requestCount)
+        assertEquals(listOf("US Result"), results.map { it.title })
     }
 
     @Test

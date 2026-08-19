@@ -480,11 +480,15 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
   unconditionally (`discoverMovies`/`discoverTv` now return empty rather than falling back to
   an unfiltered page), plus discover-cache invalidation on subscribed-provider change was
   added as defense-in-depth. Full writeup in PROGRESS.md M2e.
-- **Region should be configurable, not hardcoded (queued as M2f, 2026-08-19).** Kev's
-  request: TMDB doesn't do IP geolocation — `watch_region=GB` is an explicit parameter our own
-  code sends, never inferred from server location (confirmed in §5a's region-gating work) — so
-  travelling abroad would otherwise leave the app silently stuck on UK-only results with no way
-  to check local availability. Low priority, no urgency. Open design question flagged in
-  PROGRESS.md M2f: subscribed-provider IDs are region-specific (BBC iPlayer/Channel 4/ITVX
-  don't exist outside the UK), so switching region needs a decision on whether to prompt
-  re-running the services picker or just accept degraded results until fixed manually.
+- **Region should be configurable, not hardcoded — ✅ RESOLVED 2026-08-19 (`feature-builder`).**
+  Kev's request: TMDB doesn't do IP geolocation — `watch_region=GB` is an explicit parameter our
+  own code sends, never inferred from server location (confirmed in §5a's region-gating work) —
+  so travelling abroad would otherwise leave the app silently stuck on UK-only results with no
+  way to check local availability. Region is now a `UserPreferencesRepository` preference
+  (default GB) threaded call-time into every discover/detail/search/watchlist call, with a
+  Settings picker sourced live from TMDB's `/watch/providers/regions`. **Open design question,
+  resolved:** subscribed-provider IDs are region-specific, so switching region does not
+  auto-clear the subscribed list — it flags a dismissible inline notice in Settings prompting a
+  revisit of the services picker instead. Full writeup, including a real cache-correctness fix
+  this surfaced (stale cross-region provider data) and a live GB→US→GB verification against real
+  TMDB data, in PROGRESS.md M2f.

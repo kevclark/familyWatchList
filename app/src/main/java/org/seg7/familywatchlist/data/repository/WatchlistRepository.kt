@@ -4,6 +4,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import org.seg7.familywatchlist.common.AppClock
 import org.seg7.familywatchlist.data.local.dao.WatchlistDao
@@ -11,6 +12,7 @@ import org.seg7.familywatchlist.data.local.dao.WatchlistItem
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
+import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
 
 /** Outcome of [WatchlistRepository.add]/[WatchlistRepository.toggle] — lets callers tell a real add/remove apart from a gate rejection so they can surface *why* nothing happened. */
 enum class WatchlistAddResult { ADDED, REMOVED, UNAVAILABLE }
@@ -44,7 +46,7 @@ data class WatchlistItemAvailability(
 class WatchlistRepository(
     private val watchlistDao: WatchlistDao,
     private val clock: AppClock,
-    private val isAvailable: suspend (tmdbId: Int, mediaType: MediaType) -> Boolean = { _, _ -> true },
+    private val isAvailable: suspend (tmdbId: Int, mediaType: MediaType, region: String) -> Boolean = { _, _, _ -> true },
 ) {
     fun observeActive(): Flow<List<WatchlistEntryEntity>> = watchlistDao.observeByState(WatchlistState.ACTIVE)
 
@@ -60,19 +62,25 @@ class WatchlistRepository(
      * read this instead of [observeActiveItems] so they can dim an item that's lost availability
      * and offer a direct remove action for it.
      *
+     * [regionFlow] (PLAN.md §7 M2f) is a live [Flow] rather than a one-shot value, deliberately —
+     * unlike a one-shot suspend read, combining against it means a region change made in Settings
+     * while this screen is open re-resolves availability immediately, not only after a manual
+     * refresh or screen recreation. Real callers pass `UserPreferencesRepository.region`.
+     *
      * Checked per item, in parallel, on every emission of the underlying list — deliberately no
      * extra caching/throttling layer beyond what [isAvailable] itself already does. A family's
      * watchlist is expected to be short (unlike a ~20-result search page), so this is fine to do
      * for every visible item rather than the batching Search needed.
      */
-    fun observeActiveItemsWithAvailability(): Flow<List<WatchlistItemAvailability>> =
-        watchlistDao.observeItemsByState(WatchlistState.ACTIVE).map { items ->
-            coroutineScope {
-                items
-                    .map { item -> async { WatchlistItemAvailability(item, isAvailable(item.tmdbId, item.mediaType)) } }
-                    .awaitAll()
+    fun observeActiveItemsWithAvailability(regionFlow: Flow<String>): Flow<List<WatchlistItemAvailability>> =
+        combine(watchlistDao.observeItemsByState(WatchlistState.ACTIVE), regionFlow) { items, region -> items to region }
+            .map { (items, region) ->
+                coroutineScope {
+                    items
+                        .map { item -> async { WatchlistItemAvailability(item, isAvailable(item.tmdbId, item.mediaType, region)) } }
+                        .awaitAll()
+                }
             }
-        }
 
     /** Whether a given title is currently on the list — drives the ＋/✓ toggle on details and search cards. */
     fun observeIsListed(tmdbId: Int, mediaType: MediaType): Flow<Boolean> =
@@ -82,12 +90,14 @@ class WatchlistRepository(
 
     /**
      * PLAN.md §5a: blocked (returns [WatchlistAddResult.UNAVAILABLE], nothing written) unless
-     * [tmdbId]/[mediaType] currently has GB availability on a subscribed provider. Callers must
-     * surface this to the user rather than treat it as a silent no-op — a title from History or
-     * an old details-screen visit can easily have since lost availability.
+     * [tmdbId]/[mediaType] currently has [region] availability on a subscribed provider. Callers
+     * must surface this to the user rather than treat it as a silent no-op — a title from
+     * History or an old details-screen visit can easily have since lost availability. [region]
+     * (PLAN.md §7 M2f) defaults to [REGION_GB]; real callers thread the live
+     * `UserPreferencesRepository.region` value through.
      */
-    suspend fun add(tmdbId: Int, mediaType: MediaType, addedByProfileId: Long): WatchlistAddResult {
-        if (!isAvailable(tmdbId, mediaType)) return WatchlistAddResult.UNAVAILABLE
+    suspend fun add(tmdbId: Int, mediaType: MediaType, addedByProfileId: Long, region: String = REGION_GB): WatchlistAddResult {
+        if (!isAvailable(tmdbId, mediaType, region)) return WatchlistAddResult.UNAVAILABLE
         watchlistDao.upsert(
             WatchlistEntryEntity(
                 tmdbId = tmdbId,
@@ -115,13 +125,13 @@ class WatchlistRepository(
      * signal for the recommender too. Removing is never gated — taking something off the list is
      * always allowed regardless of current availability.
      */
-    suspend fun toggle(tmdbId: Int, mediaType: MediaType, byProfileId: Long): WatchlistAddResult {
+    suspend fun toggle(tmdbId: Int, mediaType: MediaType, byProfileId: Long, region: String = REGION_GB): WatchlistAddResult {
         val current = watchlistDao.get(tmdbId, mediaType)
         return if (current?.state == WatchlistState.ACTIVE) {
             remove(tmdbId, mediaType)
             WatchlistAddResult.REMOVED
         } else {
-            add(tmdbId, mediaType, byProfileId)
+            add(tmdbId, mediaType, byProfileId, region)
         }
     }
 }

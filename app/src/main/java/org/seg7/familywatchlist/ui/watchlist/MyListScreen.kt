@@ -63,7 +63,12 @@ fun MyListScreen(
         key = "mylist-$activeProfileId",
         factory = viewModelFactory {
             initializer {
-                MyListViewModel(container.watchlistRepository, container.profileRepository, activeProfileId)
+                MyListViewModel(
+                    container.watchlistRepository,
+                    container.profileRepository,
+                    activeProfileId,
+                    container.userPreferencesRepository,
+                )
             }
         },
     )

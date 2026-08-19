@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import org.seg7.familywatchlist.data.local.dao.ProviderDao
 import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.remote.TmdbApi
+import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
 import org.seg7.familywatchlist.data.remote.dto.WatchProviderDto
 
 /** PLAN.md §2/§3: Provider — seeded once from TMDB's GB provider list; subscribed is toggled in Settings. */
@@ -18,11 +19,16 @@ class ProviderRepository(
 
     suspend fun getSubscribedIds(): List<Int> = providerDao.getSubscribed().map { it.providerId }
 
-    /** Onboarding calls this once; a no-op if the catalog is already seeded. */
-    suspend fun seedIfEmpty() {
+    /**
+     * Onboarding calls this once; a no-op if the catalog is already seeded — including after a
+     * later region change (PLAN.md §7 M2f), since this only ever runs before any providers
+     * exist at all. [region] defaults to [REGION_GB]; real callers thread the live
+     * `UserPreferencesRepository.region` value through.
+     */
+    suspend fun seedIfEmpty(region: String = REGION_GB) {
         if (providerDao.count() > 0) return
-        val movieProviders = api.movieProviders().results
-        val tvProviders = api.tvProviders().results
+        val movieProviders = api.movieProviders(watchRegion = region).results
+        val tvProviders = api.tvProviders(watchRegion = region).results
         val merged = (movieProviders + tvProviders).distinctBy { it.providerId }
         providerDao.upsertAll(merged.map { it.toEntity() })
     }

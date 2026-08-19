@@ -1,5 +1,8 @@
 package org.seg7.familywatchlist.ui.watchlist
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -17,6 +20,7 @@ import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.MainDispatcherRule
@@ -37,6 +41,7 @@ class MyListViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var watchlistRepository: WatchlistRepository
     private lateinit var profileRepository: ProfileRepository
+    private lateinit var userPreferencesRepository: UserPreferencesRepository
     private lateinit var clock: FakeClock
 
     private var kevId = 0L
@@ -48,6 +53,10 @@ class MyListViewModelTest {
         clock = FakeClock(startMillis = 1_000L)
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock)
         profileRepository = ProfileRepository(db.profileDao(), clock)
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        userPreferencesRepository = UserPreferencesRepository(
+            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("mylist_vm_prefs") }),
+        )
 
         kevId = profileRepository.addProfile("Kev", "INITIAL|7C5C4A|", null).getOrThrow()
         samId = profileRepository.addProfile("Sam", "INITIAL|4A6357|", null).getOrThrow()
@@ -71,7 +80,7 @@ class MyListViewModelTest {
 
     private fun viewModel(
         watchlist: WatchlistRepository = watchlistRepository,
-    ) = MyListViewModel(watchlist, profileRepository, kevId)
+    ) = MyListViewModel(watchlist, profileRepository, kevId, userPreferencesRepository)
 
     @Test
     fun `the list is shared - it shows titles added by anyone by default`() = runTest {
@@ -126,7 +135,7 @@ class MyListViewModelTest {
     fun `an item that has lost availability is flagged so the screen can dim it`() = runTest {
         watchlistRepository.add(38700, MediaType.MOVIE, kevId) // Paddington
         watchlistRepository.add(12345, MediaType.MOVIE, kevId) // Arrival
-        val readingRepo = WatchlistRepository(db.watchlistDao(), clock) { tmdbId, _ -> tmdbId != 38700 }
+        val readingRepo = WatchlistRepository(db.watchlistDao(), clock) { tmdbId, _, _ -> tmdbId != 38700 }
 
         val state = viewModel(readingRepo).uiState.first { it.rows.size == 2 }
 

@@ -17,6 +17,7 @@ import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
+import org.seg7.familywatchlist.data.repository.RegionCatalogRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
@@ -70,6 +71,12 @@ class AppContainer(context: Context) {
 
     val watchlistRepository: WatchlistRepository by lazy {
         WatchlistRepository(database.watchlistDao(), clock, availabilityGate::isAvailableOnSubscribedProvider)
+    }
+
+    // PLAN.md §7 M2f: Settings' region picker source, cached in-memory for the process's life
+    // (see the class kdoc for why a 24h-style TTL doesn't apply here).
+    val regionCatalogRepository: RegionCatalogRepository by lazy {
+        RegionCatalogRepository(tmdbApi)
     }
 
     val ratingRepository: RatingRepository by lazy {

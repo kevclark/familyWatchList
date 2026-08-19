@@ -11,6 +11,7 @@ import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.remote.TmdbApi
+import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
 
 /**
  * Offline-first title detail cache (PLAN.md §3). One TMDB detail call (with
@@ -67,14 +68,20 @@ class TitleRepository(
     private val TitleEntity.isStubOnly: Boolean
         get() = runtimeMin == null && certification == null
 
-    /** Offline-first entry point: returns the cached row unless it's missing or provider-stale, in which case it refreshes first. */
-    suspend fun ensureFresh(tmdbId: Int, mediaType: MediaType): TitleEntity {
+    /**
+     * Offline-first entry point: returns the cached row unless it's missing or provider-stale,
+     * in which case it refreshes first. [region] (PLAN.md §7 M2f) picks which country's key
+     * [refresh] pulls out of the multi-country `watch/providers` payload — defaults to
+     * [REGION_GB] so pre-existing callers are unaffected; real callers thread the live
+     * `UserPreferencesRepository.region` value through.
+     */
+    suspend fun ensureFresh(tmdbId: Int, mediaType: MediaType, region: String = REGION_GB): TitleEntity {
         val cached = titleDao.get(tmdbId, mediaType)
         if (cached != null && !isProviderDataStale(cached)) return cached
-        return refresh(tmdbId, mediaType)
+        return refresh(tmdbId, mediaType, region)
     }
 
-    suspend fun refresh(tmdbId: Int, mediaType: MediaType): TitleEntity {
+    suspend fun refresh(tmdbId: Int, mediaType: MediaType, region: String = REGION_GB): TitleEntity {
         val now = clock.nowMillis()
         return when (mediaType) {
             MediaType.MOVIE -> {
@@ -82,7 +89,7 @@ class TitleRepository(
                 val entity = dto.toTitleEntity(now)
                 titleDao.upsert(entity)
                 titleAttributeDao.replaceForTitle(tmdbId, MediaType.MOVIE, dto.toAttributes())
-                providerAvailabilityDao.replaceForTitle(tmdbId, MediaType.MOVIE, dto.toAvailability(now))
+                providerAvailabilityDao.replaceForTitle(tmdbId, MediaType.MOVIE, dto.toAvailability(now, region))
                 entity
             }
             MediaType.TV -> {
@@ -90,11 +97,23 @@ class TitleRepository(
                 val entity = dto.toTitleEntity(now)
                 titleDao.upsert(entity)
                 titleAttributeDao.replaceForTitle(tmdbId, MediaType.TV, dto.toAttributes())
-                providerAvailabilityDao.replaceForTitle(tmdbId, MediaType.TV, dto.toAvailability(now))
+                providerAvailabilityDao.replaceForTitle(tmdbId, MediaType.TV, dto.toAvailability(now, region))
                 entity
             }
         }
     }
+
+    /**
+     * PLAN.md §7 M2f: the region preference changed. `provider_availability` rows carry no
+     * region column (PLAN.md §2 modelled them as GB-only), and this class's shared
+     * [TitleEntity.fetchedAt] would otherwise keep serving up to 7 more days of the *old*
+     * region's providers, silently mislabeled as the new region's — a wrong-data bug, worse than
+     * the stale-but-honest data this fixes. Forcing every title stale makes the next
+     * [ensureFresh] per title do a real refetch (now using the current region). Same
+     * "invalidate on preference change" precedent as [DiscoverRepository.invalidateAllCachedPages]
+     * / [ProviderRepository.setSubscribed] (PLAN.md M2e) — called from Settings' region picker.
+     */
+    suspend fun invalidateAllProviderData() = titleDao.expireAllFetchedAt()
 
     companion object {
         val METADATA_TTL_MS: Long = TimeUnit.DAYS.toMillis(30)

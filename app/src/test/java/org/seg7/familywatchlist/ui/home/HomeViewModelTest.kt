@@ -1,7 +1,11 @@
 package org.seg7.familywatchlist.ui.home
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -15,11 +19,13 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.MainDispatcherRule
@@ -45,6 +51,7 @@ class HomeViewModelTest {
     private lateinit var clock: FakeClock
     private lateinit var discoverRepository: DiscoverRepository
     private lateinit var providerRepository: ProviderRepository
+    private lateinit var userPreferencesRepository: UserPreferencesRepository
 
     private val profileId = 7L
 
@@ -57,6 +64,10 @@ class HomeViewModelTest {
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
         discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        userPreferencesRepository = UserPreferencesRepository(
+            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("home_vm_prefs") }),
+        )
 
         listOf(38700 to "Spider-Man: No Way Home", 12345 to "Paddington").forEach { (id, name) ->
             db.titleDao().upsert(
@@ -77,14 +88,14 @@ class HomeViewModelTest {
     }
 
     private fun viewModel(watchlistRepository: WatchlistRepository) =
-        HomeViewModel(discoverRepository, providerRepository, watchlistRepository)
+        HomeViewModel(discoverRepository, providerRepository, watchlistRepository, userPreferencesRepository)
 
     @Test
     fun `an item that has lost availability is flagged so Home's My List carousel can dim it`() = runTest {
-        val addingRepo = WatchlistRepository(db.watchlistDao(), clock) { _, _ -> true }
+        val addingRepo = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
         addingRepo.add(38700, MediaType.MOVIE, profileId)
         addingRepo.add(12345, MediaType.MOVIE, profileId)
-        val readingRepo = WatchlistRepository(db.watchlistDao(), clock) { tmdbId, _ -> tmdbId != 38700 }
+        val readingRepo = WatchlistRepository(db.watchlistDao(), clock) { tmdbId, _, _ -> tmdbId != 38700 }
 
         val state = viewModel(readingRepo).myList.first { it.size == 2 }
 
@@ -95,7 +106,7 @@ class HomeViewModelTest {
 
     @Test
     fun `removeFromWatchlist actually removes the entry — the carousel's direct clean-up action`() = runTest {
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
         watchlistRepository.add(38700, MediaType.MOVIE, profileId)
         val vm = viewModel(watchlistRepository)
         vm.myList.first { it.isNotEmpty() }
@@ -104,5 +115,25 @@ class HomeViewModelTest {
 
         assertTrue(vm.myList.first { it.isEmpty() }.isEmpty())
         assertEquals(WatchlistState.REMOVED, watchlistRepository.get(38700, MediaType.MOVIE)?.state)
+    }
+
+    /**
+     * PLAN.md §7 M2f: refresh() must source region from the live preference — not the
+     * compile-time GB default — and actually send it, not silently keep hitting TMDB for GB.
+     */
+    @Test
+    fun `refresh sends the live region preference to discover, not a hardcoded GB`() = runTest {
+        userPreferencesRepository.setRegion("US")
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
+        server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        viewModel(watchlistRepository).uiState.first { !it.isLoading }
+
+        val movieRequest = server.takeRequest()
+        val tvRequest = server.takeRequest()
+        assertTrue(movieRequest.target.contains("watch_region=US"))
+        assertTrue(tvRequest.target.contains("watch_region=US"))
     }
 }

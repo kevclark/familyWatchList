@@ -1,6 +1,7 @@
 package org.seg7.familywatchlist.data.repository
 
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -45,12 +46,12 @@ class WatchlistRepositoryTest {
         db.close()
     }
 
-    private fun repository(isAvailable: suspend (Int, MediaType) -> Boolean) =
+    private fun repository(isAvailable: suspend (Int, MediaType, String) -> Boolean) =
         WatchlistRepository(db.watchlistDao(), clock, isAvailable)
 
     @Test
     fun `add succeeds and writes an ACTIVE entry when the gate passes`() = runTest {
-        val repo = repository { _, _ -> true }
+        val repo = repository { _, _, _ -> true }
 
         val result = repo.add(38700, MediaType.MOVIE, profileId)
 
@@ -60,7 +61,7 @@ class WatchlistRepositoryTest {
 
     @Test
     fun `add is rejected and writes nothing when the gate fails`() = runTest {
-        val repo = repository { _, _ -> false }
+        val repo = repository { _, _, _ -> false }
 
         val result = repo.add(38700, MediaType.MOVIE, profileId)
 
@@ -70,7 +71,7 @@ class WatchlistRepositoryTest {
 
     @Test
     fun `toggle's add half is gated the same way as add`() = runTest {
-        val repo = repository { _, _ -> false }
+        val repo = repository { _, _, _ -> false }
 
         val result = repo.toggle(38700, MediaType.MOVIE, profileId)
 
@@ -80,11 +81,11 @@ class WatchlistRepositoryTest {
 
     @Test
     fun `toggle's remove half is never gated — taking something off the list always works`() = runTest {
-        val repo = repository { _, _ -> true }
+        val repo = repository { _, _, _ -> true }
         repo.add(38700, MediaType.MOVIE, profileId)
 
         // Availability having since disappeared must not block removing it.
-        val neverAvailable = repository { _, _ -> false }
+        val neverAvailable = repository { _, _, _ -> false }
         val result = neverAvailable.toggle(38700, MediaType.MOVIE, profileId)
 
         assertEquals(WatchlistAddResult.REMOVED, result)
@@ -94,11 +95,23 @@ class WatchlistRepositoryTest {
     @Test
     fun `the gate is consulted with the exact title being added`() = runTest {
         val checkedIds = mutableListOf<Pair<Int, MediaType>>()
-        val repo = repository { tmdbId, mediaType -> checkedIds.add(tmdbId to mediaType); true }
+        val repo = repository { tmdbId, mediaType, _ -> checkedIds.add(tmdbId to mediaType); true }
 
         repo.add(12345, MediaType.TV, profileId)
 
         assertEquals(listOf(12345 to MediaType.TV), checkedIds)
+    }
+
+    /** PLAN.md §7 M2f: region is a real call-time parameter into the gate, not silently GB. */
+    @Test
+    fun `add threads the given region into the availability check, not a hardcoded GB`() = runTest {
+        val checkedRegions = mutableListOf<String>()
+        val repo = repository { _, _, region -> checkedRegions.add(region); true }
+
+        repo.add(38700, MediaType.MOVIE, profileId, region = "US")
+        repo.toggle(12345, MediaType.TV, profileId, region = "FR")
+
+        assertEquals(listOf("US", "FR"), checkedRegions)
     }
 
     @Test
@@ -122,14 +135,14 @@ class WatchlistRepositoryTest {
         seedTitle(38700, "Spider-Man: No Way Home")
         seedTitle(12345, "Paddington")
         // Both added while available…
-        val addingRepo = repository { _, _ -> true }
+        val addingRepo = repository { _, _, _ -> true }
         addingRepo.add(38700, MediaType.MOVIE, profileId)
         clock.advanceBy(1_000)
         addingRepo.add(12345, MediaType.MOVIE, profileId)
 
         // …but only 38700 has since lost it.
-        val readingRepo = repository { tmdbId, _ -> tmdbId != 38700 }
-        val rows = readingRepo.observeActiveItemsWithAvailability().first()
+        val readingRepo = repository { tmdbId, _, _ -> tmdbId != 38700 }
+        val rows = readingRepo.observeActiveItemsWithAvailability(flowOf("GB")).first()
 
         val byId = rows.associateBy { it.item.tmdbId }
         assertFalse("an item that's lost availability must be flagged unavailable", byId.getValue(38700).isAvailable)
@@ -140,11 +153,11 @@ class WatchlistRepositoryTest {
     fun `observeActiveItemsWithAvailability marks every item available when the gate still passes for all of them`() = runTest {
         seedTitle(38700, "Paddington")
         seedTitle(12345, "Arrival")
-        val repo = repository { _, _ -> true }
+        val repo = repository { _, _, _ -> true }
         repo.add(38700, MediaType.MOVIE, profileId)
         repo.add(12345, MediaType.MOVIE, profileId)
 
-        val rows = repo.observeActiveItemsWithAvailability().first()
+        val rows = repo.observeActiveItemsWithAvailability(flowOf("GB")).first()
 
         assertEquals(2, rows.size)
         assertTrue(rows.all { it.isAvailable })
@@ -153,11 +166,11 @@ class WatchlistRepositoryTest {
     @Test
     fun `observeActiveItemsWithAvailability only surfaces ACTIVE entries, same as observeActiveItems`() = runTest {
         seedTitle(38700, "Paddington")
-        val repo = repository { _, _ -> true }
+        val repo = repository { _, _, _ -> true }
         repo.add(38700, MediaType.MOVIE, profileId)
         repo.remove(38700, MediaType.MOVIE)
 
-        val rows = repo.observeActiveItemsWithAvailability().first()
+        val rows = repo.observeActiveItemsWithAvailability(flowOf("GB")).first()
 
         assertTrue(rows.isEmpty())
     }

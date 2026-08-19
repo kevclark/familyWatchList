@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.seg7.familywatchlist.data.remote.TmdbApi
 
 /**
  * PLAN.md §5a "Post-M2b decisions": the app's single accent colour, now a user preference
@@ -57,6 +58,31 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
                 ?: AccentColor.OBSIDIAN
         }
 
+    /**
+     * PLAN.md §7 M2f: TMDB doesn't do IP geolocation — `watch_region` is an explicit parameter
+     * this app sends, so it has to live somewhere the user can change it. An ISO 3166-1 alpha-2
+     * code (e.g. "GB", "US"), stored as a plain string rather than an enum since the valid set
+     * comes from TMDB's own `/watch/providers/regions` endpoint ([RegionCatalogRepository]), not
+     * a fixed list this app hand-maintains. A missing or malformed stored value (anything that
+     * isn't exactly 2 characters) falls back to [DEFAULT_REGION], same defensive posture as
+     * [accentColor].
+     */
+    val region: Flow<String> =
+        dataStore.data.map { prefs -> prefs[REGION]?.takeIf { it.length == 2 } ?: DEFAULT_REGION }
+
+    /**
+     * PLAN.md §7 M2f's open design question, resolved: subscribed-provider IDs are
+     * region-specific (BBC iPlayer/Channel 4/ITVX don't exist outside the UK), so switching
+     * region can leave the existing subscribed list producing sparse/empty results without
+     * erroring. Rather than auto-clearing the subscribed list (surprising and lossy) or silently
+     * accepting degraded results, this flag drives a dismissible inline notice in Settings
+     * prompting the user back into the services picker — visible until they've revisited it
+     * (cleared by [org.seg7.familywatchlist.ui.onboarding.OnboardingViewModel]'s services-step
+     * exit paths, `dismiss()`/`onServicesConfirmed()`), not auto-cleared by anything else.
+     */
+    val regionServicesMismatch: Flow<Boolean> =
+        dataStore.data.map { it[REGION_SERVICES_MISMATCH] ?: false }
+
     suspend fun setOnboardingComplete(complete: Boolean) {
         dataStore.edit { it[ONBOARDING_COMPLETE] = complete }
     }
@@ -77,11 +103,32 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[ACCENT_COLOR] = accent.name }
     }
 
+    /**
+     * Persists the new region and, when it's a genuine change from whatever was in effect
+     * before (explicit or [DEFAULT_REGION]), flags [regionServicesMismatch] — the subscribed
+     * provider list was chosen for the *old* region and may not apply to the new one.
+     */
+    suspend fun setRegion(region: String) {
+        dataStore.edit { prefs ->
+            val previous = prefs[REGION] ?: DEFAULT_REGION
+            prefs[REGION] = region
+            if (previous != region) prefs[REGION_SERVICES_MISMATCH] = true
+        }
+    }
+
+    /** The user has revisited (or dismissed their way past) the services picker after a region change. */
+    suspend fun clearRegionServicesMismatch() {
+        dataStore.edit { it[REGION_SERVICES_MISMATCH] = false }
+    }
+
     companion object {
         val ONBOARDING_COMPLETE: Preferences.Key<Boolean> = booleanPreferencesKey("onboarding_complete")
         val ACTIVE_PROFILE_ID: Preferences.Key<Long> = longPreferencesKey("active_profile_id")
         val SERVICES_SETUP_REQUESTED: Preferences.Key<Boolean> =
             booleanPreferencesKey("services_setup_requested")
         val ACCENT_COLOR: Preferences.Key<String> = stringPreferencesKey("accent_color")
+        val REGION: Preferences.Key<String> = stringPreferencesKey("region")
+        val REGION_SERVICES_MISMATCH: Preferences.Key<Boolean> = booleanPreferencesKey("region_services_mismatch")
+        const val DEFAULT_REGION: String = TmdbApi.REGION_GB
     }
 }

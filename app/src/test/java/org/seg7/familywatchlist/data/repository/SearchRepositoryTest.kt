@@ -78,6 +78,26 @@ class SearchRepositoryTest {
         assertEquals(listOf("Paddington"), finalResults.map { it.title })
     }
 
+    /** PLAN.md §7 M2f: search resolves availability against the given region, not a hardcoded GB. */
+    @Test
+    fun `search resolves availability for the given region, not a hardcoded GB`() = runTest {
+        db.providerDao().upsertAll(listOf(ProviderEntity(9, "Amazon Prime Video", null, subscribed = true, displayPriority = 1)))
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = SINGLE_RESULT_JSON) },
+                "/movie/38700" to {
+                    MockResponse(
+                        body = """{"id": 38700, "title": "Paddington", "watch/providers": {"results": {"US": {"flatrate": [{"provider_id": 9, "provider_name": "Amazon Prime Video"}]}}}}"""
+                    )
+                },
+            )
+        )
+
+        val finalResults = repo.search("paddington", region = "US").last()
+
+        assertEquals(listOf("Paddington"), finalResults.map { it.title })
+    }
+
     @Test
     fun `an empty raw search never spawns an availability check`() = runTest {
         server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":0,"total_results":0}"""))
@@ -99,6 +119,17 @@ class SearchRepositoryTest {
     }
 
     private companion object {
+        val SINGLE_RESULT_JSON = """
+            {
+              "page": 1,
+              "results": [
+                {"id": 38700, "media_type": "movie", "title": "Paddington", "release_date": "2014-11-28", "poster_path": "/p.jpg", "vote_average": 7.2, "popularity": 33.1}
+              ],
+              "total_pages": 1,
+              "total_results": 1
+            }
+        """.trimIndent()
+
         val MIXED_SEARCH_JSON = """
             {
               "page": 1,

@@ -6,6 +6,7 @@ import org.seg7.familywatchlist.data.remote.dto.MovieDetailDto
 import org.seg7.familywatchlist.data.remote.dto.PagedResponseDto
 import org.seg7.familywatchlist.data.remote.dto.ProviderListResponseDto
 import org.seg7.familywatchlist.data.remote.dto.TvDetailDto
+import org.seg7.familywatchlist.data.remote.dto.WatchProviderRegionsResponseDto
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -73,6 +74,14 @@ interface TmdbApi {
 
     @GET("configuration")
     suspend fun configuration(): ConfigurationDto
+
+    /**
+     * PLAN.md §7 M2f: the live, always-current list of regions TMDB's watch-provider data
+     * supports — sourced from TMDB itself rather than a hand-maintained country list, so
+     * Settings' region picker never drifts from what the API actually understands.
+     */
+    @GET("watch/providers/regions")
+    suspend fun watchProviderRegions(): WatchProviderRegionsResponseDto
 
     companion object {
         const val REGION_GB = "GB"

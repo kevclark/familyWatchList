@@ -109,6 +109,27 @@ class TmdbApiTest {
         assertEquals(listOf("Netflix", "Amazon Prime Video"), providers.results.map { it.providerName })
     }
 
+    /** PLAN.md §7 M2f: watch_region is a real call-time parameter, not a silently-baked GB default. */
+    @Test
+    fun `discover movie sends a non-default watch_region when one is passed`() = runTest {
+        server.enqueue(MockResponse(body = DISCOVER_MOVIE_JSON))
+
+        api.discoverMovies(watchRegion = "US", withWatchProviders = "8|337")
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.target.contains("watch_region=US"))
+    }
+
+    @Test
+    fun `watch provider regions decodes the live TMDB region list`() = runTest {
+        server.enqueue(MockResponse(body = REGIONS_JSON))
+
+        val regions = api.watchProviderRegions()
+
+        assertEquals(listOf("GB", "US"), regions.results.map { it.isoCode })
+        assertEquals(listOf("United Kingdom", "United States"), regions.results.map { it.englishName })
+    }
+
     private companion object {
         val PADDINGTON_MOVIE_DETAIL_JSON = """
             {
@@ -214,6 +235,15 @@ class TmdbApiTest {
               "results": [
                 {"provider_id": 8, "provider_name": "Netflix", "logo_path": "/n.png", "display_priority": 1},
                 {"provider_id": 9, "provider_name": "Amazon Prime Video", "logo_path": "/a.png", "display_priority": 2}
+              ]
+            }
+        """.trimIndent()
+
+        val REGIONS_JSON = """
+            {
+              "results": [
+                {"iso_3166_1": "GB", "english_name": "United Kingdom", "native_name": "United Kingdom"},
+                {"iso_3166_1": "US", "english_name": "United States", "native_name": "United States"}
               ]
             }
         """.trimIndent()

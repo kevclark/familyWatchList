@@ -6,6 +6,7 @@ import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderKind
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
 import org.seg7.familywatchlist.data.remote.dto.MovieDetailDto
 import org.seg7.familywatchlist.data.remote.dto.TvDetailDto
@@ -72,21 +73,30 @@ fun TvDetailDto.toAttributes(): List<TitleAttributeEntity> = buildList {
     }
 }
 
-fun MovieDetailDto.toAvailability(fetchedAt: Long): List<ProviderAvailabilityEntity> =
-    watchProviders.toAvailability(id, MediaType.MOVIE, fetchedAt)
+/**
+ * PLAN.md §7 M2f: [region] picks which country's key to pull out of the multi-country
+ * `watch/providers` payload — the TMDB detail call itself has no `watch_region` parameter (it
+ * returns every country TMDB has data for in one response), so region only matters here, at
+ * extraction time. Defaults to [org.seg7.familywatchlist.data.remote.TmdbApi.REGION_GB] so the
+ * many pre-existing call sites (tests, and any caller that hasn't been threaded through yet)
+ * keep their original GB behaviour unless they deliberately pass something else.
+ */
+fun MovieDetailDto.toAvailability(fetchedAt: Long, region: String = TmdbApi.REGION_GB): List<ProviderAvailabilityEntity> =
+    watchProviders.toAvailability(id, MediaType.MOVIE, fetchedAt, region)
 
-fun TvDetailDto.toAvailability(fetchedAt: Long): List<ProviderAvailabilityEntity> =
-    watchProviders.toAvailability(id, MediaType.TV, fetchedAt)
+fun TvDetailDto.toAvailability(fetchedAt: Long, region: String = TmdbApi.REGION_GB): List<ProviderAvailabilityEntity> =
+    watchProviders.toAvailability(id, MediaType.TV, fetchedAt, region)
 
 private fun WatchProvidersResponseDto?.toAvailability(
     tmdbId: Int,
     mediaType: MediaType,
     fetchedAt: Long,
+    region: String,
 ): List<ProviderAvailabilityEntity> {
-    val gb = this?.results?.get(GB) ?: return emptyList()
+    val forRegion = this?.results?.get(region) ?: return emptyList()
     return buildList {
-        gb.flatrate.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FLATRATE, fetchedAt)) }
-        gb.free.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FREE, fetchedAt)) }
+        forRegion.flatrate.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FLATRATE, fetchedAt)) }
+        forRegion.free.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FREE, fetchedAt)) }
     }
 }
 

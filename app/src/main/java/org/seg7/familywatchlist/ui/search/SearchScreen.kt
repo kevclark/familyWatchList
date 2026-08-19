@@ -82,6 +82,7 @@ fun SearchScreen(
                     container.watchlistRepository,
                     container.providerRepository,
                     activeProfileId,
+                    container.userPreferencesRepository,
                 )
             }
         },
