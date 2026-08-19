@@ -138,6 +138,14 @@ generous, but we behave as if it's tight:
 
 ## 4. Recommendation algorithm (content-based, fully local)
 
+**Home hero banner — design note for M3 (Kev, 2026-08-19):** his original concern about the
+hero (before M2e's investigation into whether Spider-Man was genuinely available) was really
+"why does a single specific movie dominate Home by default," not data accuracy specifically.
+The hero currently sources from `discover.movies.firstOrNull()` — "most popular on your
+services," a generic, impersonal pick for something that visually prominent. Once this section's
+scoring exists, M3 should make the hero source from the profile's top-scored personalised pick
+instead of raw popularity — genuinely meaningful rather than generic. Revisit at that point.
+
 Per profile, build an **affinity vector** over attributes (genres, keywords, top-10 cast,
 director/creator):
 
