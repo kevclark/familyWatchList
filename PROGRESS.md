@@ -247,6 +247,27 @@ alternatives and why) in PLAN.md §5a "Search & watchlist availability gating".
       known hero/gradient-scrim crash twice navigating the details screen. Covered instead by
       dedicated JVM tests (`WatchlistRepositoryTest`, `SearchViewModelTest`'s blocked-add case).
 
+**Real bug fixed along the way (not scope creep — gating was silently broken without it):**
+`TitleRepository.isProviderDataStale` judged freshness by timestamp alone, so a search/discover
+stub (fresh `fetchedAt`, but no runtime/certification — i.e. never actually detail-fetched)
+looked "fresh" and `ensureFresh` never fetched real availability data. Every search would have
+silently returned zero results. Fixed by also treating a stub-only row as stale (reusing the
+existing runtime/certification heuristic already used elsewhere). Also fixed, unrelated:
+`LogWatchSheet.kt`'s "Today" chip called `LocalDate.now()` directly instead of the sheet's
+injected clock, breaking `LogWatchFlowUiTest` the moment a run crossed a real midnight —
+threaded the injected `today` through properly.
+
+**Two open questions for Kev, not yet answered — implemented literally per spec, flagged
+rather than silently resolved:**
+- **Search with zero subscribed providers returns nothing at all.** Home's "Popular on your
+  services" row has an explicit fallback for this case (PLAN.md §4's cold start); Search has no
+  such carve-out specified, so it now just returns an empty result for every query until at
+  least one service is subscribed. Worth confirming that's actually wanted, vs. Search also
+  needing a "nothing subscribed yet" fallback message.
+- **Existing watchlist entries aren't pruned when they lose availability** — implemented as
+  documented in PLAN.md §5a, but that specific default was never explicitly confirmed by Kev,
+  only assumed reasonable by the orchestrator. Flag again here since it's now live.
+
 ## M2e — Home hero/discover filtering bug (queued, not yet launched)
 
 Kev found the Home hero banner showing Spider-Man: No Way Home — TMDB's most "popular"
