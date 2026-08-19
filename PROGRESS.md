@@ -214,6 +214,34 @@ timing/environment flake in this sandbox (`createComposeRule`'s `UnconfinedTestD
 racing the save coroutine), not something this pass introduced or can fix without touching a
 test outside its scope. Not weakened or skipped.
 
+## M2d — Search & watchlist availability gating
+
+Kev's review while live-testing (2026-08-19): found Spider-Man: No Way Home reachable via the
+app with no UK availability at all, and pushed back hard on M2b's "search is a general,
+unfiltered finder" design — never actually his requirement, an unvalidated agent inference
+this orchestrator wrongly represented as settled. Full spec (including the two rejected
+alternatives and why) in PLAN.md §5a "Search & watchlist availability gating".
+
+- [ ] Search results filtered to GB availability on a subscribed provider — search-then-check
+      against cached/fetched `ProviderAvailability`, not a TMDB query param (doesn't exist)
+- [ ] Availability checks throttled at the existing 4 req/s; results settle progressively
+      (accepted UX trade-off, not a bug to "fix" later)
+- [ ] In-flight availability checks cancelled on a new query (extend the existing search
+      dedupe/cancellation pattern in `SearchViewModel`) — avoid a stale batch overwriting
+      a newer query's results
+- [ ] `WatchlistRepository.add()`/`toggle()` blocked with a clear message unless the title has
+      GB availability on a subscribed provider — reuse search's resolution logic, don't
+      duplicate it
+- [ ] Existing watchlist entries are NOT retroactively removed if they later lose availability
+      — gate applies at add-time only (default Kev hasn't explicitly confirmed — flag if wrong)
+- [ ] Log-watch and History remain explicitly ungated — do not extend the restriction there
+- [ ] `SearchRepository`'s now-incorrect kdoc ("§5 screen 5 is a title finder") updated to
+      reflect the real, gated behaviour
+- [ ] Tests: availability-check filtering logic, cancellation-on-requery, watchlist add
+      rejection when unavailable
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Screenshot(s)/live verification of gated search + a blocked watchlist-add attempt
+
 ## M3 — Recommender
 
 Done means: scoring engine (incl. watchlist signal) + fixture-based unit tests, Home
