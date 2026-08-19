@@ -6,6 +6,10 @@ Every milestone ends with `./gradlew test assembleDebug` green.
 Last updated: 2026-08-19 (M2c complete — accent colour as a live user preference defaulting to
 Obsidian, always-visible pre-M3 "For You" placeholder on Home — by `feature-builder`).
 
+**Queued (not yet launched):** emulator SIGSEGV on hero/gradient-scrim rendering at native
+resolution — 3rd occurrence, hit live by Kev on 2026-08-19. Full detail in PLAN.md §8. Job for
+`toolchain-setup`; run whenever agent101 isn't mid-use for live testing.
+
 ---
 
 ## M0 — Toolchain + scaffolded Compose app ✅
