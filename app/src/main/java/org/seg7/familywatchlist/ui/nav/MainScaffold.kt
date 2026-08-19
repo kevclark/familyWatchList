@@ -137,7 +137,11 @@ fun MainScaffold(activeProfile: ProfileEntity, modifier: Modifier = Modifier) {
                     )
                 }
                 composable(BottomTab.Search.route) {
-                    SearchScreen(activeProfileId = activeProfile.id, onOpenTitle = openTitle)
+                    SearchScreen(
+                        activeProfileId = activeProfile.id,
+                        onOpenTitle = openTitle,
+                        onOpenSettings = { switchTab(BottomTab.Settings.route) },
+                    )
                 }
                 composable(BottomTab.MyList.route) {
                     MyListScreen(

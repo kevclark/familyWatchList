@@ -9,10 +9,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import org.seg7.familywatchlist.data.local.dao.WatchlistItem
+import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.WatchlistItemAvailability
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
 /**
@@ -27,7 +28,9 @@ import org.seg7.familywatchlist.data.repository.WatchlistRepository
  * personalised rows outright.
  *
  * This VM builds the rows it can honestly populate with real data:
- *  - **My List** — real, from [WatchlistRepository].
+ *  - **My List** — real, from [WatchlistRepository], with each item's live availability resolved
+ *    alongside it (PLAN.md §5a M2g) so a title that's lost its streaming home renders dimmed with
+ *    a direct remove action instead of looking identical to everything else on the list.
  *  - **Popular films / series on your services** — real, from `/discover` filtered to the
  *    subscribed GB providers. This is also PLAN.md §4's cold-start fallback ("< 5 watch events
  *    → popular-on-your-services"), so M3 inherits it rather than replacing it.
@@ -40,11 +43,11 @@ import org.seg7.familywatchlist.data.repository.WatchlistRepository
 class HomeViewModel(
     private val discoverRepository: DiscoverRepository,
     private val providerRepository: ProviderRepository,
-    watchlistRepository: WatchlistRepository,
+    private val watchlistRepository: WatchlistRepository,
 ) : ViewModel() {
 
     private val _discover = MutableStateFlow(DiscoverState())
-    val myList: StateFlow<List<WatchlistItem>> = watchlistRepository.observeActiveItems()
+    val myList: StateFlow<List<WatchlistItemAvailability>> = watchlistRepository.observeActiveItemsWithAvailability()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val uiState: StateFlow<HomeUiState> = combine(myList, _discover) { list, discover ->
@@ -96,6 +99,15 @@ class HomeViewModel(
         }
     }
 
+    /**
+     * PLAN.md §5a M2g: the direct clean-up action on a dimmed "My List" carousel card — removes
+     * without a detour through the details screen. Removing is never gated (see
+     * [WatchlistRepository.remove]'s kdoc), so this is a plain delegation.
+     */
+    fun removeFromWatchlist(tmdbId: Int, mediaType: MediaType) {
+        viewModelScope.launch { watchlistRepository.remove(tmdbId, mediaType) }
+    }
+
     private data class DiscoverState(
         val movies: List<TitleEntity> = emptyList(),
         val tv: List<TitleEntity> = emptyList(),
@@ -107,7 +119,7 @@ class HomeViewModel(
 
 data class HomeUiState(
     val hero: TitleEntity? = null,
-    val myList: List<WatchlistItem> = emptyList(),
+    val myList: List<WatchlistItemAvailability> = emptyList(),
     val popularMovies: List<TitleEntity> = emptyList(),
     val popularTv: List<TitleEntity> = emptyList(),
     val isLoading: Boolean = false,

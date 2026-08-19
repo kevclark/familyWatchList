@@ -147,6 +147,11 @@ fun MyListScreen(
                             width = Dimens.PosterWidthLarge,
                             label = true,
                             isListed = true,
+                            // PLAN.md §5a M2g: unavailable items render dimmed. The existing ✓
+                            // quick-add badge already removes directly from this screen for any
+                            // item (available or not) — that's the pre-existing direct-remove
+                            // path this pass reuses rather than duplicating.
+                            dimmed = !row.isAvailable,
                             onQuickAdd = { viewModel.remove(row.item.tmdbId, row.item.mediaType) },
                         )
                         // The added-by tag — the whole reason this screen exists alongside the row.

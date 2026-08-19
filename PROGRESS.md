@@ -3,8 +3,8 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-19 (emulator hero/gradient-scrim SIGSEGV root-caused and fixed via
-`-gpu swangle` — by `toolchain-setup`).
+Last updated: 2026-08-19 (M2g — Search's zero-services empty state and unavailable watchlist
+item dimming + direct remove — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -266,15 +266,16 @@ injected clock, breaking `LogWatchFlowUiTest` the moment a run crossed a real mi
 threaded the injected `today` through properly.
 
 **Two open questions for Kev, not yet answered — implemented literally per spec, flagged
-rather than silently resolved:**
-- **Search with zero subscribed providers returns nothing at all.** Home's "Popular on your
+rather than silently resolved. Both since confirmed by Kev and resolved in M2g (below):**
+- **Search with zero subscribed providers returns nothing at all.** ~~Home's "Popular on your
   services" row has an explicit fallback for this case (PLAN.md §4's cold start); Search has no
   such carve-out specified, so it now just returns an empty result for every query until at
-  least one service is subscribed. Worth confirming that's actually wanted, vs. Search also
-  needing a "nothing subscribed yet" fallback message.
-- **Existing watchlist entries aren't pruned when they lose availability** — implemented as
+  least one service is subscribed.~~ **Resolved M2g:** Search now shows an explicit "No services
+  selected" empty state in this case, distinct from a genuine no-results-for-this-query message.
+- **Existing watchlist entries aren't pruned when they lose availability** — ~~implemented as
   documented in PLAN.md §5a, but that specific default was never explicitly confirmed by Kev,
-  only assumed reasonable by the orchestrator. Flag again here since it's now live.
+  only assumed reasonable by the orchestrator.~~ **Resolved M2g:** the "don't auto-remove" default
+  stands (confirmed by Kev), refined with dimmed rendering + a direct remove action instead.
 
 ## M2e — Home hero/discover filtering bug ✅
 
@@ -368,23 +369,64 @@ check what's actually available where he is. Low priority, no urgency — queued
 - [ ] Tests: preference default/round-trip, region threading through discover/search calls
 - [ ] `./gradlew test assembleDebug` green
 
-## M2g — Search empty-state message + unavailable watchlist item treatment (queued)
+## M2g — Search empty-state message + unavailable watchlist item treatment ✅
 
 Kev's answers to M2d's two open questions, 2026-08-19. Both confirmed, not just proposed —
-build as specified:
+built as specified:
 
-- [ ] Search shows explicit textual feedback when zero providers are subscribed (rather than a
-      silent empty result list) — same spirit as Home's cold-start message, adapted for Search
-- [ ] Watchlist items that have lost availability render visually dimmed/greyed directly on
+- [x] Search shows explicit textual feedback when zero providers are subscribed (rather than a
+      silent empty result list) — same spirit as Home's cold-start message, adapted for Search.
+      `SearchViewModel` now sources `hasSubscribedServices` from
+      `ProviderRepository.observeSubscribed()` (new constructor param) and threads it into
+      `SearchUiState`; `SearchScreen` checks it ahead of the searching/error/query branches so it
+      applies immediately, before any query is typed, not just after a search returns empty. The
+      message ("No services selected" / "Search only shows what's on a service you're subscribed
+      to — choose some in Settings to see results.") is kept clearly distinct from the pre-existing
+      "Nothing available on your services matched '{query}'" wording so the two empty-result
+      causes never read as the same thing — a "Choose your services" button jumps straight to the
+      Settings tab.
+- [x] Watchlist items that have lost availability render visually dimmed/greyed directly on
       their card, in every context they appear — Home's My List carousel AND the full My
-      List/watchlist screen — not only discoverable by tapping into the details screen
-- [ ] An explicit remove/clean-up action for an unavailable item is reachable from that same
-      list context directly (e.g. long-press or a visible control on the card) — no detour
-      through details required
-- [ ] Tests: dimmed-state rendering logic, remove action
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification — no longer blocked: the emulator crash is fixed as of 2026-08-19,
-      boot with `-gpu swangle` (see PLAN.md §8)
+      List/watchlist screen — not only discoverable by tapping into the details screen.
+      `WatchlistRepository.observeActiveItemsWithAvailability()` (new) reuses the exact same
+      `isAvailable` check `add()` already gates on (in production,
+      `AvailabilityGate.isAvailableOnSubscribedProvider` — not duplicated), resolved per item in
+      parallel on every emission (no extra caching/throttling layer — PLAN.md §5a's own note that
+      a family watchlist is short enough for this to be fine). `HomeViewModel.myList` and
+      `MyListViewModel`'s rows both carry the resulting `isAvailable` flag through to
+      `PosterCard`'s new `dimmed` parameter (poster art alpha 0.4, caption swapped to "Not on your
+      services", title colour dimmed) in both places.
+- [x] An explicit remove/clean-up action for an unavailable item is reachable from that same
+      list context directly — no detour through details required. Two mechanisms, one per
+      screen: the full My List screen already had a direct ✓-badge remove (pre-existing, from
+      M2b) that this pass reuses as-is; Home's compact carousel had no such control at all, so
+      `PosterCard` gained a dedicated `onRemoveUnavailable` slot — a small Crimson ✕ badge shown
+      **only** on dimmed cards (available items are untouched, per spec) — wired to
+      `HomeViewModel.removeFromWatchlist()` (new, delegates to `WatchlistRepository.remove`).
+- [x] Tests: dimmed-state rendering logic, remove action.
+      `WatchlistRepositoryTest` (3 new tests on `observeActiveItemsWithAvailability` — flags a
+      lost-availability item and leaves an available one alone, all-available case, ACTIVE-only
+      filtering); `MyListViewModelTest` (1 new test: the `isAvailable` flag reaches `MyListRow`
+      correctly through the full ViewModel, plus the pre-existing "removing a title drops it from
+      the list" test already covered remove); `HomeViewModelTest` (new file, 2 tests: the same
+      dimmed-flagging behaviour through `HomeViewModel.myList`, and `removeFromWatchlist` actually
+      flipping the entry to REMOVED); `SearchViewModelTest` (2 new tests: `hasSubscribedServices`
+      false with nothing subscribed before any search runs, flips true once a provider is
+      subscribed).
+- [x] `./gradlew test assembleDebug` green — 163 tests, 32 classes, 0 failures/errors.
+- [x] Live verification on-device (emulator booted with `-gpu swangle`, renderer confirmed via
+      `dumpsys SurfaceFlinger | grep GLES:` before trusting the session — see report). Forced an
+      already-listed title (Spider-Man: No Way Home, tmdbId 634649 — the same title from M2e,
+      genuinely still on the list from a prior session) into an unavailable state by deleting its
+      cached `provider_availability` rows directly via `run-as sqlite3` (fresh `fetchedAt` means
+      `ensureFresh` doesn't refetch and clobber the edit) — confirmed dimmed + "Not on your
+      services" on both Home's My List carousel and the full My List screen, confirmed the Home
+      carousel's new ✕ control actually flips the entry to REMOVED in the on-device DB. Separately
+      forced zero subscribed providers (via DB, with the app fully force-stopped first to avoid a
+      write race against in-flight Settings-screen toggles — see report) and confirmed Search's
+      new "No services selected" state, that its "Choose your services" button lands on Settings,
+      and that re-subscribing + a real query goes back to the ordinary
+      matched-nothing/has-results messaging.
 
 ## M3 — Recommender
 

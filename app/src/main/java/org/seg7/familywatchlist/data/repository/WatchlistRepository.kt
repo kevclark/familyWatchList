@@ -1,5 +1,8 @@
 package org.seg7.familywatchlist.data.repository
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.seg7.familywatchlist.common.AppClock
@@ -11,6 +14,18 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistState
 
 /** Outcome of [WatchlistRepository.add]/[WatchlistRepository.toggle] — lets callers tell a real add/remove apart from a gate rejection so they can surface *why* nothing happened. */
 enum class WatchlistAddResult { ADDED, REMOVED, UNAVAILABLE }
+
+/**
+ * A [WatchlistItem] paired with whether it currently passes the same availability check
+ * [WatchlistRepository.add] gates on — PLAN.md §5a's M2g refinement. An item added while
+ * available can quietly lose it later (add-time gating only, never retroactively removed); the
+ * UI needs to know which ones so it can render them dimmed, with a direct clean-up action,
+ * wherever the list appears (Home's "My List" carousel, the full My List screen).
+ */
+data class WatchlistItemAvailability(
+    val item: WatchlistItem,
+    val isAvailable: Boolean,
+)
 
 /**
  * PLAN.md §2: one shared family Want-to-Watch list, tagged with who added each title.
@@ -36,6 +51,28 @@ class WatchlistRepository(
     /** "My List" read-model: active entries joined to their cached titles, newest addition first. */
     fun observeActiveItems(): Flow<List<WatchlistItem>> =
         watchlistDao.observeItemsByState(WatchlistState.ACTIVE)
+
+    /**
+     * [observeActiveItems] with each entry's current availability resolved alongside it —
+     * PLAN.md §5a's M2g refinement. Reuses the exact same [isAvailable] check `add()` already
+     * gates on (in production, [AvailabilityGate.isAvailableOnSubscribedProvider]) rather than a
+     * third definition of "available" — Home's My List carousel and the full My List screen both
+     * read this instead of [observeActiveItems] so they can dim an item that's lost availability
+     * and offer a direct remove action for it.
+     *
+     * Checked per item, in parallel, on every emission of the underlying list — deliberately no
+     * extra caching/throttling layer beyond what [isAvailable] itself already does. A family's
+     * watchlist is expected to be short (unlike a ~20-result search page), so this is fine to do
+     * for every visible item rather than the batching Search needed.
+     */
+    fun observeActiveItemsWithAvailability(): Flow<List<WatchlistItemAvailability>> =
+        watchlistDao.observeItemsByState(WatchlistState.ACTIVE).map { items ->
+            coroutineScope {
+                items
+                    .map { item -> async { WatchlistItemAvailability(item, isAvailable(item.tmdbId, item.mediaType)) } }
+                    .awaitAll()
+            }
+        }
 
     /** Whether a given title is currently on the list — drives the ＋/✓ toggle on details and search cards. */
     fun observeIsListed(tmdbId: Int, mediaType: MediaType): Flow<Boolean> =
