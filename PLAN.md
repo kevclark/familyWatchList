@@ -349,6 +349,17 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
   export/share the TMDB cache.
 - **Emulator on 16GB alongside Gradle** — workable, but don't run full builds and emulator
   boot simultaneously; toolchain agent sets `org.gradle.jvmargs=-Xmx4g` and emulator RAM 2GB.
+- **Emulator SIGSEGV on hero/gradient-scrim rendering (queued for `toolchain-setup`).** The
+  `family_test` AVD has crashed with `SIGSEGV (Address boundary error)` three times now —
+  during M2b's and M2c's screenshot passes, and live in Kev's own scrcpy session on
+  2026-08-19 — always when a hero image with a gradient scrim renders (Home's hero banner,
+  title details) at native 1080×2400. Prime suspect: a `swiftshader` (software GL) limit at
+  higher framebuffer sizes, not an app bug. Verified workaround: `-memory 3072 -skin
+  720x1600` (the M2c build used this combination; whether the memory bump or the resolution
+  drop is actually load-bearing is unconfirmed — likely just the resolution). **Queued, not
+  yet launched** — investigate the real cause (try `-gpu swiftshader` vs `swiftshader_indirect`,
+  a newer system image, or host GPU passthrough) so native-resolution screenshots and live
+  testing don't need the workaround. Real Android hardware is unaffected either way.
 - **Stretch (post-M5, only if credit remains):** embedded trailer player, episode-level TV
   tracking (v1 tracks TV at series level), Play-Feature-style "leaving soon" via provider-TTL
   diffing.
