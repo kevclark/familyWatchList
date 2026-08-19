@@ -316,6 +316,23 @@ check what's actually available where he is. Low priority, no urgency — queued
 - [ ] Tests: preference default/round-trip, region threading through discover/search calls
 - [ ] `./gradlew test assembleDebug` green
 
+## M2g — Search empty-state message + unavailable watchlist item treatment (queued)
+
+Kev's answers to M2d's two open questions, 2026-08-19. Both confirmed, not just proposed —
+build as specified:
+
+- [ ] Search shows explicit textual feedback when zero providers are subscribed (rather than a
+      silent empty result list) — same spirit as Home's cold-start message, adapted for Search
+- [ ] Watchlist items that have lost availability render visually dimmed/greyed directly on
+      their card, in every context they appear — Home's My List carousel AND the full My
+      List/watchlist screen — not only discoverable by tapping into the details screen
+- [ ] An explicit remove/clean-up action for an unavailable item is reachable from that same
+      list context directly (e.g. long-press or a visible control on the card) — no detour
+      through details required
+- [ ] Tests: dimmed-state rendering logic, remove action
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification once the emulator crash (below) is actually fixed
+
 ## M3 — Recommender
 
 Done means: scoring engine (incl. watchlist signal) + fixture-based unit tests, Home
