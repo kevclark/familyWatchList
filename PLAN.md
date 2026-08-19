@@ -207,7 +207,9 @@ This is all deterministic Kotlin — unit-testable with fixture data, no runtime
    **＋ My List** toggle, **Log watch**, thumbs rating, "Because you liked …" reason line
    when reached from a shortlist.
 5. **Search** — TMDB multi-search with movie/TV filter chips, poster-grid results with
-   quick add-to-list on each card.
+   quick add-to-list on each card. **Results are restricted to titles currently available on
+   a subscribed GB service** (see §5a "Search & watchlist availability gating", 2026-08-19) —
+   not a general catalog finder.
 6. **Log-watch sheet** — date (default today), profile multi-select chips, optional
    per-profile thumbs right in the sheet. One tap for the common case.
 7. **History** — reverse-chronological, filter by profile, tap to edit/delete an event or
@@ -291,6 +293,50 @@ next build pass has something unambiguous to execute against:
   - **Post-M3:** replaced by §4's real behaviour — under 5 logged events → "Popular on your
     services" labelled row (already built); 5+ → actual scored picks. M3's own milestone work
     should retire the pre-M3 placeholder copy above.
+
+### Search & watchlist availability gating (Kev's review, 2026-08-19)
+
+M2b's `SearchRepository` was built as a general, unfiltered TMDB catalog finder ("PLAN.md §5
+screen 5 is a title finder" — its own kdoc) on the reasoning that you should be able to
+log/add anything you've watched, streaming or not. **That reasoning was never actually
+validated with Kev and turned out to be wrong** — his stated intent (and the app's whole
+premise) is "only show me what's available on the services I actually pay for." Orchestrator
+error: this was represented as a deliberate, settled decision in the M2b report/summary
+without being flagged as an open question. Correcting it now:
+
+- **Search results are filtered to GB availability on a subscribed provider.** TMDB's
+  `/search/multi` has no provider-filter parameter (only `/discover` does, and it doesn't take
+  a free-text query), so this can't be done in one API call — it's search-then-check:
+  1. Run `/search/multi` as today.
+  2. For each result, resolve its GB watch-provider availability — reuse cached data where a
+     title's already been detail-fetched (search, discover, or a previous view all populate
+     the same `Title`/`ProviderAvailability` rows); otherwise fetch it, throttled at the
+     existing 4 req/s.
+  3. Drop any result with no GB availability on a subscribed provider. Only show what survives.
+  - **Expected UX consequence:** results settle progressively rather than appearing instantly
+    — for an uncached page of ~20 results at 4 req/s that's a few seconds of results filling
+    in/dropping out after the debounce fires. This is the accepted trade-off Kev chose over
+    the two alternatives (cache-only filtering — inaccurate, hides genuinely-available titles
+    that just haven't been checked yet; or an unfiltered search with a separate "on your
+    services" filter chip — Kev wants the restriction as the default, not opt-in).
+  - **Cancellation matters:** in-flight availability checks for a stale query must be
+    cancelled when a new one starts (extend `SearchViewModel`'s existing dedupe/cancellation
+    pattern), or a slow-resolving old batch can overwrite a newer query's results.
+- **Adding to the Want-to-Watch list is gated the same way** — blocked (with a clear inline
+  message) unless the title currently has GB availability on a subscribed provider. Applies at
+  `WatchlistRepository.add()`/`toggle()`, reusing the same availability-resolution logic as
+  search rather than duplicating it.
+- **Existing watchlist entries are NOT retroactively removed if they later lose availability**
+  (Kev didn't ask for this and wasn't asked before this default was picked — flag if wrong).
+  A title added while available that later leaves a service stays on the list showing the
+  existing "not currently available" indicator (already built on the details screen) rather
+  than silently disappearing — matches how Netflix/Prime's own saved lists behave, and avoids
+  quietly deleting something a user deliberately chose to keep. The gate only applies at
+  add-time.
+- **Logging a watch and History are explicitly NOT gated.** These are a historical record —
+  you watched something, possibly on a service that's since dropped it, a rental, a disc, a
+  friend's account — availability at watch-time is irrelevant to whether you can log it.
+  Do not extend this restriction there; it only applies to Search and the watchlist add path.
 
 ---
 
