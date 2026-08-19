@@ -14,10 +14,16 @@ import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
-/** A list entry resolved against the profile who added it (PLAN.md §2's `addedByProfileId`). */
+/**
+ * A list entry resolved against the profile who added it (PLAN.md §2's `addedByProfileId`), plus
+ * whether it currently has GB availability on a subscribed provider — PLAN.md §5a's M2g
+ * refinement, so the screen can render an item that's since lost availability dimmed rather than
+ * identical to everything else.
+ */
 data class MyListRow(
     val item: WatchlistItem,
     val addedBy: ProfileEntity?,
+    val isAvailable: Boolean,
 )
 
 data class MyListUiState(
@@ -43,14 +49,14 @@ class MyListViewModel(
     private val _mineOnly = MutableStateFlow(false)
 
     val uiState: StateFlow<MyListUiState> = combine(
-        watchlistRepository.observeActiveItems(),
+        watchlistRepository.observeActiveItemsWithAvailability(),
         profileRepository.observeAll(),
         _mineOnly,
     ) { items, profiles, mineOnly ->
         val profilesById = profiles.associateBy { it.id }
         val rows = items
-            .filter { !mineOnly || it.addedByProfileId == activeProfileId }
-            .map { MyListRow(item = it, addedBy = profilesById[it.addedByProfileId]) }
+            .filter { !mineOnly || it.item.addedByProfileId == activeProfileId }
+            .map { MyListRow(item = it.item, addedBy = profilesById[it.item.addedByProfileId], isAvailable = it.isAvailable) }
         MyListUiState(rows = rows, mineOnly = mineOnly)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MyListUiState())
 

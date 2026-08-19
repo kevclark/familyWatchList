@@ -117,13 +117,20 @@ fun HomeScreen(
                     PosterCarousel(
                         title = "My List",
                         items = state.myList,
-                        key = { "${it.mediaType}-${it.tmdbId}" },
+                        key = { "${it.item.mediaType}-${it.item.tmdbId}" },
                         onSeeAll = onOpenMyList,
-                    ) { item ->
+                    ) { row ->
+                        // PLAN.md §5a M2g: an item that's lost availability renders dimmed with a
+                        // direct remove action, right here — no detour through details. Available
+                        // items are untouched (no dim, no extra control) per the same spec.
                         PosterCard(
-                            title = item.title,
-                            posterPath = item.posterPath,
-                            onClick = { onOpenTitle(item.tmdbId, item.mediaType) },
+                            title = row.item.title,
+                            posterPath = row.item.posterPath,
+                            onClick = { onOpenTitle(row.item.tmdbId, row.item.mediaType) },
+                            dimmed = !row.isAvailable,
+                            onRemoveUnavailable = {
+                                viewModel.removeFromWatchlist(row.item.tmdbId, row.item.mediaType)
+                            },
                         )
                     }
                 }

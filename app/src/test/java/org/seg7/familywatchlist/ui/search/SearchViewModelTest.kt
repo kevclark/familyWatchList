@@ -67,6 +67,7 @@ class SearchViewModelTest {
     private lateinit var server: MockWebServer
     private lateinit var viewModel: SearchViewModel
     private lateinit var watchlistRepository: WatchlistRepository
+    private lateinit var providerRepository: ProviderRepository
 
     private val activeProfileId = 42L
 
@@ -88,12 +89,13 @@ class SearchViewModelTest {
         val clock = FakeClock(startMillis = 1_000L)
         val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
-        val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
+        providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val gate = AvailabilityGate(titleRepository, providerRepository)
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, gate::isAvailableOnSubscribedProvider)
         viewModel = SearchViewModel(
             searchRepository = SearchRepository(db.titleDao(), api, clock, gate),
             watchlistRepository = watchlistRepository,
+            providerRepository = providerRepository,
             activeProfileId = activeProfileId,
         )
     }
@@ -105,6 +107,22 @@ class SearchViewModelTest {
                 ProviderEntity(337, "Disney Plus", null, subscribed = false, displayPriority = 2),
             )
         )
+    }
+
+    @Test
+    fun `hasSubscribedServices is false with nothing subscribed, before any search runs`() = runTest {
+        val state = viewModel.uiState.first { !it.hasSubscribedServices }
+        assertFalse(state.hasSubscribedServices)
+    }
+
+    @Test
+    fun `hasSubscribedServices flips true once a provider is subscribed`() = runTest {
+        viewModel.uiState.first { !it.hasSubscribedServices }
+
+        subscribeNetflixOnly()
+
+        val state = viewModel.uiState.first { it.hasSubscribedServices }
+        assertTrue(state.hasSubscribedServices)
     }
 
     @Test

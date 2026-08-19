@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -68,7 +69,9 @@ class MyListViewModelTest {
         db.close()
     }
 
-    private fun viewModel() = MyListViewModel(watchlistRepository, profileRepository, kevId)
+    private fun viewModel(
+        watchlist: WatchlistRepository = watchlistRepository,
+    ) = MyListViewModel(watchlist, profileRepository, kevId)
 
     @Test
     fun `the list is shared - it shows titles added by anyone by default`() = runTest {
@@ -112,6 +115,24 @@ class MyListViewModelTest {
 
         val state = viewModel().uiState.first { it.rows.size == 2 }
         assertEquals(listOf("Arrival", "Paddington"), state.rows.map { it.item.title })
+    }
+
+    /**
+     * PLAN.md §5a's M2g refinement: a title added while available can quietly lose it later
+     * (add-time gating only) — the screen needs `isAvailable` per row so it knows which cards to
+     * dim. This exercises the whole path through [MyListViewModel], not just the repository.
+     */
+    @Test
+    fun `an item that has lost availability is flagged so the screen can dim it`() = runTest {
+        watchlistRepository.add(38700, MediaType.MOVIE, kevId) // Paddington
+        watchlistRepository.add(12345, MediaType.MOVIE, kevId) // Arrival
+        val readingRepo = WatchlistRepository(db.watchlistDao(), clock) { tmdbId, _ -> tmdbId != 38700 }
+
+        val state = viewModel(readingRepo).uiState.first { it.rows.size == 2 }
+
+        val byTitle = state.rows.associateBy { it.item.title }
+        assertFalse("Paddington has lost availability and must be flagged", byTitle.getValue("Paddington").isAvailable)
+        assertTrue("Arrival is still available and must not be flagged", byTitle.getValue("Arrival").isAvailable)
     }
 
     @Test

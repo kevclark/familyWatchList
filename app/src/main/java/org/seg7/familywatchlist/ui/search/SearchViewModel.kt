@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.WatchlistAddResult
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
@@ -46,6 +47,15 @@ data class SearchUiState(
     val hasSearched: Boolean = false,
     /** `"MEDIATYPE-tmdbId"` for everything currently on the shared list — drives each card's ＋/✓. */
     val listedKeys: Set<String> = emptySet(),
+    /**
+     * PLAN.md §5a's M2g refinement: search can never surface a result with nothing subscribed
+     * (the gate has no provider to pass against — see [org.seg7.familywatchlist.data.repository.AvailabilityGate]),
+     * but an empty result list looks identical whether that's *why*, or whether services are
+     * subscribed and the query itself just matched nothing available. This distinguishes the two
+     * so the empty state can explain the right one. Defaults `true` so the screen never
+     * flashes the wrong message before [ProviderRepository.observeSubscribed] has emitted.
+     */
+    val hasSubscribedServices: Boolean = true,
 ) {
     /**
      * Filtering happens here rather than in the repository, so flipping a chip re-renders
@@ -89,6 +99,7 @@ private data class SearchInternal(
 class SearchViewModel(
     private val searchRepository: SearchRepository,
     private val watchlistRepository: WatchlistRepository,
+    private val providerRepository: ProviderRepository,
     private val activeProfileId: Long,
 ) : ViewModel() {
 
@@ -114,8 +125,16 @@ class SearchViewModel(
         .map { entries -> entries.map { listedKey(it.tmdbId, it.mediaType) }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    /**
+     * PLAN.md §5a's M2g refinement: drives which "nothing here" message the screen shows —
+     * distinct from a subscribed-but-nothing-matched result, see [SearchUiState.hasSubscribedServices].
+     */
+    private val hasSubscribedServices: StateFlow<Boolean> = providerRepository.observeSubscribed()
+        .map { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
     val uiState: StateFlow<SearchUiState> =
-        combine(_query, _filter, _search, listedKeys) { query, filter, search, listed ->
+        combine(_query, _filter, _search, listedKeys, hasSubscribedServices) { query, filter, search, listed, hasServices ->
             SearchUiState(
                 query = query,
                 filter = filter,
@@ -124,6 +143,7 @@ class SearchViewModel(
                 errorMessage = search.errorMessage,
                 hasSearched = search.hasSearched,
                 listedKeys = listed,
+                hasSubscribedServices = hasServices,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 

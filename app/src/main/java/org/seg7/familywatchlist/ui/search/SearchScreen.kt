@@ -18,6 +18,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -54,6 +56,7 @@ import org.seg7.familywatchlist.ui.theme.Dimens
 import org.seg7.familywatchlist.ui.theme.Ink
 import org.seg7.familywatchlist.ui.theme.InkHairline
 import org.seg7.familywatchlist.ui.theme.InkRaised
+import org.seg7.familywatchlist.ui.theme.OnAccent
 
 /**
  * PLAN.md §5 screen 5: `/search/multi` with movie/TV filter chips, a poster grid, and quick
@@ -66,6 +69,7 @@ import org.seg7.familywatchlist.ui.theme.InkRaised
 fun SearchScreen(
     activeProfileId: Long,
     onOpenTitle: (Int, MediaType) -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val container = LocalAppContainer.current
@@ -73,7 +77,12 @@ fun SearchScreen(
         key = "search-$activeProfileId",
         factory = viewModelFactory {
             initializer {
-                SearchViewModel(container.searchRepository, container.watchlistRepository, activeProfileId)
+                SearchViewModel(
+                    container.searchRepository,
+                    container.watchlistRepository,
+                    container.providerRepository,
+                    activeProfileId,
+                )
             }
         },
     )
@@ -181,6 +190,33 @@ fun SearchScreen(
                             onQuickAdd = { viewModel.toggleWatchlist(title) },
                         )
                     }
+                }
+
+                // PLAN.md §5a's M2g refinement: with nothing subscribed, no query could ever
+                // return a result (the availability gate has no provider to pass against) — say
+                // so explicitly rather than showing a silent empty grid or the generic "find
+                // something to watch" prompt, and offer a direct path to fix it. Checked ahead of
+                // the searching/error/query states below since it's true regardless of what's
+                // been typed.
+                !state.hasSubscribedServices -> CenteredMessage {
+                    Text(
+                        text = "No services selected",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Chalk,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        text = "Search only shows what's on a service you're subscribed to — " +
+                            "choose some in Settings to see results.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ChalkMuted,
+                        textAlign = TextAlign.Center,
+                    )
+                    Button(
+                        onClick = onOpenSettings,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
+                        shape = MaterialTheme.shapes.small,
+                    ) { Text("Choose your services") }
                 }
 
                 state.isSearching && state.results.isEmpty() ->

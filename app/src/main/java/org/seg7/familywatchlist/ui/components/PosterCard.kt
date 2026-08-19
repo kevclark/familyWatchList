@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -39,6 +41,7 @@ import coil3.compose.AsyncImage
 import org.seg7.familywatchlist.ui.theme.Accent
 import org.seg7.familywatchlist.ui.theme.Chalk
 import org.seg7.familywatchlist.ui.theme.ChalkFaint
+import org.seg7.familywatchlist.ui.theme.Crimson
 import org.seg7.familywatchlist.ui.theme.Dimens
 import org.seg7.familywatchlist.ui.theme.InkRaised
 import org.seg7.familywatchlist.ui.theme.OnAccent
@@ -66,6 +69,24 @@ fun PosterCard(
     year: Int? = null,
     onQuickAdd: (() -> Unit)? = null,
     isListed: Boolean = false,
+    /**
+     * PLAN.md §5a's M2g refinement: true for a watchlist entry that's since lost GB availability
+     * on every subscribed provider (Home's "My List" carousel and the full My List screen are the
+     * only two callers that ever pass this — search results are always gated available, so this
+     * stays false there by construction). Dims the poster art and swaps the caption line for an
+     * explanation, but never touches [onClick] — tapping through to details still works exactly
+     * as before.
+     */
+    dimmed: Boolean = false,
+    /**
+     * A dedicated "clean this up" affordance shown only when [dimmed] is true — distinct from
+     * [onQuickAdd]'s ✓/＋ toggle (which means "in my list" / "not in my list") because an
+     * unavailable-but-listed item is neither of those; it needs a plain "take this off the list"
+     * action, styled destructively (PLAN.md §5a M2g: "an explicit remove/clean-up action …
+     * without requiring a detour through the details screen first"). Ignored when [onQuickAdd]
+     * is also supplied, since no caller currently needs both on the same card.
+     */
+    onRemoveUnavailable: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -86,15 +107,31 @@ fun PosterCard(
                 .scale(scale)
                 .clip(MaterialTheme.shapes.small)
                 .clickableNoRipple(interactionSource, onClick)
-                .semantics { contentDescription = title.orEmpty() },
+                .semantics {
+                    contentDescription = if (dimmed) {
+                        "${title.orEmpty()} — no longer available on your services"
+                    } else {
+                        title.orEmpty()
+                    }
+                },
         ) {
-            PosterArt(title = title, posterPath = posterPath)
+            PosterArt(
+                title = title,
+                posterPath = posterPath,
+                modifier = if (dimmed) Modifier.alpha(DimmedAlpha) else Modifier,
+            )
 
-            if (onQuickAdd != null) {
-                QuickAddButton(
+            when {
+                onQuickAdd != null -> QuickAddButton(
                     isListed = isListed,
                     title = title,
                     onClick = onQuickAdd,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
+                )
+
+                dimmed && onRemoveUnavailable != null -> RemoveUnavailableButton(
+                    title = title,
+                    onClick = onRemoveUnavailable,
                     modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
                 )
             }
@@ -104,12 +141,19 @@ fun PosterCard(
             Text(
                 text = title.orEmpty(),
                 style = MaterialTheme.typography.titleSmall,
-                color = Chalk,
+                color = if (dimmed) ChalkFaint else Chalk,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (year != null) {
-                Text(
+            when {
+                // Dimmed overrides the year line — "why is this greyed out" matters more here
+                // than the release year, and there's only room for one caption line.
+                dimmed -> Text(
+                    text = "Not on your services",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ChalkFaint,
+                )
+                year != null -> Text(
                     text = year.toString(),
                     style = MaterialTheme.typography.bodySmall,
                     color = ChalkFaint,
@@ -118,6 +162,9 @@ fun PosterCard(
         }
     }
 }
+
+/** PLAN.md §5a M2g: the alpha applied to a watchlist item's poster art once it's lost availability. */
+private const val DimmedAlpha = 0.4f
 
 /**
  * The art itself, with the fallback for the (common, on a fresh install) case of a title TMDB
@@ -182,6 +229,40 @@ private fun QuickAddButton(
             imageVector = if (isListed) Icons.Filled.Check else Icons.Filled.Add,
             contentDescription = null,
             tint = if (isListed) OnAccent else Chalk,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
+/**
+ * PLAN.md §5a M2g: "an explicit remove/clean-up action" for a watchlist item that's lost
+ * availability, reachable straight off the card rather than requiring a trip through details.
+ * Styled with [Crimson] (this app's existing destructive-action colour — see [History]'s delete
+ * icon) rather than [Accent], so it reads as "take this off the list" and not as another
+ * ✓/＋ toggle.
+ */
+@Composable
+private fun RemoveUnavailableButton(
+    title: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier
+            .size(26.dp)
+            .clip(CircleShape)
+            .background(Color(0xCC0B0B0D))
+            .clickableNoRipple(interactionSource, onClick)
+            .semantics {
+                contentDescription = "Remove ${title.orEmpty()} from your list — no longer available"
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Close,
+            contentDescription = null,
+            tint = Crimson,
             modifier = Modifier.size(16.dp),
         )
     }
