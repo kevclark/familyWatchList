@@ -266,6 +266,32 @@ next build pass has something unambiguous to execute against:
   night / the family shortlist scope) happens elsewhere (log-watch sheet, Home's who's-watching
   chips), not by creating a group profile.
 
+### Post-M2b decisions (Kev's review, 2026-08-19)
+
+- **Accent colour: `AccentObsidian` (`#8B5CF6`) is now the default**, not Ember. Deeper/richer
+  violet than Orchid, same family, pulled toward saturation rather than Orchid's lighter lift.
+  Clears WCAG AA against `Ink` (~4.6:1), consistent with the other three candidates.
+- **Accent becomes a user preference, not a fixed build-time token.** Add it to
+  `UserPreferencesRepository` (DataStore) alongside `onboardingComplete`/`activeProfileId`,
+  default `OBSIDIAN`. Settings gets a new row: the four candidates (Ember/Aurora/Orchid/
+  Obsidian) as tappable swatches with a checkmark on the active one; picking one updates the
+  whole app's theme live via recomposition. `Theme.kt`'s old fixed `val Accent = AccentEmber`
+  goes away in favour of reading the stored preference.
+- **Home's missing personalised row, fixed properly.** M2b omitted the *For You*/*Family Night*
+  rows entirely rather than showing §4's cold-start placeholder — a plan-instruction gap on
+  Kev's orchestrator's part, not a bad call by the build agent given what it was told. Fix: a
+  **"For You" section is always visible on Home**, never omitted. Two states apply depending on
+  whether M3 has shipped yet:
+  - **Pre-M3 (now):** M3's scoring doesn't exist yet regardless of how much a profile has
+    logged, so the row shows an honest "coming soon" message — something like "We're still
+    learning what you like — personalised picks arrive in a future update," with a CTA into
+    logging a watch (Search or the log-watch sheet). Do **not** reuse §4's "not enough watched
+    yet" cold-start copy here — that specific wording implies logging more will unlock it today,
+    which isn't true pre-M3 even for a profile with 20 logged titles.
+  - **Post-M3:** replaced by §4's real behaviour — under 5 logged events → "Popular on your
+    services" labelled row (already built); 5+ → actual scored picks. M3's own milestone work
+    should retire the pre-M3 placeholder copy above.
+
 ---
 
 ## 6. Build environment & preview (agent101)
