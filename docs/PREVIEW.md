@@ -17,7 +17,15 @@ cd ~/projects/familyWatchList && source env.sh
 ## 1. Start the emulator on agent101 (headless)
 
 ```fish
-emulator -avd family_test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -memory 2048 &
+emulator -avd family_test -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 2048 &
+```
+
+> `-no-snapshot` forces a real cold boot every time. Without it, Android's "quick boot" saves
+> the entire running state (including whatever screen was on top) whenever the emulator shuts
+> down and silently restores it on next launch — instead of your actual app default, you get
+> whatever was open when it last died. Always include this flag.
+
+```fish
 adb wait-for-device
 # wait until fully booted (not just adb-visible):
 while test (adb shell getprop sys.boot_completed | string trim) != 1; sleep 2; end
