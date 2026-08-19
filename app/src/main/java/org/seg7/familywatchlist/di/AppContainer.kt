@@ -55,7 +55,7 @@ class AppContainer(context: Context) {
     }
 
     val providerRepository: ProviderRepository by lazy {
-        ProviderRepository(database.providerDao(), tmdbApi)
+        ProviderRepository(database.providerDao(), tmdbApi, discoverRepository)
     }
 
     // PLAN.md §5a: shared "is this on a service we pay for" check, reused by search and the

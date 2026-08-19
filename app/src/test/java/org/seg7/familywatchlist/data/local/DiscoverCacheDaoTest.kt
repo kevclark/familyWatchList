@@ -63,4 +63,16 @@ class DiscoverCacheDaoTest {
         assertEquals(1, dao.getForQuery("abc").size)
         assertEquals(1, dao.getForQuery("xyz").size)
     }
+
+    @Test
+    fun `deleteAll wipes every cached query — M2e provider-change invalidation`() = runTest {
+        val dao = db.discoverCacheDao()
+        dao.replaceForQuery("abc", listOf(DiscoverCacheEntity("abc", 1, MediaType.MOVIE, 0, 100L)))
+        dao.replaceForQuery("xyz", listOf(DiscoverCacheEntity("xyz", 2, MediaType.MOVIE, 0, 100L)))
+
+        dao.deleteAll()
+
+        assertNull(dao.fetchedAtForQuery("abc"))
+        assertNull(dao.fetchedAtForQuery("xyz"))
+    }
 }

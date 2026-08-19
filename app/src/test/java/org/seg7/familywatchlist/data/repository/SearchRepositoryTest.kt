@@ -41,7 +41,8 @@ class SearchRepositoryTest {
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
         val clock = FakeClock(startMillis = 1_000L)
         val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
-        val providerRepository = ProviderRepository(db.providerDao(), api)
+        val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
+        val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val gate = AvailabilityGate(titleRepository, providerRepository)
         repo = SearchRepository(db.titleDao(), api, clock, gate)
     }

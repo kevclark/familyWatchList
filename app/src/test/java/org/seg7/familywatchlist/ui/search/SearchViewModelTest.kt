@@ -35,6 +35,7 @@ import org.seg7.familywatchlist.data.remote.dto.TvDetailDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProviderDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProvidersResponseDto
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
+import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
@@ -86,7 +87,8 @@ class SearchViewModelTest {
     private fun buildViewModel(api: TmdbApi) {
         val clock = FakeClock(startMillis = 1_000L)
         val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
-        val providerRepository = ProviderRepository(db.providerDao(), api)
+        val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
+        val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val gate = AvailabilityGate(titleRepository, providerRepository)
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, gate::isAvailableOnSubscribedProvider)
         viewModel = SearchViewModel(

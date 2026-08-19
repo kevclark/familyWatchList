@@ -276,27 +276,71 @@ rather than silently resolved:**
   documented in PLAN.md §5a, but that specific default was never explicitly confirmed by Kev,
   only assumed reasonable by the orchestrator. Flag again here since it's now live.
 
-## M2e — Home hero/discover filtering bug (queued, not yet launched)
+## M2e — Home hero/discover filtering bug ✅
 
 Kev found the Home hero banner showing Spider-Man: No Way Home — TMDB's most "popular"
 result from `discoverMovies(subscribed)` — despite that title having zero confirmed UK
-availability (2026-08-19). Two candidate causes, both real code findings, not confirmed
-which (or both) is the actual cause yet:
+availability (2026-08-19). Two candidate causes were proposed; root cause confirmed by
+inspecting live on-device DB state (`adb shell run-as org.seg7.familywatchlist sqlite3
+databases/family_watchlist.db`, same technique as M2d) and cross-checking against a live
+call to TMDB's own `/movie/{id}/watch/providers`, per M2d's precedent:
 
-- [ ] Confirm whether `subscribedProviderIds` was empty at the time — `DiscoverRepository
-      .toProviderParam()` returns `null` on an empty list, which drops `with_watch_providers`
-      from the request entirely, silently turning "Popular on your services" into "Popular in
-      the UK, unfiltered." If this is happening, the row is showing incorrect data whenever
-      services somehow end up unset, not just for Kev's session.
-- [ ] Check discover's 24h cache (`DiscoverRepository`, `DISCOVER_TTL_MS`) isn't serving a
-      stale page from earlier in testing (before services were finalised, or before this
-      title's availability changed)
-- [ ] Once root cause is confirmed, fix it — likely candidates: don't cache/serve a discover
-      page when the provider list was empty at fetch time; consider invalidating the discover
-      cache when subscribed providers change (currently nothing does this)
-- [ ] Verify fix live: hero banner and "Popular on your services" only ever show titles with
-      confirmed current GB availability on a subscribed provider
-- [ ] `./gradlew test assembleDebug` green
+- [x] **Confirmed `subscribedProviderIds` was NOT empty.** `providers` table had exactly 6
+      subscribed rows (Netflix 8, Amazon Prime Video 9, BBC iPlayer 38, ITVX 41, Channel 4
+      103, Disney Plus 337). The only `discover_cache` rows present were under queryHash
+      `discover_movie:8,9,38,41,103,337:1` — the fully-subscribed hash — with no leftover
+      rows under an empty-list hash. **This candidate cause did not explain today's
+      occurrence.**
+- [x] **Confirmed the 24h cache was NOT stale.** `fetchedAtForQuery` for that hash was
+      ~21.4h old (fetched 2026-08-19 00:30 UTC, checked ~21:54 UTC) — inside the 24h TTL,
+      and the query hash itself proves it was fetched *with* the current (already-finalised)
+      provider set, not an earlier unfiltered/pre-finalisation one. **This candidate cause
+      also did not explain today's occurrence.**
+- [x] **Actual root cause: TMDB's own live GB provider data, not an app bug.** Spider-Man:
+      No Way Home (tmdbId 634649) was ord=0 in that cache, and its `provider_availability`
+      row (fetched 19:44 UTC today, well inside the 7-day TTL) lists `providerId=38
+      (BBC iPlayer), kind=FREE`. A direct live call to
+      `GET /movie/634649/watch/providers` (bearer-authed, token never printed) returned the
+      identical GB payload: `free: [BBC iPlayer]`, `flatrate: [Sky Go, Now TV Cinema]` —
+      matching our cached row exactly. The `WatchProvidersDto → ProviderAvailabilityEntity`
+      mapping (`TmdbMappers.kt`) was also checked and is correct (flatrate/free map 1:1, no
+      swapped kinds). So TMDB itself is currently asserting this title is free on BBC
+      iPlayer in GB; `discoverMovies`'s `with_watch_providers=8,9,38,41,103,337&
+      with_watch_monetization_types=flatrate|free` correctly surfaced it on that basis. This
+      is the TMDB-data-quality risk PLAN.md §8 already names ("UK broadcaster catch-up
+      availability is best-effort, imperfect") — not a filtering defect in this app's code.
+      Whether BBC iPlayer genuinely carries it right now (a limited broadcast-tie-in window,
+      say) is outside the app's control; **not fixed and not fixable here** — flagging to
+      Kev rather than hacking around TMDB's data (e.g. blacklisting a title) would be wrong.
+- [x] **Fixed the real latent bug anyway, unconditionally, regardless of root cause:**
+      `DiscoverRepository.discoverMovies`/`discoverTv` now short-circuit to `emptyList()`
+      when `subscribedProviderIds` is empty, before touching cache or network — a discover
+      call with nothing subscribed now shows nothing (Home's existing hero-empty / carousel-
+      hides-when-empty states handle this for free) instead of silently falling back to an
+      unfiltered "popular in the UK" page. `HomeViewModel`'s stale comment describing the old
+      unfiltered-fallback behaviour was corrected.
+- [x] **Fixed the cache-staleness gap the checklist flagged, as defense-in-depth** (confirmed
+      not today's cause, but a real gap — "currently nothing does this" — worth closing):
+      `ProviderRepository.setSubscribed()` now calls
+      `DiscoverRepository.invalidateAllCachedPages()` (new `DiscoverCacheDao.deleteAll()`)
+      on every subscribe/unsubscribe, so a provider change can no longer leave a stale
+      cached page reflecting the old provider set for up to 24h. Verified live: toggled BBC
+      iPlayer off in Settings → Streaming services (real UI path, not a test double) and
+      confirmed via `sqlite3` that all 40 `discover_cache` rows were gone immediately after.
+- [x] Verified fix live: with the empty-subscribed-providers case forced on-device, Home's
+      hero collapsed to the existing "Nothing here yet" empty state and both Popular rows
+      disappeared entirely (no unfiltered page rendered) — screenshotted. Restored the
+      original 6 subscribed providers and confirmed hero/rows return; spot-checked two
+      "Popular films on your services" entries (The Last House, Spider-Man: Homecoming)
+      against a live TMDB `/watch/providers` call — both have genuine GB availability on a
+      subscribed provider (Netflix; BBC iPlayer respectively), confirming the discover
+      filter itself is working correctly.
+- [x] Tests added: `DiscoverRepositoryTest` (empty-list movies/TV → no results, no network
+      call; `invalidateAllCachedPages` forces a refetch), `DiscoverCacheDaoTest` (`deleteAll`
+      wipes every query), `ProviderRepositoryTest` (`setSubscribed` invalidates all cached
+      discover pages). All existing `ProviderRepository(...)` call sites across the test
+      suite updated for the new `DiscoverRepository` constructor parameter.
+- [x] `./gradlew test assembleDebug` green (155 tests, 31 classes, 0 failures/errors)
 
 ## M2f — Configurable region (queued, not yet launched)
 

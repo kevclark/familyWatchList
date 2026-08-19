@@ -77,6 +77,35 @@ class DiscoverRepositoryTest {
     }
 
     @Test
+    fun `zero subscribed providers returns nothing, not an unfiltered popular-in-the-UK page — M2e`() = runTest {
+        val results = repo.discoverMovies(subscribedProviderIds = emptyList())
+
+        assertEquals(emptyList<String>(), results.map { it.title })
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `discoverTv with zero subscribed providers also returns nothing and skips the network`() = runTest {
+        val results = repo.discoverTv(subscribedProviderIds = emptyList())
+
+        assertEquals(emptyList<String>(), results.map { it.title })
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `invalidateAllCachedPages clears a cached page so the next call refetches`() = runTest {
+        server.enqueue(MockResponse(body = discoverPageJson(id = 38700, title = "Paddington")))
+        repo.discoverMovies(subscribedProviderIds = listOf(8, 337))
+
+        repo.invalidateAllCachedPages()
+        server.enqueue(MockResponse(body = discoverPageJson(id = 38700, title = "Paddington (refetched)")))
+        val results = repo.discoverMovies(subscribedProviderIds = listOf(8, 337))
+
+        assertEquals(2, server.requestCount)
+        assertEquals(listOf("Paddington (refetched)"), results.map { it.title })
+    }
+
+    @Test
     fun `a different provider set is a different query hash — no cross-contamination`() = runTest {
         server.enqueue(MockResponse(body = discoverPageJson(id = 1, title = "A")))
         repo.discoverMovies(subscribedProviderIds = listOf(8))
