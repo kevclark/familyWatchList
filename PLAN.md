@@ -409,3 +409,11 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
 - **Stretch (post-M5, only if credit remains):** embedded trailer player, episode-level TV
   tracking (v1 tracks TV at series level), Play-Feature-style "leaving soon" via provider-TTL
   diffing.
+- **Home hero banner showing an unavailable title (queued as M2e, 2026-08-19).** Kev found
+  Spider-Man: No Way Home as Home's hero despite zero confirmed UK availability — the hero is
+  `discover.movies.firstOrNull()`, meant to be filtered to subscribed GB providers, so this is
+  a genuine filtering bug, not intentional randomness. Two candidate causes found in code, not
+  yet confirmed which: `DiscoverRepository.toProviderParam()` silently drops the
+  `with_watch_providers` filter entirely when the subscribed list is empty (rather than
+  failing safe / returning nothing), and/or the 24h discover cache is serving a stale page.
+  Full checklist in PROGRESS.md M2e.

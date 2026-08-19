@@ -242,6 +242,28 @@ alternatives and why) in PLAN.md §5a "Search & watchlist availability gating".
 - [ ] `./gradlew test assembleDebug` green
 - [ ] Screenshot(s)/live verification of gated search + a blocked watchlist-add attempt
 
+## M2e — Home hero/discover filtering bug (queued, not yet launched)
+
+Kev found the Home hero banner showing Spider-Man: No Way Home — TMDB's most "popular"
+result from `discoverMovies(subscribed)` — despite that title having zero confirmed UK
+availability (2026-08-19). Two candidate causes, both real code findings, not confirmed
+which (or both) is the actual cause yet:
+
+- [ ] Confirm whether `subscribedProviderIds` was empty at the time — `DiscoverRepository
+      .toProviderParam()` returns `null` on an empty list, which drops `with_watch_providers`
+      from the request entirely, silently turning "Popular on your services" into "Popular in
+      the UK, unfiltered." If this is happening, the row is showing incorrect data whenever
+      services somehow end up unset, not just for Kev's session.
+- [ ] Check discover's 24h cache (`DiscoverRepository`, `DISCOVER_TTL_MS`) isn't serving a
+      stale page from earlier in testing (before services were finalised, or before this
+      title's availability changed)
+- [ ] Once root cause is confirmed, fix it — likely candidates: don't cache/serve a discover
+      page when the provider list was empty at fetch time; consider invalidating the discover
+      cache when subscribed providers change (currently nothing does this)
+- [ ] Verify fix live: hero banner and "Popular on your services" only ever show titles with
+      confirmed current GB availability on a subscribed provider
+- [ ] `./gradlew test assembleDebug` green
+
 ## M3 — Recommender
 
 Done means: scoring engine (incl. watchlist signal) + fixture-based unit tests, Home
