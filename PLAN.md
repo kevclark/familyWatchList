@@ -326,13 +326,18 @@ without being flagged as an open question. Correcting it now:
   message) unless the title currently has GB availability on a subscribed provider. Applies at
   `WatchlistRepository.add()`/`toggle()`, reusing the same availability-resolution logic as
   search rather than duplicating it.
-- **Existing watchlist entries are NOT retroactively removed if they later lose availability**
-  (Kev didn't ask for this and wasn't asked before this default was picked — flag if wrong).
-  A title added while available that later leaves a service stays on the list showing the
-  existing "not currently available" indicator (already built on the details screen) rather
-  than silently disappearing — matches how Netflix/Prime's own saved lists behave, and avoids
-  quietly deleting something a user deliberately chose to keep. The gate only applies at
-  add-time.
+- **Existing watchlist entries are NOT auto-removed if they later lose availability — confirmed
+  by Kev, 2026-08-19, with two refinements (queued as M2g, below).** A title added while
+  available that later leaves a service stays on the list rather than silently disappearing —
+  matches how Netflix/Prime's own saved lists behave. The gate only applies at add-time.
+- **Search with zero subscribed providers (queued as M2g):** currently returns nothing, with
+  no explanation. Confirmed by Kev: add textual feedback (same spirit as Home's cold-start
+  message) explaining that no services are selected, rather than a silent empty screen.
+- **Unavailable watchlist entries — visual treatment (queued as M2g):** Kev wants them
+  **greyed out / visually dimmed** directly on the card wherever they appear (Home's My List
+  carousel, the full My List/watchlist screen) — not just discoverable by tapping into
+  details — plus an **explicit remove/clean-up action** reachable from that same list context,
+  not requiring a detour through the details screen first.
 - **Logging a watch and History are explicitly NOT gated.** These are a historical record —
   you watched something, possibly on a service that's since dropped it, a rental, a disc, a
   friend's account — availability at watch-time is irrelevant to whether you can log it.
