@@ -417,3 +417,11 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
   `with_watch_providers` filter entirely when the subscribed list is empty (rather than
   failing safe / returning nothing), and/or the 24h discover cache is serving a stale page.
   Full checklist in PROGRESS.md M2e.
+- **Region should be configurable, not hardcoded (queued as M2f, 2026-08-19).** Kev's
+  request: TMDB doesn't do IP geolocation — `watch_region=GB` is an explicit parameter our own
+  code sends, never inferred from server location (confirmed in §5a's region-gating work) — so
+  travelling abroad would otherwise leave the app silently stuck on UK-only results with no way
+  to check local availability. Low priority, no urgency. Open design question flagged in
+  PROGRESS.md M2f: subscribed-provider IDs are region-specific (BBC iPlayer/Channel 4/ITVX
+  don't exist outside the UK), so switching region needs a decision on whether to prompt
+  re-running the services picker or just accept degraded results until fixed manually.
