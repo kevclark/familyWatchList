@@ -3,12 +3,18 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-19 (M2c complete — accent colour as a live user preference defaulting to
-Obsidian, always-visible pre-M3 "For You" placeholder on Home — by `feature-builder`).
+Last updated: 2026-08-19 (emulator hero/gradient-scrim SIGSEGV root-caused and fixed via
+`-gpu swangle` — by `toolchain-setup`).
 
-**Queued (not yet launched):** emulator SIGSEGV on hero/gradient-scrim rendering at native
-resolution — 3rd occurrence, hit live by Kev on 2026-08-19. Full detail in PLAN.md §8. Job for
-`toolchain-setup`; run whenever agent101 isn't mid-use for live testing.
+**✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
+rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
+**SwiftShader GLES** driver's JIT-compiled sampling code — not an app bug. **Fix: boot the
+emulator with `-gpu swangle`** (ANGLE → SwiftShader Vulkan) instead of
+`-gpu swiftshader_indirect`. 60 scripted hero/scrim navigation cycles clean, versus a crash
+within 1–3 cycles before. Native 1080x2400 is stable again; the old `-skin 720x1600`
+reduced-resolution workaround is obsolete. Note the flag **must** be on the command line —
+setting `hw.gpu.mode` in `config.ini` looks like it works but doesn't. Standard boot command in
+`docs/PREVIEW.md` §1; full evidence in PLAN.md §8.
 
 ---
 
@@ -246,6 +252,8 @@ alternatives and why) in PLAN.md §5a "Search & watchlist availability gating".
       reachable without a deep link given this session's on-device data, and the emulator hit its
       known hero/gradient-scrim crash twice navigating the details screen. Covered instead by
       dedicated JVM tests (`WatchlistRepositoryTest`, `SearchViewModelTest`'s blocked-add case).
+      (The emulator crash was fixed on 2026-08-19 — `-gpu swangle`, PLAN.md §8 — so a live
+      capture of this Snackbar is possible in a future pass if it's still wanted.)
 
 **Real bug fixed along the way (not scope creep — gating was silently broken without it):**
 `TitleRepository.isProviderDataStale` judged freshness by timestamp alone, so a search/discover
@@ -331,7 +339,8 @@ build as specified:
       through details required
 - [ ] Tests: dimmed-state rendering logic, remove action
 - [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification once the emulator crash (below) is actually fixed
+- [ ] Live verification — no longer blocked: the emulator crash is fixed as of 2026-08-19,
+      boot with `-gpu swangle` (see PLAN.md §8)
 
 ## M3 — Recommender
 

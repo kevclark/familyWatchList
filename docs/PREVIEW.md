@@ -17,13 +17,40 @@ cd ~/projects/familyWatchList && source env.sh
 ## 1. Start the emulator on agent101 (headless)
 
 ```fish
-emulator -avd family_test -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 2048 &
+emulator -avd family_test -no-window -no-audio -no-boot-anim -no-snapshot -gpu swangle -memory 2048 &
 ```
+
+> **`-gpu swangle` is mandatory — it is the fix for the SIGSEGV crash (PLAN.md §8).**
+> `-gpu swiftshader_indirect` (the old default) puts guest GLES on the emulator's *deprecated*
+> SwiftShader GLES driver, which segfaults the whole emulator process while compositing a hero
+> backdrop under a gradient scrim. `swangle` routes guest GLES through ANGLE onto SwiftShader
+> **Vulkan** instead — the maintained backend — and the crashing driver is never loaded.
+> Verified 2026-08-19: 60 scripted hero/scrim navigation cycles with zero crashes, versus a
+> crash within 1–3 cycles on `swiftshader_indirect`. Full evidence in PLAN.md §8.
+>
+> Rendering is pixel-identical at native 1080x2400, so **no reduced-resolution workaround is
+> needed** — do not use the old `-memory 3072 -skin 720x1600` recipe; it never worked anyway.
+>
+> ⚠️ **The flag must be on the command line.** Setting `hw.gpu.mode = swangle` in the AVD's
+> `config.ini` looks like it works (the emulator even logs `gles_mode_selected:swangle`) but the
+> guest silently still loads SwiftShader GLES and crashes. Verified: crashed on the first
+> navigation cycle. Always pass `-gpu swangle` explicitly.
 
 > `-no-snapshot` forces a real cold boot every time. Without it, Android's "quick boot" saves
 > the entire running state (including whatever screen was on top) whenever the emulator shuts
 > down and silently restores it on next launch — instead of your actual app default, you get
 > whatever was open when it last died. Always include this flag.
+
+Confirm the right renderer is actually live before trusting a session:
+
+```fish
+adb shell dumpsys SurfaceFlinger | grep -m1 "GLES:"
+# GOOD -> ... (ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device ...), SwiftShader driver-5.0.0))
+# BAD  -> ... (Google SwiftShader), OpenGL ES 3.0 (OpenGL ES 3.0 SwiftShader 4.0.0.1)
+```
+
+If you see the BAD line, the emulator is on the crashing driver — kill it and relaunch with
+`-gpu swangle`.
 
 ```fish
 adb wait-for-device
@@ -226,6 +253,8 @@ scrcpy --tunnel-host=127.0.0.1 --port=27183 -s 192.168.1.42:41235
 | `adb: command not found` in bash | `source ~/projects/familyWatchList/env.sh` |
 | `emulator: command not found` | fish: new shell (conf.d loads it) or `source ~/.config/fish/conf.d/android.fish` |
 | Emulator hangs on boot | `adb emu kill`; delete `~/.android/avd/family_test.avd/*.lock`; re-launch with `-no-snapshot` |
+| Whole emulator dies with `SIGSEGV (Address boundary error)` on a hero/backdrop screen | You booted without `-gpu swangle`. Relaunch with it; check with the `dumpsys SurfaceFlinger \| grep GLES:` line in §1 |
+| `-gpu host` fails | Expected. agent101 is itself a KVM guest with no GPU render node (`/dev/dri/renderD*` absent) and no X/Wayland. Software rendering only |
 | `KVM is not installed / permission denied` | `ls -l /dev/kvm` and `groups` — `kev` must be in `kvm`. It is; no sudo needed |
 | scrcpy: `ERROR: Could not find any ADB device` | the laptop is talking to its own adb server — `adb kill-server`, re-export `ADB_SERVER_SOCKET` |
 | scrcpy connects then hangs at "device disconnected" | add `--force-adb-forward`, or check `--tunnel-host` matches the adb-server host |

@@ -357,8 +357,10 @@ Everything user-space under `~/android-dev/` unless noted:
 - **Env:** `ANDROID_HOME`, `JAVA_HOME` exported from `~/.config/fish/conf.d/android.fish`
   (Kev's shell is fish) and a `.env.sh` for bash-based tooling
 - **Emulator (headless):** AVD `family_test`, run
-  `emulator -avd family_test -no-window -no-audio -grpc 8554`. `/dev/kvm` access confirmed
-  (Kev is in the `kvm` group on agent101).
+  `emulator -avd family_test -no-window -no-audio -no-boot-anim -no-snapshot -gpu swangle -memory 2048`.
+  `/dev/kvm` access confirmed (Kev is in the `kvm` group on agent101). **`-gpu swangle` is
+  required** — it is the fix for the hero/gradient-scrim SIGSEGV (§8). agent101 is itself a KVM
+  guest with no GPU render node, so `-gpu host` is not an option; software rendering only.
 - **Laptop viewing:** `adb -a nodaemon server` on agent101 (or `adb tcpip`), laptop runs
   `scrcpy --tcpip=agent101:5555` → live interactive screen. Toolchain agent writes exact
   steps to `docs/PREVIEW.md`.
@@ -400,20 +402,59 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
   export/share the TMDB cache.
 - **Emulator on 16GB alongside Gradle** — workable, but don't run full builds and emulator
   boot simultaneously; toolchain agent sets `org.gradle.jvmargs=-Xmx4g` and emulator RAM 2GB.
-- **Emulator SIGSEGV on hero/gradient-scrim rendering (queued for `toolchain-setup`).** The
-  `family_test` AVD has crashed with `SIGSEGV (Address boundary error)` at least six times now
-  — during M2b's and M2c's screenshot passes, twice live in Kev's own scrcpy session on
-  2026-08-19, and twice more during M2d's build-time verification — always when a hero image
-  with a gradient scrim renders (Home's hero banner, title details). Prime suspect: a
-  `swiftshader` (software GL) limit at higher framebuffer sizes, not an app bug.
-  **Update 2026-08-19 (M2d run):** the `-memory 3072 -skin 720x1600` workaround does **not**
-  reliably prevent it — M2d's build crashed twice at that exact reduced resolution, with
-  `-no-snapshot` also correctly applied this time (ruling out stale-snapshot interference as
-  the explanation). The workaround is weaker than previously believed; this needs an actual
-  fix, not just a smaller framebuffer. **Queued, not yet launched** — investigate the real
-  cause (try `-gpu swiftshader` vs `swiftshader_indirect`,
-  a newer system image, or host GPU passthrough) so native-resolution screenshots and live
-  testing don't need the workaround. Real Android hardware is unaffected either way.
+- **Emulator SIGSEGV on hero/gradient-scrim rendering — ✅ ROOT-CAUSED AND FIXED 2026-08-19**
+  (`toolchain-setup`). **The fix is to boot with `-gpu swangle` instead of
+  `-gpu swiftshader_indirect`.** This is a real fix, not a mitigation: the crashing code is no
+  longer loaded at all. `docs/PREVIEW.md` §1 carries the updated standard boot command.
+
+  **Root cause.** With `-gpu swiftshader_indirect`, guest GLES is served by the emulator's
+  bundled *SwiftShader GLES* driver
+  (`~/android-dev/sdk/emulator/lib64/gles_swiftshader/libGLESv2.so`, reporting
+  `OpenGL ES 3.0 SwiftShader 4.0.0.1`) — Google's long-deprecated SwiftShader GL backend, which
+  upstream abandoned in favour of SwiftShader Vulkan. A core dump of a live crash
+  (signal 11, `si_code=1 SEGV_MAPERR` — address not mapped; fault address `0x5af3a6ca0000`,
+  exactly page-aligned, i.e. one page past the end of a heap allocation) shows `RIP` sitting in
+  anonymous, non-file-backed executable memory — SwiftShader's Reactor/Subzero **JIT-generated**
+  code — with the stack immediately beneath it returning into `libGLESv2.so` (`+0xd49fc`,
+  `+0xd4b03`, `+0xd4def`, `+0x15c1ab`). Register state at the fault describes a strided surface
+  walk: `R14 = 4` (bytes per pixel), `RBX = 0x77a` (1914 px), `RDX = RSI = 0x1de8` (7656 bytes =
+  1914 × 4, the row stride), plus three heap surface pointers. So a JIT-compiled texture
+  sampling/blend routine runs off the end of its buffer while compositing the large scaled
+  backdrop image under the multi-stop alpha gradient in `ui/components/Scrims.kt`. It is an
+  upstream out-of-bounds bug in dead-end code — **not an app bug**, and not memory pressure
+  (the box had ~11GB free; it is a genuine SIGSEGV, not an OOM SIGKILL).
+
+  **The fix.** `-gpu swangle` routes guest GLES through **ANGLE** (2.1.17841) onto **SwiftShader
+  Vulkan 5.0.0**, the actively maintained backend; `libGLESv2.so` from `gles_swiftshader` is
+  never loaded. Rendering is pixel-identical at native 1080x2400 and the guest gains GLES 3.1
+  (was capped at 3.0). Boot time and RAM are unchanged.
+
+  **Evidence (identical scripted soak both sides — relaunch app, scroll Home hero, open title
+  details, scroll the backdrop, back):**
+  | GPU mode | Result |
+  |---|---|
+  | `-gpu swiftshader_indirect` | crashed on cycle 1 and cycle 3 of two separate runs |
+  | `-gpu swangle` | **60 cycles across 3 runs, zero crashes** |
+
+  **⚠️ The flag must be passed on the command line.** Setting `hw.gpu.mode = swangle` in the
+  AVD's `config.ini` is a false positive — the emulator logs `gles_mode_selected:swangle` but
+  the guest still loads SwiftShader GLES 4.0.0.1 and crashed on the first cycle. `config.ini`
+  has been left at its original value; always pass `-gpu swangle` explicitly.
+
+  **Also ruled out.** `-gpu swiftshader` is not a separate code path — the emulator normalises
+  both spellings to the same renderer (`gpu_mode_requested: swiftshader` is logged for
+  `swiftshader_indirect` too). `-gpu host` is impossible on agent101: the box is itself a KVM
+  guest with no GPU render node (`/dev/dri/renderD*` absent) and no X/Wayland session. A newer
+  emulator is not available — `sdkmanager --list` reports 37.1.11 as the current stable release
+  with no update pending, and the installed `system-images;android-35;google_apis;x86_64` is at
+  the latest revision (9); since the bug is host-side, a different guest image would not help
+  regardless. The old `-memory 3072 -skin 720x1600` reduced-resolution recipe is obsolete and
+  should not be used — it never worked, and native resolution is now stable.
+
+  **Untested alternative if `swangle` ever regresses:** `-gpu lavapipe` (Mesa lavapipe for
+  Vulkan + auto-selected software GLES) is also bundled with this emulator build.
+
+  Real Android hardware was never affected by any of this.
 - **Stretch (post-M5, only if credit remains):** embedded trailer player, episode-level TV
   tracking (v1 tracks TV at series level), Play-Feature-style "leaving soon" via provider-TTL
   diffing.
