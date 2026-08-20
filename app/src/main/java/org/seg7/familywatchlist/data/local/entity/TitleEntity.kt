@@ -19,6 +19,12 @@ data class TitleEntity(
     /** UK certification, e.g. "12", "15", "18". Null if TMDB has no GB release/content rating. */
     val certification: String?,
     val voteAverage: Double?,
+    /**
+     * PLAN.md §4 scoring's "voteAverage/10, min 20 votes" — the vote-count floor needs this,
+     * added at M3 (schema v2 -> v3) alongside [org.seg7.familywatchlist.data.local.entity.ProfileSlidersEntity].
+     * Null for rows that predate this migration or came from a summary payload with no count.
+     */
+    val voteCount: Int? = null,
     val popularity: Double?,
     /**
      * YouTube video key for the title's trailer, from the same `append_to_response=videos`

@@ -46,7 +46,7 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         ShortlistEntryEntity::class,
         DiscoverCacheEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -75,6 +75,19 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
             override fun migrate(connection: SQLiteConnection) {
                 connection.execSQL("ALTER TABLE titles ADD COLUMN trailerKey TEXT")
+            }
+        }
+
+        /**
+         * v2 -> v3 (PLAN.md §4/§4a, M3): adds `titles.voteCount` — the recommender's `tmdbQuality`
+         * term needs the "min 20 votes" floor PLAN.md §4 specifies, which the app never persisted
+         * before now. Existing rows get NULL; [org.seg7.familywatchlist.data.recommend.Scorer.tmdbQuality]
+         * treats a null count as "not enough evidence" (score 0) until the title's next TTL
+         * refresh backfills it, rather than crediting an unknown vote count.
+         */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE titles ADD COLUMN voteCount INTEGER")
             }
         }
     }
