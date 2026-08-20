@@ -244,19 +244,41 @@ WorkManager run still applies whatever the slider is currently set to.
    still the build agent's call — the *visibility gating* is now settled, the exact UI
    placement isn't.
 
-5. **Suggestion count — not a taste slider, a literal count control (Kev, 2026-08-20).**
-   Separate from the four −1..+1 taste sliders above: a per-profile **integer**, range
-   **4–50, default 30** (already the fixed `RecommenderSpec.SHORTLIST_TARGET_SIZE`
-   fallback — this control overrides it per-profile rather than replacing the constant).
-   Directly sets `ShortlistConfig.targetSize` for that profile's personal shortlist.
-   Max of 50 is a deliberate fixed UI ceiling, not a dynamic bind to the live candidate
-   pool (which is inherently variable — up to ~340 raw candidates before dedup/exclusion,
-   shrinking unpredictably per profile/week) — if a given week's real pool is smaller than
-   requested, the existing backfill/graceful-degradation behaviour already just returns
-   fewer, no new handling needed. UI: a slider on the same "Tune my picks" screen, for
-   visual consistency with the four taste sliders already there (Kev offered either a
-   numeric field or a slider; a slider fits the screen's existing paradigm better on
-   mobile — flag if a numeric field is actually preferred instead).
+5. **Suggestion count — not a taste slider, a literal count control (Kev, 2026-08-20, design
+   corrected same day after Kev proposed a better mechanism — see below).**
+   Separate from the four −1..+1 taste sliders above: a per-profile **integer**, default 30
+   (already the fixed `RecommenderSpec.SHORTLIST_TARGET_SIZE` fallback — this control
+   overrides it per-profile rather than replacing the constant). Directly sets
+   `ShortlistConfig.targetSize` for that profile's personal shortlist.
+
+   **The slider's max is the profile's real eligible-candidate count, not a guessed fixed
+   number.** `RecommendationRepository.refreshProfileShortlist` already computes an `eligible`
+   pool (post-dedup, post-watched/listed-exclusion, post-age-cap) before scoring/assembly —
+   that count IS the true ceiling for this profile right now, no need to invent one. Persist
+   it (e.g. alongside the profile's slider prefs) each time a refresh runs, and have the "Tune
+   my picks" screen read that **last-known** count to set the slider's max — not a live fetch
+   on screen-open (extra network calls just to view Settings would fight the app's
+   offline-first design; the persisted number is already refreshed on every weekly job run
+   and every slider-triggered recompute).
+
+   This ceiling drifts day to day as availability changes — handle that by storing what the
+   user *asked for* (their chosen slider value) separately from what they *get*: at refresh
+   time, the actual target passed to `ShortlistAssembler` is
+   `min(userRequestedCount, currentEligibleCount)`. A shrunk pool this week doesn't erase the
+   user's original request — if the pool recovers next week, they're back to their full
+   chosen count automatically, no re-entry needed.
+
+   **Edge case, must be handled gracefully, not crash or show an inverted range:** if the
+   eligible count is ever below a sane minimum (e.g. a very new profile, or heavily filtered
+   services), the slider's min must adapt too — don't present a slider where min > max. A
+   reasonable floor is `min(4, currentEligibleCount)`; if the eligible count is 0, disable the
+   slider with a short explanatory message rather than rendering a broken control.
+
+   UI: a slider on the same "Tune my picks" screen, for visual consistency with the four taste
+   sliders already there (Kev offered either a numeric field or a slider; a slider fits the
+   screen's existing paradigm better on mobile — flag if a numeric field is actually preferred
+   instead).
+
    **Scope boundary, deliberate not an oversight:** this control only affects a profile's
    own personal shortlist. Family-scope shortlists stay at the fixed default (30) for now
    — tying "how many" to any one profile's personal preference doesn't make sense for a
