@@ -16,6 +16,22 @@ object RecommenderSpec {
     const val FAMILY_MEAN_WEIGHT: Double = 0.5
     const val FAMILY_MIN_WEIGHT: Double = 0.5
 
+    /**
+     * PLAN.md §4a slider 5 ("Suggestion count"): a per-profile integer *request* overriding
+     * [SHORTLIST_TARGET_SIZE] for that profile's own personal shortlist only — family-scope
+     * refreshes always use the fixed [SHORTLIST_TARGET_SIZE], never this per-profile request.
+     *
+     * There is deliberately no fixed maximum any more (design corrected 2026-08-20, same day, after
+     * Kev pushed back on an initial fixed-50 UI ceiling and proposed a better mechanism): the
+     * slider's real ceiling is the profile's actual eligible-candidate count, computed fresh by
+     * [org.seg7.familywatchlist.data.repository.RecommendationRepository.refreshProfileShortlist]
+     * and persisted via [org.seg7.familywatchlist.data.repository.ProfileSlidersRepository.setEligibleCandidateCount]
+     * every time it runs — see [suggestionCountRange]. [SUGGESTION_COUNT_MIN] survives only as the
+     * *baseline* floor that ceiling is compared against (`min(SUGGESTION_COUNT_MIN, eligibleCount)`,
+     * PLAN.md §4a's edge-case handling) — it is not a hard lower bound on its own any more.
+     */
+    const val SUGGESTION_COUNT_MIN: Int = 4
+
     /** PLAN.md §4: "< 5 watch events for a profile -> popular-on-your-services". */
     const val COLD_START_EVENT_THRESHOLD: Int = 5
 
@@ -54,3 +70,18 @@ data class FamilyBlendWeights(
         val SPEC_DEFAULT = FamilyBlendWeights()
     }
 }
+
+/**
+ * PLAN.md §4a slider 5's edge-case handling: the "Tune my picks" suggestion-count slider's valid
+ * range, derived from the profile's real (last-known persisted) [eligibleCandidateCount] rather
+ * than a fixed guess. The min adapts downward with a shrunk pool
+ * (`min(RecommenderSpec.SUGGESTION_COUNT_MIN, eligibleCandidateCount)`) so min never exceeds max;
+ * a ceiling of zero returns `null` — "disable the slider with a short explanatory message" rather
+ * than rendering an inverted/broken range.
+ */
+fun suggestionCountRange(eligibleCandidateCount: Int): IntRange? =
+    if (eligibleCandidateCount <= 0) {
+        null
+    } else {
+        RecommenderSpec.SUGGESTION_COUNT_MIN.coerceAtMost(eligibleCandidateCount)..eligibleCandidateCount
+    }

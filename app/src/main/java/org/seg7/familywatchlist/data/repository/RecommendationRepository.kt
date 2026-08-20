@@ -96,6 +96,17 @@ class RecommendationRepository(
      * "Popular on your services" row for them instead (PLAN.md §5a, already built in M2c);
      * writing an empty/misleading personalised shortlist here would be worse than writing
      * nothing.
+     *
+     * PLAN.md §4a slider 5 ("Suggestion count", design corrected 2026-08-20): [scored]'s size —
+     * the real candidate count remaining after dedup/watched/listed/dismissed/age-cap filtering,
+     * right before assembly — is persisted via [ProfileSlidersRepository.setEligibleCandidateCount]
+     * on *every* call, cold-start-skip aside, so "Tune my picks" always has an up-to-date ceiling
+     * for its slider without a live fetch. The *effective* target passed to [ShortlistAssembler]
+     * is `min(requested, eligible)`: a thin week never overwrites what the user actually asked
+     * for ([ProfileSlidersRepository.getSuggestionCount] is left untouched), so the shortlist
+     * automatically grows back to the full request once the pool recovers. Family-scope refreshes
+     * ([refreshFamilyShortlist]) always use [ShortlistConfig.SPEC_DEFAULT]'s fixed 30, deliberately
+     * never threading a profile's personal request (or this per-profile eligible count) in.
      */
     suspend fun refreshProfileShortlist(profileId: Long, region: String): List<ShortlistEntryEntity> {
         if (isColdStart(profileId)) return emptyList()
@@ -109,7 +120,12 @@ class RecommendationRepository(
         val pool = gatherCandidatePool(listOf(profileId), region)
         val eligible = excludeDismissed(pool, weekStart, scopeKey)
         val scored = scoreCandidates(eligible, vector, sliders.toScoringWeights(), today.year, profile.ageRatingCap, region)
-        val assembled = ShortlistAssembler.assemble(scored, sliders.toShortlistConfig())
+
+        profileSlidersRepository.setEligibleCandidateCount(profileId, scored.size)
+        val requestedCount = profileSlidersRepository.getSuggestionCount(profileId)
+        val effectiveTargetSize = requestedCount.coerceAtMost(scored.size)
+
+        val assembled = ShortlistAssembler.assemble(scored, sliders.toShortlistConfig(targetSize = effectiveTargetSize))
         val entries = persistShortlist(assembled, vector, weekStart, scopeKey)
         return entries
     }

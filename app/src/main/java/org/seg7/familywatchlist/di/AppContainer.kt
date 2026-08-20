@@ -37,7 +37,7 @@ class AppContainer(context: Context) {
     val clock: AppClock = SystemAppClock()
 
     val database: AppDatabase = Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.NAME)
-        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
         .build()
 
     val tmdbApi: TmdbApi = TmdbClient.create(

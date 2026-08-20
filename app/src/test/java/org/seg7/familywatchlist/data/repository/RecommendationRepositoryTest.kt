@@ -1,11 +1,13 @@
 package org.seg7.familywatchlist.data.repository
 
+import java.time.Duration
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -26,6 +28,9 @@ import org.seg7.familywatchlist.data.local.entity.WatchEventEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
+import org.seg7.familywatchlist.data.recommend.RecommenderSpec
+import org.seg7.familywatchlist.data.remote.AuthInterceptor
+import org.seg7.familywatchlist.data.remote.ThrottleInterceptor
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.buildInMemoryDb
@@ -46,6 +51,7 @@ class RecommendationRepositoryTest {
     private lateinit var clock: FakeClock
     private lateinit var repo: RecommendationRepository
     private lateinit var profileRepository: ProfileRepository
+    private lateinit var profileSlidersRepository: ProfileSlidersRepository
 
     private val today: LocalDate = LocalDate.of(2026, 8, 20)
 
@@ -55,13 +61,26 @@ class RecommendationRepositoryTest {
         server = MockWebServer()
         server.start()
         clock = FakeClock(startMillis = today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
-        val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
+        // A much higher per-second cap than PLAN.md §3's real 4 req/s: this suite's suggestion-
+        // count tests deliberately detail-fetch a large (>30) candidate pool to prove a per-profile
+        // override actually shrinks the assembled shortlist below the fixed 30 default (rather than
+        // silently still landing on 30) — the real throttle would turn that into tens of seconds of
+        // real Thread.sleep for no correctness benefit; ThrottleInterceptor itself has its own
+        // dedicated test (ThrottleInterceptorTest) so nothing here is un-tested by relaxing it.
+        val api = TmdbClient.create(
+            baseUrl = server.url("/").toString(),
+            accessToken = { "t" },
+            okHttpClient = OkHttpClient.Builder()
+                .addInterceptor(AuthInterceptor { "t" })
+                .addInterceptor(ThrottleInterceptor(maxRequestsPerSecond = 1000))
+                .build(),
+        )
 
         val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         profileRepository = ProfileRepository(db.profileDao(), clock)
-        val profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao())
+        profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao())
 
         repo = RecommendationRepository(
             watchEventDao = db.watchEventDao(),
@@ -277,6 +296,149 @@ class RecommendationRepositoryTest {
         seedWarmProfile()
 
         assertEquals(true, repo.observeFamilyBlendSliderVisible().first())
+    }
+
+    /**
+     * PLAN.md §4a slider 5 ("Suggestion count"): proves the per-profile *requested* count
+     * actually threads into the real [ShortlistAssembler] run, not just into storage. A
+     * 35-candidate pool (deliberately > the fixed 30 default) is the point — if
+     * [RecommendationRepository.refreshProfileShortlist] silently ignored the per-profile request
+     * and kept using [RecommenderSpec.SHORTLIST_TARGET_SIZE], this would land on 30, not the
+     * requested 10; a smaller pool couldn't distinguish "correctly capped at 10" from "capped by
+     * an undersized pool" the same way. (This case is entirely below the real eligible ceiling —
+     * min(10, 35) = 10 — so the min(requested, eligible) clamp itself is a no-op here; that
+     * clamping logic gets its own dedicated test below.)
+     */
+    @Test
+    fun `a profile's requested suggestion count overrides the fixed 30 default for that profile's own shortlist`() = runTest {
+        val id = seedWarmProfile()
+        profileSlidersRepository.setSuggestionCount(id, 10)
+        val candidateIds = (1000 until 1035).toList() // 35 candidates, comfortably above the fixed default of 30
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(candidateIds)))
+        candidateIds.forEach { cid ->
+            server.enqueue(MockResponse(body = movieDetailJson(id = cid, title = "Candidate $cid", genreId = 35, genreName = "Comedy", certification = "PG")))
+        }
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(10, entries.size)
+    }
+
+    /**
+     * PLAN.md §4a slider 5 (design corrected 2026-08-20): `refreshProfileShortlist` persists the
+     * *real* eligible-candidate count on every refresh — [scored]'s size, post dedup/watched/
+     * listed/dismissed/age-cap filtering — so "Tune my picks" always has a fresh, real ceiling
+     * for its slider's max without a live fetch.
+     */
+    @Test
+    fun `refreshProfileShortlist persists the real eligible-candidate count on every refresh`() = runTest {
+        val id = seedWarmProfile()
+        val candidateIds = (3000 until 3010).toList() // exactly 10 eligible candidates this week
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(candidateIds)))
+        candidateIds.forEach { cid ->
+            server.enqueue(MockResponse(body = movieDetailJson(id = cid, title = "Candidate $cid", genreId = 35, genreName = "Comedy", certification = "PG")))
+        }
+
+        repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(10, profileSlidersRepository.getEligibleCandidateCount(id))
+    }
+
+    /**
+     * PLAN.md §4a slider 5's core new mechanism: "store what the user asked for separately from
+     * what they get." A requested count above this week's real pool must clamp the *effective*
+     * target (what's actually assembled/persisted) without silently overwriting the stored
+     * request — the request survives a thin week untouched.
+     */
+    @Test
+    fun `a requested count above the real eligible pool is clamped, but the stored request survives untouched`() = runTest {
+        val id = seedWarmProfile()
+        profileSlidersRepository.setSuggestionCount(id, 30) // the spec default request
+        val candidateIds = (4000 until 4008).toList() // only 8 eligible candidates this thin week
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(candidateIds)))
+        candidateIds.forEach { cid ->
+            server.enqueue(MockResponse(body = movieDetailJson(id = cid, title = "Candidate $cid", genreId = 35, genreName = "Comedy", certification = "PG")))
+        }
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(8, entries.size) // clamped to the real pool, not the requested 30
+        assertEquals(30, profileSlidersRepository.getSuggestionCount(id)) // the original request is untouched
+        assertEquals(8, profileSlidersRepository.getEligibleCandidateCount(id))
+    }
+
+    /**
+     * PLAN.md §4a slider 5: "if the pool recovers next week, they're back to their full chosen
+     * count automatically, no re-entry needed." Two sequential refreshes for the same profile —
+     * a thin week (8 eligible), then (after advancing the clock past both the `/recommendations`
+     * 24h cache TTL and into a new ISO week, so the second refresh genuinely re-fetches rather
+     * than serving cached candidates) a recovered week (35 eligible) — prove the *stored* request
+     * of 30 is honoured in full the moment the pool allows it again, with no user action between
+     * the two refreshes.
+     */
+    @Test
+    fun `the effective target recovers automatically once the pool grows back, with no re-entry needed`() = runTest {
+        val id = seedWarmProfile()
+        profileSlidersRepository.setSuggestionCount(id, 30)
+
+        val thinPool = (5000 until 5008).toList() // 8 eligible
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(thinPool)))
+        thinPool.forEach { cid ->
+            server.enqueue(MockResponse(body = movieDetailJson(id = cid, title = "Candidate $cid", genreId = 35, genreName = "Comedy", certification = "PG")))
+        }
+        val thinWeekEntries = repo.refreshProfileShortlist(id, region = "GB")
+        assertEquals(8, thinWeekEntries.size)
+        assertEquals(30, profileSlidersRepository.getSuggestionCount(id))
+
+        clock.advanceBy(Duration.ofDays(8).toMillis()) // past the 24h /recommendations cache TTL and into a new week
+
+        val recoveredPool = (6000 until 6035).toList() // 35 eligible, comfortably above the requested 30
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(recoveredPool)))
+        recoveredPool.forEach { cid ->
+            server.enqueue(MockResponse(body = movieDetailJson(id = cid, title = "Candidate $cid", genreId = 35, genreName = "Comedy", certification = "PG")))
+        }
+        val recoveredWeekEntries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(30, recoveredWeekEntries.size) // back to the full original request automatically
+    }
+
+    /**
+     * PLAN.md §4a slider 5's explicit scope boundary: "Family-scope shortlists stay at the fixed
+     * default (30) — tying 'how many' to any one profile's personal preference doesn't make sense
+     * for a blended family list." Profile [a] has a personal override of 10, but the family blend
+     * (which includes [a]) must still land on the fixed default, proving the override never leaks
+     * into [RecommendationRepository.refreshFamilyShortlist].
+     */
+    @Test
+    fun `refreshFamilyShortlist ignores a member profile's personal suggestion count and stays at the fixed 30 default`() = runTest {
+        val a = seedWarmProfile()
+        val b = seedWarmProfile()
+        profileSlidersRepository.setSuggestionCount(a, 10)
+        // Both profiles rated the same title (tmdbId=1) UP via seedWarmProfile, so exactly one
+        // /recommendations call fires (same de-dup precedent as the persist=true test above).
+        val candidateIds = (2000 until 2035).toList() // 35 candidates, comfortably above the fixed default of 30
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(candidateIds)))
+        candidateIds.forEach { cid ->
+            server.enqueue(MockResponse(body = movieDetailJson(id = cid, title = "Candidate $cid", genreId = 35, genreName = "Comedy", certification = "PG")))
+        }
+
+        val entries = repo.refreshFamilyShortlist(listOf(a, b), region = "GB", FamilyBlendSlider.DEFAULT, persist = true)
+
+        assertEquals(RecommenderSpec.SHORTLIST_TARGET_SIZE, entries.size)
+    }
+
+    private fun recommendationsJsonMulti(candidateIds: List<Int>): String {
+        val results = candidateIds.joinToString(",\n") { cid ->
+            """{"id": $cid, "title": "Candidate $cid", "poster_path": "/p.jpg", "release_date": "2026-08-01", "vote_average": 8.0, "vote_count": 500, "popularity": 50.0}"""
+        }
+        return """
+            {
+              "page": 1,
+              "results": [$results],
+              "total_pages": 1,
+              "total_results": ${candidateIds.size}
+            }
+        """.trimIndent()
     }
 
     private fun recommendationsJson(candidateId: Int, title: String) = """

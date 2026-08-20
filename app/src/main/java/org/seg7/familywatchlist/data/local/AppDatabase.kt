@@ -49,7 +49,7 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         DiscoverCacheEntity::class,
         ProfileSlidersEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -108,6 +108,26 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS `profile_sliders` (`profileId` INTEGER NOT NULL, " +
                         "`discovery` REAL NOT NULL, `recency` REAL NOT NULL, `personalMatch` REAL NOT NULL, " +
                         "PRIMARY KEY(`profileId`))"
+                )
+            }
+        }
+
+        /**
+         * v4 -> v5 (PLAN.md §4a slider 5, M3b — design corrected same day, see
+         * [ProfileSlidersEntity]'s kdoc): adds two columns to `profile_sliders`, not one —
+         * `suggestionCount` (what the user *requested*) and `eligibleCandidateCount` (the real,
+         * last-known number of candidates actually available, persisted on every refresh; the
+         * "Tune my picks" slider's max). Both are literal `DEFAULT 30` columns rather than
+         * nullable ones, so existing rows (and any profile with no row at all) both read as the
+         * spec default with no extra null-handling at the repository layer.
+         */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "ALTER TABLE profile_sliders ADD COLUMN suggestionCount INTEGER NOT NULL DEFAULT 30"
+                )
+                connection.execSQL(
+                    "ALTER TABLE profile_sliders ADD COLUMN eligibleCandidateCount INTEGER NOT NULL DEFAULT 30"
                 )
             }
         }
