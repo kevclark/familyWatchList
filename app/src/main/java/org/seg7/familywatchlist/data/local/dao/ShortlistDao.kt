@@ -16,6 +16,10 @@ interface ShortlistDao {
     @Query("SELECT * FROM shortlist_entries WHERE weekStart = :weekStart AND scopeKey = :scopeKey ORDER BY score DESC")
     fun observeForScope(weekStart: LocalDate, scopeKey: String): Flow<List<ShortlistEntryEntity>>
 
+    /** One-shot read used by [org.seg7.familywatchlist.data.repository.RecommendationRepository] to exclude this cycle's DISMISSED candidates before scoring. */
+    @Query("SELECT * FROM shortlist_entries WHERE weekStart = :weekStart AND scopeKey = :scopeKey")
+    suspend fun getForScope(weekStart: LocalDate, scopeKey: String): List<ShortlistEntryEntity>
+
     @Query(
         "UPDATE shortlist_entries SET state = :state WHERE weekStart = :weekStart AND scopeKey = :scopeKey AND tmdbId = :tmdbId AND mediaType = :mediaType"
     )

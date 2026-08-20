@@ -18,6 +18,7 @@ import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
+import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.RegionCatalogRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
@@ -90,6 +91,25 @@ class AppContainer(context: Context) {
 
     val watchEventRepository: WatchEventRepository by lazy {
         WatchEventRepository(database.watchEventDao(), database.watchlistDao())
+    }
+
+    // PLAN.md §4/§4a: the recommender's I/O orchestration layer (scoring math itself lives in
+    // data/recommend). Depends on nearly everything above, so declared last among the DAO-backed
+    // repositories.
+    val recommendationRepository: RecommendationRepository by lazy {
+        RecommendationRepository(
+            watchEventDao = database.watchEventDao(),
+            ratingDao = database.ratingDao(),
+            watchlistDao = database.watchlistDao(),
+            titleAttributeDao = database.titleAttributeDao(),
+            titleRepository = titleRepository,
+            discoverRepository = discoverRepository,
+            providerRepository = providerRepository,
+            profileRepository = profileRepository,
+            profileSlidersRepository = profileSlidersRepository,
+            shortlistDao = database.shortlistDao(),
+            clock = clock,
+        )
     }
 
     // Onboarding-complete flag + active profile (M2a, PLAN.md §1/§5).

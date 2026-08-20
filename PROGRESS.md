@@ -500,16 +500,23 @@ tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not
       (`data/recommend/AffinityEngine.kt`)
 - [x] IDF damping + per-attribute-type L2 normalisation (`AffinityEngine.applyIdfDamping`/
       `l2NormalisePerType`)
-- [ ] Candidate pool from `/discover` (GB, subscribed providers) ∪ `/recommendations`
+- [x] Candidate pool from `/discover` (GB, subscribed providers) ∪ `/recommendations`
+      (`RecommendationRepository.gatherCandidatePool` — 6 pages/type from `/discover`,
+      `/recommendations` for the top-5 UP-rated titles; excludes watched, shared-active-watchlist,
+      this-cycle-DISMISSED, and over-age-cap candidates)
 - [x] Scoring 0.70 affinity / 0.15 quality / 0.15 freshness (`data/recommend/Scorer.kt`,
       `RecommenderSpec`) — `tmdbQuality`'s "min 20 votes" floor needed `TitleEntity.voteCount`,
       which the app never persisted; added via schema v2→v3 (`MIGRATION_2_3`) and threaded
       through the DTOs/mappers
 - [x] Shortlist assembly: ~8 per scope, max 2 per genre, 1 wildcard
       (`data/recommend/ShortlistAssembler.kt`)
-- [x] Family scope `0.5×mean + 0.5×min` + strictest age cap (`data/recommend/FamilyBlend.kt`);
-      who's-watching chips still pending (UI, not yet wired)
-- [ ] Cold start (<5 events) → "Popular on your services"
+- [x] Family scope `0.5×mean + 0.5×min` + strictest age cap (`data/recommend/FamilyBlend.kt`,
+      orchestrated by `RecommendationRepository.refreshFamilyShortlist`); who's-watching chips
+      still pending (UI, not yet wired) — the on-the-fly (non-persisted) computation path exists
+      (`persist=false`), just not called from Home yet
+- [x] Cold start (<5 events) → "Popular on your services" — `RecommendationRepository
+      .isColdStart`/`refreshProfileShortlist` short-circuits with no writes; Home wiring to
+      relabel the existing row for cold-start profiles still pending
 - [ ] WorkManager weekly Monday 06:00 + notification deep-link; POST_NOTIFICATIONS request
 - [ ] Home hero sources from the profile's top-scored pick, not raw popularity (PLAN.md §4's
       2026-08-19 design note — retires the current `discover.movies.firstOrNull()` approach)
@@ -547,10 +554,32 @@ pure derivations (each `s ∈ [-1,1]`, default 0) that convert to the engine's `
 running the full pipeline twice and by asserting the derived config objects are `equals()`.
 Family-blend-slider UI-home judgment call: a shared app-level DataStore preference (option 1
 of two considered — full reasoning on `UserPreferencesRepository.familyBlendSlider`'s kdoc and
-in the build report), not per-session or per-profile. Not yet built this checkpoint: candidate-pool
+in the build report), not per-session or per-profile. **Visibility gating RESOLVED by Kev,
+2026-08-20** (mid-build, after this checkpoint's storage landed): the control is only shown
+with 2+ profiles on the account — see PLAN.md §4a's updated slider-4 note. Implemented in the
+next checkpoint (`RecommendationRepository.observeFamilyBlendSliderVisible` for the UI signal,
+plus a defense-in-depth pin to `FamilyBlendSlider.DEFAULT` inside `refreshFamilyShortlist`
+itself whenever the whole account has fewer than 2 profiles, regardless of what value is
+passed in — so a stale non-zero preference from a since-deleted second profile can never leak
+into a solo-profile household's scoring). Not yet built this checkpoint: candidate-pool
 fetching, WorkManager, the "Tune my picks" screen, and Home wiring — that's the remaining
 checkpoints of this milestone. `./gradlew test assembleDebug` is green at 236 tests / 0
 failures as of this checkpoint.
+
+**M3 progress note (checkpoint 3, in progress — `feature-builder`):** candidate-pool fetching
+and full orchestration landed — `RecommendationRepository` (`data/repository/`) wires the
+checkpoint-1/2 pure engine to real Room/TMDB data: builds each profile's affinity vector from
+their watch/rating/watchlist history, gathers candidates from `/discover` ∪ `/recommendations`,
+excludes watched/listed/dismissed/over-age-cap titles, scores and assembles the shortlist, and
+persists it (or, for an ad-hoc who's-watching subset, computes without persisting). Cold-start
+profiles are left alone rather than writing a misleading personalised shortlist — Home's
+existing "Popular on your services" row already covers that case per PLAN.md §5a/M2c. Also
+lands the family-blend-slider visibility gate Kev resolved mid-build (see above). 9 new
+orchestration tests (`RecommendationRepositoryTest`) — deliberately not re-proving the scoring
+math (that's `data/recommend`'s job), focused on exclusions/cold-start/persistence/gating with
+a MockWebServer-scripted candidate pool. 245 tests, 0 failures. **Still pending in this
+checkpoint:** WorkManager weekly job + notification, the "Tune my picks" screen, Home hero
+rework, and slider-triggered immediate recompute.
 
 ## M4 — Polish
 
