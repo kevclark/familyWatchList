@@ -35,6 +35,15 @@ object FamilyBlend {
         .withIndex().associate { (index, cert) -> cert to index }
 
     /**
+     * The same ranking [strictestCap] uses, exposed for candidate-side age-cap filtering
+     * ([org.seg7.familywatchlist.data.repository.RecommendationRepository] excludes a candidate
+     * whose certification outranks a profile's/family's cap). Null for an unrecognised string —
+     * caller treats that as "can't compare, don't exclude on this basis" per PLAN.md §8's UK
+     * provider/certification-data-quality note.
+     */
+    fun certRank(cert: String): Int? = CERT_RANK[cert]
+
+    /**
      * PLAN.md §4: "apply the strictest ageRatingCap among them." Null means "no cap" for that
      * profile and never tightens the result; an unrecognised (non-UK-cert) string is ignored for
      * ranking purposes rather than crashing, since it can't be compared — real GB certifications
