@@ -17,6 +17,7 @@ data class TvDetailDto(
     @SerialName("backdrop_path") val backdropPath: String? = null,
     val overview: String? = null,
     @SerialName("vote_average") val voteAverage: Double? = null,
+    @SerialName("vote_count") val voteCount: Int? = null,
     val popularity: Double? = null,
     val genres: List<GenreDto> = emptyList(),
     val credits: CreditsDto? = null,

@@ -496,12 +496,19 @@ Done means: scoring engine (incl. watchlist signal) + fixture-based unit tests, 
 shortlists, family scope, weekly WorkManager job + Monday notification, **plus the four
 tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not a follow-up.**
 
-- [ ] Affinity vectors: rating + recency weights, watchlist signal at +0.6
-- [ ] IDF damping + per-attribute-type L2 normalisation
+- [x] Affinity vectors: rating + recency weights, watchlist signal at +0.6
+      (`data/recommend/AffinityEngine.kt`)
+- [x] IDF damping + per-attribute-type L2 normalisation (`AffinityEngine.applyIdfDamping`/
+      `l2NormalisePerType`)
 - [ ] Candidate pool from `/discover` (GB, subscribed providers) ∪ `/recommendations`
-- [ ] Scoring 0.70 affinity / 0.15 quality / 0.15 freshness
-- [ ] Shortlist assembly: ~8 per scope, max 2 per genre, 1 wildcard
-- [ ] Family scope `0.5×mean + 0.5×min` + strictest age cap; who's-watching chips
+- [x] Scoring 0.70 affinity / 0.15 quality / 0.15 freshness (`data/recommend/Scorer.kt`,
+      `RecommenderSpec`) — `tmdbQuality`'s "min 20 votes" floor needed `TitleEntity.voteCount`,
+      which the app never persisted; added via schema v2→v3 (`MIGRATION_2_3`) and threaded
+      through the DTOs/mappers
+- [x] Shortlist assembly: ~8 per scope, max 2 per genre, 1 wildcard
+      (`data/recommend/ShortlistAssembler.kt`)
+- [x] Family scope `0.5×mean + 0.5×min` + strictest age cap (`data/recommend/FamilyBlend.kt`);
+      who's-watching chips still pending (UI, not yet wired)
 - [ ] Cold start (<5 events) → "Popular on your services"
 - [ ] WorkManager weekly Monday 06:00 + notification deep-link; POST_NOTIFICATIONS request
 - [ ] Home hero sources from the profile's top-scored pick, not raw popularity (PLAN.md §4's
@@ -515,10 +522,23 @@ tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not
       (mirror `SearchViewModel`'s existing debounce pattern)
 - [ ] **Acceptance bar, not optional:** fixture tests proving all sliders at s=0 reproduce the
       exact same shortlist a build with no sliders at all would produce
-- [ ] Deterministic fixture unit tests for the scorer (base algorithm + slider variations)
-- [ ] `./gradlew test assembleDebug` green
+- [x] Deterministic fixture unit tests for the scorer base algorithm — 40 new tests across
+      `AffinityEngineTest`, `ScorerTest`, `ShortlistAssemblerTest`, `FamilyBlendTest`
+      (`app/src/test/java/.../data/recommend/`); slider-variation tests still pending
+- [ ] `./gradlew test assembleDebug` green (green as of this checkpoint — 214 tests, 0
+      failures — but milestone isn't done yet, see remaining items above)
 - [ ] Live verification / screenshots: base recommendations, at least one slider visibly
       changing Home's output
+
+**M3 progress note (checkpoint 1 of 4, this pass — `feature-builder`):** core scoring engine
+only (`org.seg7.familywatchlist.data.recommend` package) — pure, Room/TMDB-free functions
+covering affinity vectors, IDF damping, per-type L2 normalisation, the 0.70/0.15/0.15 scoring
+formula, shortlist assembly (diversity cap + wildcard), and family blend + strictest age cap —
+plus fixture unit tests proving each stage against hand-computed expectations. Candidate-pool
+fetching, Room storage for the recommender's output/sliders, WorkManager, the "Tune my picks"
+screen, and Home wiring are **not yet built** — that's the remaining checkpoints of this
+milestone. `./gradlew test assembleDebug` is green at 214 tests / 0 failures as of this
+checkpoint.
 
 ## M4 — Polish
 

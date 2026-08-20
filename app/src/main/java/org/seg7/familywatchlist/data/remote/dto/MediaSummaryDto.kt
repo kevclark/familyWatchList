@@ -29,5 +29,6 @@ data class MediaSummaryDto(
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("vote_average") val voteAverage: Double? = null,
+    @SerialName("vote_count") val voteCount: Int? = null,
     val popularity: Double? = null,
 )

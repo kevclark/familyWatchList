@@ -26,6 +26,7 @@ fun MovieDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
     runtimeMin = runtime,
     certification = releaseDates?.gbCertification(),
     voteAverage = voteAverage,
+    voteCount = voteCount,
     popularity = popularity,
     trailerKey = videos.youTubeTrailerKey(),
     fetchedAt = fetchedAt,
@@ -42,6 +43,7 @@ fun TvDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
     runtimeMin = episodeRunTime.firstOrNull(),
     certification = contentRatings?.results?.firstOrNull { it.iso3166_1 == GB }?.rating?.takeIf { it.isNotBlank() },
     voteAverage = voteAverage,
+    voteCount = voteCount,
     popularity = popularity,
     trailerKey = videos.youTubeTrailerKey(),
     fetchedAt = fetchedAt,
@@ -112,6 +114,7 @@ fun MediaSummaryDto.toStubTitleEntity(mediaType: MediaType, fetchedAt: Long): Ti
     runtimeMin = null,
     certification = null,
     voteAverage = voteAverage,
+    voteCount = voteCount,
     popularity = popularity,
     // Summary payloads carry no videos array; the key arrives with the first detail fetch.
     trailerKey = null,
