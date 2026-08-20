@@ -649,6 +649,27 @@ bug on a second live call within the same day).
 
 **M3 — Recommender: done.** 260 tests, 0 failures. `./gradlew test assembleDebug` green.
 
+## M3b — Configurable suggestion count
+
+Kev's follow-up, 2026-08-20: default shortlist size already bumped 8→30 directly by the
+orchestrator (commit `3c4fff1`) after he flagged 8 as too thin for a "remove the scrolling"
+app. He then asked for the count itself to be user-configurable, not just a bigger fixed
+number. Full spec in PLAN.md §4a, slider 5 ("Suggestion count").
+
+- [ ] Per-profile integer preference, range 4–50, default 30 — overrides
+      `RecommenderSpec.SHORTLIST_TARGET_SIZE` per-profile, doesn't replace the constant
+      (constant stays the fallback/spec default)
+- [ ] Threads into `ShortlistConfig.targetSize` for that profile's personal shortlist refresh
+- [ ] UI: slider on the existing "Tune my picks" screen alongside the four taste sliders
+      (visual consistency call — flag if a numeric field is actually preferred)
+- [ ] Family-scope shortlists stay at the fixed default (30) — deliberately out of scope,
+      not an oversight (see PLAN.md §4a slider 5's "scope boundary" note)
+- [ ] Tests: preference default/round-trip, value actually threads into the real
+      `ShortlistConfig` used for that profile's refresh (not just stored and ignored)
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: change the count, confirm the profile's shortlist actually grows/
+      shrinks to match
+
 ## M4 — Polish
 
 - [ ] Trailers via TMDB `/videos` → YouTube intent
