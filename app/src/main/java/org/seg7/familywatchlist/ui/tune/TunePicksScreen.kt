@@ -31,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlin.math.roundToInt
+import org.seg7.familywatchlist.data.recommend.suggestionCountRange
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
 import org.seg7.familywatchlist.ui.theme.Accent
@@ -43,11 +45,13 @@ import org.seg7.familywatchlist.ui.theme.InkHairline
 import org.seg7.familywatchlist.ui.theme.InkRaised
 
 /**
- * PLAN.md §4a: the four tunable sliders, each `s ∈ [-1, +1]`, default 0 (dead centre —
- * "the algorithm as already designed"). Reachable from Settings (see that screen's "Tune my
- * picks" row); PLAN.md's "profile picker or Settings" is satisfied via Settings, which is
- * already scoped to the active profile — no need to duplicate the entry point on the profile
- * picker itself, which has no natural per-profile detail screen of its own to add a row to.
+ * PLAN.md §4a: the four tunable taste sliders, each `s ∈ [-1, +1]`, default 0 (dead centre —
+ * "the algorithm as already designed"), plus the "Suggestion count" control (slider 5) — a plain
+ * integer, not a taste axis, see [SuggestionCountSlider]'s kdoc. Reachable from Settings (see
+ * that screen's "Tune my picks" row); PLAN.md's "profile picker or Settings" is satisfied via
+ * Settings, which is already scoped to the active profile — no need to duplicate the entry point
+ * on the profile picker itself, which has no natural per-profile detail screen of its own to add
+ * a row to.
  *
  * Changing a slider recomputes the active profile's shortlist after a short debounce
  * ([TunePicksViewModel.RECOMPUTE_DEBOUNCE_MS]) — see that class's kdoc. The family-blend slider
@@ -72,6 +76,8 @@ fun TunePicksScreen(activeProfileId: Long, onBack: () -> Unit, modifier: Modifie
     )
 
     val sliders by viewModel.sliders.collectAsStateWithLifecycle()
+    val suggestionCount by viewModel.suggestionCount.collectAsStateWithLifecycle()
+    val eligibleCandidateCount by viewModel.eligibleCandidateCount.collectAsStateWithLifecycle()
     val familyBlend by viewModel.familyBlend.collectAsStateWithLifecycle()
     val familyBlendVisible by viewModel.familyBlendVisible.collectAsStateWithLifecycle()
 
@@ -140,6 +146,11 @@ fun TunePicksScreen(activeProfileId: Long, onBack: () -> Unit, modifier: Modifie
                 value = sliders.personalMatch,
                 onValueChange = viewModel::onPersonalMatchChange,
             )
+            SuggestionCountSlider(
+                value = suggestionCount,
+                range = suggestionCountRange(eligibleCandidateCount),
+                onValueChange = viewModel::onSuggestionCountChange,
+            )
             if (familyBlendVisible) {
                 TuneSlider(
                     title = "Family Night blend",
@@ -194,6 +205,70 @@ private fun TuneSlider(
                 color = ChalkFaint,
                 modifier = Modifier.padding(top = 4.dp),
             )
+        }
+    }
+}
+
+/**
+ * PLAN.md §4a slider 5 ("Suggestion count", design corrected 2026-08-20) — a plain integer
+ * *request*, not a signed `s ∈ [-1, +1]` taste value like the four sliders above, so it
+ * deliberately doesn't reuse [TuneSlider]'s signed/labelled-endpoints styling. Same card chrome
+ * for visual consistency with the rest of this screen, but a normal linear range slider showing
+ * the actual number ("Suggestions: 30").
+ *
+ * [range] is [org.seg7.familywatchlist.data.recommend.suggestionCountRange] applied to the
+ * profile's real, last-known eligible-candidate count — not a fixed guessed ceiling — so the
+ * endpoint labels show the *actual current* min/max rather than static text. `null` means there
+ * are currently zero eligible candidates for this profile: the control renders disabled with a
+ * short explanatory message instead of an inverted/broken range.
+ */
+@Composable
+private fun SuggestionCountSlider(value: Int, range: IntRange?, onValueChange: (Int) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(InkRaised)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (range == null) {
+            Text(text = "Suggestions", style = MaterialTheme.typography.titleSmall, color = Chalk)
+            Text(
+                text = "No eligible titles right now — check back after your services or watch history change.",
+                style = MaterialTheme.typography.labelSmall,
+                color = ChalkFaint,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        } else if (range.first == range.last) {
+            // A degenerate single-value range (eligible count below the RecommenderSpec.SUGGESTION_COUNT_MIN
+            // floor, e.g. 1-3 eligible titles) — a Slider with an equal start/end valueRange has
+            // nothing meaningful to drag, so show the fixed count as text instead of a live control.
+            Text(text = "Suggestions: ${range.first}", style = MaterialTheme.typography.titleSmall, color = Chalk)
+            Text(
+                text = "Only ${range.first} eligible title${if (range.first == 1) "" else "s"} right now — that's the most we can suggest.",
+                style = MaterialTheme.typography.labelSmall,
+                color = ChalkFaint,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        } else {
+            Text(text = "Suggestions: $value", style = MaterialTheme.typography.titleSmall, color = Chalk)
+            Slider(
+                value = value.coerceIn(range).toFloat(),
+                onValueChange = { onValueChange(it.roundToInt()) },
+                valueRange = range.first.toFloat()..range.last.toFloat(),
+                steps = (range.last - range.first - 1).coerceAtLeast(0),
+                colors = SliderDefaults.colors(
+                    thumbColor = Accent,
+                    activeTrackColor = Accent,
+                    inactiveTrackColor = InkHairline,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(text = "${range.first} titles", style = MaterialTheme.typography.labelSmall, color = ChalkFaint)
+                Text(text = "${range.last} titles", style = MaterialTheme.typography.labelSmall, color = ChalkFaint)
+            }
         }
     }
 }

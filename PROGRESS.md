@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-20 (M3 — recommender, incl. the four tunable sliders — by `feature-builder`).
+Last updated: 2026-08-20 (M3b — configurable suggestion count — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -660,31 +660,79 @@ without checking), and then proposed a better mechanism than either original opt
 slider's max should be the profile's *real* eligible-candidate count, already computed by
 the recommender itself, not a guessed number. Full corrected spec in PLAN.md §4a, slider 5.
 
-- [ ] Per-profile integer preference for the user's *requested* count, default 30 — overrides
+- [x] Per-profile integer preference for the user's *requested* count, default 30 — overrides
       `RecommenderSpec.SHORTLIST_TARGET_SIZE` per-profile, doesn't replace the constant
-- [ ] `refreshProfileShortlist`'s existing `eligible` pool count is persisted (alongside the
-      profile's slider prefs) on every refresh — this is the real, current ceiling, not an
-      invented one
-- [ ] "Tune my picks" screen reads the **last-known persisted** eligible count for the
-      slider's max — not a live fetch on screen-open (offline-first, avoids needless network
-      calls just to view Settings)
-- [ ] At refresh time, actual target = `min(userRequestedCount, currentEligibleCount)` — a
-      shrunk pool this week doesn't erase what the user originally asked for; it recovers
-      automatically if the pool grows back
-- [ ] Edge case handled gracefully: slider min adapts if eligible count is ever below 4
-      (`min(4, eligibleCount)`); if eligible count is 0, disable the slider with a short
-      explanatory message rather than an inverted/broken range
-- [ ] UI: slider on the existing "Tune my picks" screen alongside the four taste sliders
-      (visual consistency call — flag if a numeric field is actually preferred)
-- [ ] Family-scope shortlists stay at the fixed default (30) — deliberately out of scope,
-      not an oversight (see PLAN.md §4a slider 5's "scope boundary" note)
-- [ ] Tests: preference default/round-trip, the `min(requested, eligible)` clamping logic
-      specifically (including the ceiling-recovers-later case), edge case at eligible<4 and
-      eligible=0
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: change the requested count, confirm the profile's shortlist actually
-      grows/shrinks to match; confirm the slider's max reflects a real persisted eligible
-      count, not a hardcoded number
+      (`ProfileSlidersEntity.suggestionCount`, `ProfileSlidersRepository.getSuggestionCount`/
+      `setSuggestionCount`)
+- [x] `refreshProfileShortlist`'s existing `scored` pool count (post dedup/watched/listed/
+      dismissed/age-cap filtering — the real eligible count, since scoring never drops a
+      candidate) is persisted on every refresh (`ProfileSlidersEntity.eligibleCandidateCount`,
+      `ProfileSlidersRepository.getEligibleCandidateCount`/`setEligibleCandidateCount`) — the
+      real, current ceiling, not an invented one. Schema v4→v5 (`AppDatabase.MIGRATION_4_5`,
+      `app/schemas/.../5.json`), two `DEFAULT 30` columns on the existing `profile_sliders` table
+- [x] "Tune my picks" screen reads the **last-known persisted** eligible count for the
+      slider's max — loaded once at ViewModel init (no live fetch on screen-open); refreshed
+      again after each slider-triggered recompute so it doesn't go stale mid-session either
+- [x] At refresh time, actual target = `min(userRequestedCount, currentEligibleCount)`
+      (`RecommendationRepository.refreshProfileShortlist`) — a shrunk pool this week doesn't
+      erase what the user originally asked for (`getSuggestionCount` is never overwritten by a
+      thin week); it recovers automatically if the pool grows back — proven by a dedicated test
+      running two sequential refreshes (8 eligible, then 35) for the same stored request of 30
+- [x] Edge case handled gracefully: `data/recommend/RecommenderSpec.kt`'s top-level
+      `suggestionCountRange(eligibleCandidateCount)` returns `min(4, eligible)..eligible`
+      (slider min adapts down), or `null` at eligible=0 — "Tune my picks" renders a disabled
+      explanatory message for `null`, and a fixed (non-slider) text callout for the degenerate
+      single-value range case (eligible 1-3), avoiding a zero-width Compose `Slider` range
+- [x] UI: slider on the existing "Tune my picks" screen alongside the four taste sliders,
+      same card chrome for visual consistency — but *not* the same signed/labelled-endpoints
+      styling as those four (a plain linear range slider showing "Suggestions: N" with real
+      "N titles" min/max endpoint labels instead, since this is a literal count, not a taste
+      axis). No numeric-field alternative was needed — Kev's corrected spec settled on a slider.
+- [x] Family-scope shortlists stay at the fixed default (30) — deliberately out of scope, not an
+      oversight (`refreshFamilyShortlist` untouched, still uses `ShortlistConfig.SPEC_DEFAULT`)
+- [x] Tests: preference default/round-trip (`ProfileSlidersRepositoryTest`, `RecommenderSpecTest`,
+      `TunePicksViewModelTest`), the `min(requested, eligible)` clamping logic specifically
+      including the ceiling-recovers-later case (`RecommendationRepositoryTest`), edge cases at
+      eligible<4 and eligible=0 (`RecommenderSpecTest`'s `suggestionCountRange` coverage) — 289
+      tests total, 44 classes, 0 failures
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification on-device (emulator, `-gpu swangle`, renderer confirmed via
+      `dumpsys SurfaceFlinger` first): "Tune my picks" showed real live endpoint labels
+      "4 titles ↔ 273 titles" (Kev's actual eligible pool that week, not a hardcoded number).
+      Dragged the slider to 10 → on-device `sqlite3` confirmed `shortlist_entries` for Kev's
+      personal scope shrank from 30 to exactly 10 rows. Dragged to 127 → grew to exactly 127
+      rows. Reset → back to 30, taste sliders back to 0, eligible-count label untouched at 273
+      (correctly independent of the request). Family-scope-unaffected is proven by the automated
+      `RecommendationRepositoryTest` case, not a live device screenshot — M3's own Family Night
+      chip-row UI was deliberately not built yet (see M3's checkpoint-3 note), so there is no
+      in-app path to trigger `refreshFamilyShortlist` live; the backend it would call is
+      unchanged and fully covered.
+
+**Pre-existing test flakiness found and mitigated along the way (not this pass's bug, but made
+worse by it — see below):** `./gradlew test` intermittently failed with
+`kotlinx.coroutines.test.UncompletedCoroutinesError`/`UncaughtExceptionsBeforeTest` on ViewModel
+tests unrelated to this pass (confirmed via `git stash` to reproduce identically on the
+pre-M3b baseline, e.g. `TunePicksViewModelTest`'s pre-existing "a slider change is eventually
+persisted" test hanging for a full 60s). Root cause: `ViewModel`s built directly in tests (not
+through the Android framework) never have `viewModelScope` cancelled, so a still-in-flight
+Room-backed init/recompute coroutine can resume on a real background thread *after* a test's
+`tearDown()` closes its database, throwing on the closed connection — an exception
+kotlinx-coroutines-test then attributes to whichever *other* test happens to be starting up,
+observed as flaky failures on tests that were never touched. Adding more real Room round-trips
+per refresh (this pass's `eligibleCandidateCount` persistence) widened the window and made it
+fire more often. Mitigated two ways, both defensive/additive, not a full fix for the underlying
+project-wide pattern (out of scope for M3b): `TunePicksViewModelTest` now routes every
+constructed ViewModel through a `ViewModelStore` so `tearDown()` can call `.clear()` on all of
+them (cancels `viewModelScope` cleanly); `testutil/InMemoryDb.kt` now gives every in-memory Room
+database a larger, shared, process-lifetime executor pool (`newFixedThreadPool(16)`, was Room's
+un-configured default) for more headroom under this suite's concurrent-DAO-call volume. A few of
+this file's own tests were also hardened against a related race (a `.first()` with no predicate
+doesn't actually wait for an async init write when the unseeded persisted default happens to
+equal the constructed default — fixed by seeding a distinguishing sentinel value and waiting on
+a real predicate instead). Four consecutive full-suite green runs after these changes; not a
+guaranteed permanent fix for the wider pattern (`ProfileViewModelTest`, unrelated and untouched
+by this pass, showed the same category of flake at least once during this investigation) — worth
+a dedicated pass if it recurs.
 
 ## M4 — Polish
 
