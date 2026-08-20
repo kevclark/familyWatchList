@@ -85,6 +85,22 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
         dataStore.data.map { it[REGION_SERVICES_MISMATCH] ?: false }
 
     /**
+     * PLAN.md §4: "`POST_NOTIFICATIONS` runtime permission is requested during onboarding
+     * (Android 13+); declining just means silent refresh." This flag makes the request one-shot
+     * — set right after [org.seg7.familywatchlist.ui.AppRoot] fires the system permission
+     * dialog, regardless of the user's answer, so returning to the app later never re-prompts
+     * (Android itself already suppresses the dialog once granted; this is what suppresses it
+     * after a *decline* too, matching "declining just means silent refresh" rather than a
+     * repeated nag).
+     */
+    val notificationPermissionRequested: Flow<Boolean> =
+        dataStore.data.map { it[NOTIFICATION_PERMISSION_REQUESTED] ?: false }
+
+    suspend fun setNotificationPermissionRequested() {
+        dataStore.edit { it[NOTIFICATION_PERMISSION_REQUESTED] = true }
+    }
+
+    /**
      * PLAN.md §4a slider 4 ("Everyone's happy" <-> "Average taste wins"): the family mean/min
      * blend, stored as a **shared, app-level** preference rather than per-profile.
      *
@@ -161,6 +177,8 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
         val REGION: Preferences.Key<String> = stringPreferencesKey("region")
         val REGION_SERVICES_MISMATCH: Preferences.Key<Boolean> = booleanPreferencesKey("region_services_mismatch")
         val FAMILY_BLEND_SLIDER: Preferences.Key<Double> = doublePreferencesKey("family_blend_slider")
+        val NOTIFICATION_PERMISSION_REQUESTED: Preferences.Key<Boolean> =
+            booleanPreferencesKey("notification_permission_requested")
         const val DEFAULT_REGION: String = TmdbApi.REGION_GB
     }
 }

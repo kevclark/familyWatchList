@@ -48,6 +48,7 @@ import org.seg7.familywatchlist.ui.home.HomeScreen
 import org.seg7.familywatchlist.ui.logwatch.LogWatchSheet
 import org.seg7.familywatchlist.ui.search.SearchScreen
 import org.seg7.familywatchlist.ui.settings.SettingsScreen
+import org.seg7.familywatchlist.ui.tune.TunePicksScreen
 import org.seg7.familywatchlist.ui.watchlist.MyListScreen
 import org.seg7.familywatchlist.ui.theme.Accent
 import org.seg7.familywatchlist.ui.theme.ChalkFaint
@@ -73,6 +74,7 @@ private val BOTTOM_TABS = listOf(
 )
 
 private const val ROUTE_TITLE = "title/{mediaType}/{tmdbId}"
+private const val ROUTE_TUNE_PICKS = "tune-picks"
 
 private fun titleRoute(tmdbId: Int, mediaType: MediaType) = "title/${mediaType.name}/$tmdbId"
 
@@ -117,7 +119,7 @@ fun MainScaffold(activeProfile: ProfileEntity, modifier: Modifier = Modifier) {
         val currentRoute = backStackEntry?.destination?.route
         // Details is full-bleed hero art — a bottom bar sitting on top of it would cut the
         // image and undo §5a's edge-to-edge intent, so the bar hides on that route only.
-        val showBottomBar = currentRoute != ROUTE_TITLE
+        val showBottomBar = currentRoute != ROUTE_TITLE && currentRoute != ROUTE_TUNE_PICKS
 
         Column(modifier = Modifier.fillMaxSize()) {
             NavHost(
@@ -159,7 +161,12 @@ fun MainScaffold(activeProfile: ProfileEntity, modifier: Modifier = Modifier) {
                         onOpenTitle = openTitle,
                     )
                 }
-                composable(BottomTab.Settings.route) { SettingsScreen() }
+                composable(BottomTab.Settings.route) {
+                    SettingsScreen(onOpenTunePicks = { navController.navigate(ROUTE_TUNE_PICKS) })
+                }
+                composable(ROUTE_TUNE_PICKS) {
+                    TunePicksScreen(activeProfileId = activeProfile.id, onBack = { navController.popBackStack() })
+                }
 
                 composable(
                     route = ROUTE_TITLE,

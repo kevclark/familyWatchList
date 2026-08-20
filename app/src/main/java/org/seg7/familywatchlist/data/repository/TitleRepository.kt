@@ -48,6 +48,18 @@ class TitleRepository(
     suspend fun getAvailabilityProviderIds(tmdbId: Int, mediaType: MediaType): Set<Int> =
         providerAvailabilityDao.getForTitle(tmdbId, mediaType).map { it.providerId }.toSet()
 
+    /**
+     * Batch-resolves a mixed movie/TV key list to their cached [TitleEntity] rows — PLAN.md §4:
+     * Home's "For You"/"Family Night" rows render a [org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity]
+     * list, which carries only `(tmdbId, mediaType, score, reasons)`, not poster/title/etc.
+     * Offline-first: reads whatever's cached, does not fetch — every shortlisted title was
+     * already detail-fetched during scoring ([RecommendationRepository]'s `ensureFresh` call per
+     * candidate), so this is expected to be a pure cache hit.
+     */
+    suspend fun getTitles(keys: List<Pair<Int, MediaType>>): List<TitleEntity> =
+        keys.groupBy({ it.second }, { it.first })
+            .flatMap { (mediaType, ids) -> titleDao.getByIds(ids, mediaType) }
+
     fun isMetadataStale(title: TitleEntity): Boolean =
         clock.nowMillis() - title.fetchedAt >= METADATA_TTL_MS
 
