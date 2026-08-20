@@ -244,6 +244,25 @@ WorkManager run still applies whatever the slider is currently set to.
    still the build agent's call — the *visibility gating* is now settled, the exact UI
    placement isn't.
 
+5. **Suggestion count — not a taste slider, a literal count control (Kev, 2026-08-20).**
+   Separate from the four −1..+1 taste sliders above: a per-profile **integer**, range
+   **4–50, default 30** (already the fixed `RecommenderSpec.SHORTLIST_TARGET_SIZE`
+   fallback — this control overrides it per-profile rather than replacing the constant).
+   Directly sets `ShortlistConfig.targetSize` for that profile's personal shortlist.
+   Max of 50 is a deliberate fixed UI ceiling, not a dynamic bind to the live candidate
+   pool (which is inherently variable — up to ~340 raw candidates before dedup/exclusion,
+   shrinking unpredictably per profile/week) — if a given week's real pool is smaller than
+   requested, the existing backfill/graceful-degradation behaviour already just returns
+   fewer, no new handling needed. UI: a slider on the same "Tune my picks" screen, for
+   visual consistency with the four taste sliders already there (Kev offered either a
+   numeric field or a slider; a slider fits the screen's existing paradigm better on
+   mobile — flag if a numeric field is actually preferred instead).
+   **Scope boundary, deliberate not an oversight:** this control only affects a profile's
+   own personal shortlist. Family-scope shortlists stay at the fixed default (30) for now
+   — tying "how many" to any one profile's personal preference doesn't make sense for a
+   blended family list, and Kev didn't ask for a separate family-scope count control.
+   Revisit only if asked.
+
 **Storage:** per-profile slider values, new columns/table on `Profile` or a small companion
 table — whichever fits the existing schema more cleanly, your call.
 
