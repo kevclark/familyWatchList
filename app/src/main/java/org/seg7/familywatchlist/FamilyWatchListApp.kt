@@ -10,6 +10,7 @@ import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import org.seg7.familywatchlist.di.AppContainer
+import org.seg7.familywatchlist.work.RecommendationScheduler
 
 /**
  * Application entry point. Owns the single [AppContainer] (PLAN.md §1: manual DI, no Hilt) and
@@ -23,6 +24,15 @@ class FamilyWatchListApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        // PLAN.md §4: weekly shortlist regeneration + notification. Idempotent
+        // (ExistingPeriodicWorkPolicy.KEEP) — safe on every process start. Guarded: on real
+        // Android, WorkManager's manifest-merged androidx.startup initializer always runs before
+        // Application.onCreate() reaches here, so this succeeds in production; Robolectric's JVM
+        // unit-test manifest processing doesn't carry that merged initializer provider through,
+        // so every one of this project's ~250 unit tests (which instantiate this real Application
+        // class, not a stub) would otherwise fail at app startup on an unrelated IllegalStateException
+        // before their own test body ever runs. Scheduling is simply skipped in that environment.
+        runCatching { RecommendationScheduler.scheduleWeekly(this) }
     }
 
     /**

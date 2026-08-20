@@ -24,7 +24,11 @@ import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.RecommendationRepository
+import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 import org.seg7.familywatchlist.testutil.FakeClock
@@ -52,6 +56,8 @@ class HomeViewModelTest {
     private lateinit var discoverRepository: DiscoverRepository
     private lateinit var providerRepository: ProviderRepository
     private lateinit var userPreferencesRepository: UserPreferencesRepository
+    private lateinit var recommendationRepository: RecommendationRepository
+    private lateinit var titleRepository: TitleRepository
 
     private val profileId = 7L
 
@@ -66,7 +72,21 @@ class HomeViewModelTest {
         providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         userPreferencesRepository = UserPreferencesRepository(
-            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("home_vm_prefs") }),
+            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("home_vm_prefs_${System.nanoTime()}") }),
+        )
+        titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        recommendationRepository = RecommendationRepository(
+            watchEventDao = db.watchEventDao(),
+            ratingDao = db.ratingDao(),
+            watchlistDao = db.watchlistDao(),
+            titleAttributeDao = db.titleAttributeDao(),
+            titleRepository = titleRepository,
+            discoverRepository = discoverRepository,
+            providerRepository = providerRepository,
+            profileRepository = ProfileRepository(db.profileDao(), clock),
+            profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
+            shortlistDao = db.shortlistDao(),
+            clock = clock,
         )
 
         listOf(38700 to "Spider-Man: No Way Home", 12345 to "Paddington").forEach { (id, name) ->
@@ -88,7 +108,15 @@ class HomeViewModelTest {
     }
 
     private fun viewModel(watchlistRepository: WatchlistRepository) =
-        HomeViewModel(discoverRepository, providerRepository, watchlistRepository, userPreferencesRepository)
+        HomeViewModel(
+            discoverRepository,
+            providerRepository,
+            watchlistRepository,
+            userPreferencesRepository,
+            recommendationRepository,
+            titleRepository,
+            profileId,
+        )
 
     @Test
     fun `an item that has lost availability is flagged so Home's My List carousel can dim it`() = runTest {
@@ -115,6 +143,73 @@ class HomeViewModelTest {
 
         assertTrue(vm.myList.first { it.isEmpty() }.isEmpty())
         assertEquals(WatchlistState.REMOVED, watchlistRepository.get(38700, MediaType.MOVIE)?.state)
+    }
+
+    /** PLAN.md §4: cold-start profiles (< 5 events) never get a personalised "For You" — the row falls back to popular-on-your-services state. */
+    @Test
+    fun `a cold-start profile is flagged and has no For You titles`() = runTest {
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+
+        val state = viewModel(watchlistRepository).uiState.first { !it.isLoading }
+
+        assertTrue(state.isColdStartForYou)
+        assertEquals(emptyList<TitleEntity>(), state.forYouTitles)
+    }
+
+    /**
+     * PLAN.md §4's 2026-08-19 design note: the hero sources from the profile's *top-scored*
+     * personalised pick, not raw popularity — proven here by pre-seeding a real persisted
+     * shortlist ranked the *opposite* way to popularity and confirming the higher-scored (lower
+     * popularity) title wins the hero slot. No subscribed providers and no UP ratings means
+     * `HomeViewModel.refresh()`'s own `refreshProfileShortlist` call (which always fires for a
+     * warm profile) computes an empty candidate pool and upserts nothing — see
+     * `RecommendationRepository.gatherCandidatePool` — so it can never clobber the seeded rows.
+     */
+    @Test
+    fun `For You is sourced from the persisted shortlist, top-scored pick first, not popularity`() = runTest {
+        // 5 events -> past PLAN.md §4's cold-start threshold.
+        repeat(5) { i ->
+            db.watchEventDao().logWatch(
+                org.seg7.familywatchlist.data.local.entity.WatchEventEntity(
+                    tmdbId = 900 + i, mediaType = MediaType.MOVIE, watchedAt = java.time.LocalDate.now(), note = null,
+                ),
+                listOf(profileId),
+            )
+        }
+        db.titleDao().upsertAll(
+            listOf(
+                TitleEntity(
+                    tmdbId = 501, mediaType = MediaType.MOVIE, title = "Higher Score, Less Popular",
+                    year = 2024, posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                    certification = null, voteAverage = null, popularity = 1.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+                TitleEntity(
+                    tmdbId = 502, mediaType = MediaType.MOVIE, title = "Lower Score, More Popular",
+                    year = 2024, posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                    certification = null, voteAverage = null, popularity = 99.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+            )
+        )
+        val weekStart = recommendationRepository.currentWeekStart()
+        db.shortlistDao().upsertAll(
+            listOf(
+                org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity(
+                    weekStart, profileId.toString(), 501, MediaType.MOVIE, score = 0.9, reasons = "[]",
+                    state = org.seg7.familywatchlist.data.local.entity.ShortlistState.SUGGESTED,
+                ),
+                org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity(
+                    weekStart, profileId.toString(), 502, MediaType.MOVIE, score = 0.5, reasons = "[]",
+                    state = org.seg7.familywatchlist.data.local.entity.ShortlistState.SUGGESTED,
+                ),
+            )
+        )
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val state = viewModel(watchlistRepository).uiState.first { it.forYouTitles.size == 2 }
+
+        assertFalse(state.isColdStartForYou)
+        assertEquals(listOf(501, 502), state.forYouTitles.map { it.tmdbId })
+        assertEquals(501, state.hero?.tmdbId)
     }
 
     /**

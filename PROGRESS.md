@@ -511,15 +511,33 @@ tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not
 - [x] Shortlist assembly: ~8 per scope, max 2 per genre, 1 wildcard
       (`data/recommend/ShortlistAssembler.kt`)
 - [x] Family scope `0.5×mean + 0.5×min` + strictest age cap (`data/recommend/FamilyBlend.kt`,
-      orchestrated by `RecommendationRepository.refreshFamilyShortlist`); who's-watching chips
-      still pending (UI, not yet wired) — the on-the-fly (non-persisted) computation path exists
-      (`persist=false`), just not called from Home yet
-- [x] Cold start (<5 events) → "Popular on your services" — `RecommendationRepository
-      .isColdStart`/`refreshProfileShortlist` short-circuits with no writes; Home wiring to
-      relabel the existing row for cold-start profiles still pending
-- [ ] WorkManager weekly Monday 06:00 + notification deep-link; POST_NOTIFICATIONS request
-- [ ] Home hero sources from the profile's top-scored pick, not raw popularity (PLAN.md §4's
-      2026-08-19 design note — retires the current `discover.movies.firstOrNull()` approach)
+      orchestrated by `RecommendationRepository.refreshFamilyShortlist`). **Not wired to Home**:
+      the who's-watching chip row / "Family Night" carousel UI was deliberately not built this
+      milestone — a scope decision, flagged in the build report, not an oversight. The backend
+      it would call is fully built and tested: `refreshFamilyShortlist(persist=false)` computes
+      an ad-hoc blend for any profile subset without touching Room, ready for that UI to call
+      when it lands.
+- [x] Cold start (<5 events) → "Popular on your services" — `HomeViewModel`'s "For You" row
+      shows a combined movies+TV popularity carousel labelled accordingly for cold-start
+      profiles (`HomeUiState.isColdStartForYou`), real scored picks otherwise
+- [x] WorkManager weekly Monday 06:00 + notification deep-link; POST_NOTIFICATIONS request.
+      `work/RecommendationScheduler.kt` (pure delay-to-next-Monday-06:00 math, unit tested),
+      `work/RecommendationWorker.kt` (CoroutineWorker: `refreshAll` + discover-cache invalidation
+      + notify), `work/ShortlistNotifier.kt` (channel + "Your family shortlist is ready 🍿",
+      relaunches `MainActivity` — Home is its only reachable destination once a profile is
+      active, so that already satisfies "deep-links to Home"). Scheduled idempotently
+      (`ExistingPeriodicWorkPolicy.KEEP`) from `FamilyWatchListApp.onCreate()`. `POST_NOTIFICATIONS`
+      requested once, the first time Home is reached (`ui/AppRoot.kt`'s launcher +
+      `UserPreferencesRepository.notificationPermissionRequested` one-shot flag) —
+      "unmetered-preferred" is approximated as `NetworkType.CONNECTED` (WorkManager's Constraints
+      API has no soft-preference knob, only hard requirements; flagged as a judgment call)
+- [x] Home hero sources from the profile's top-scored pick, not raw popularity (PLAN.md §4's
+      2026-08-19 design note — retires the old `discover.movies.firstOrNull()` approach).
+      `HomeViewModel.uiState`'s `hero` is now `forYouTitles.firstOrNull()` (the score-sorted
+      shortlist's top entry) falling back to the popular pick only for cold-start profiles or
+      before the first shortlist exists — proven by a dedicated test seeding a higher-scored,
+      *less popular* title and confirming it wins the hero slot over a lower-scored, more
+      popular one
 - [x] Four sliders (PLAN.md §4a) — math + per-profile storage. `data/recommend/SliderSettings.kt`
       (discovery -> wildcard count + diversity cap, recency -> half-life, personalMatch ->
       affinity/quality weight split) plus `FamilyBlendSlider` (mean/min blend). Per-profile
@@ -527,24 +545,28 @@ tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not
       `ProfileSlidersEntity`/`Dao`/`ProfileSlidersRepository`) — a profile with no row reads as
       `SliderSettings.DEFAULT`. The family-blend slider is a **shared app-level** DataStore
       preference (`UserPreferencesRepository.familyBlendSlider`), not per-profile — see that
-      property's kdoc for the full reasoning (also in this checkpoint's build report); UI wiring
-      (screen + Settings row) is still pending
-- [ ] "Tune my picks" screen, reachable from profile picker or Settings
-- [ ] Slider changes recompute that profile's shortlist immediately, debounced ~300–500ms
-      (mirror `SearchViewModel`'s existing debounce pattern)
+      property's kdoc for the full reasoning (also in this checkpoint's build report); gated to
+      2+ profiles per Kev's mid-build resolution
+- [x] "Tune my picks" screen, reachable from profile picker or Settings — `ui/tune/TunePicksScreen.kt`,
+      reached via a new "RECOMMENDATIONS" section in Settings (chosen entry point — "profile
+      picker or Settings" is satisfied either way; Settings is already profile-scoped and needs
+      no new per-profile UI surface on the picker itself). The family-blend slider only renders
+      when `TunePicksViewModel.familyBlendVisible` is true (2+ profiles)
+- [x] Slider changes recompute that profile's shortlist immediately, debounced ~300–500ms
+      (mirror `SearchViewModel`'s existing debounce pattern) — `TunePicksViewModel`
+      (`RECOMPUTE_DEBOUNCE_MS = 400`), each slider updates its exposed state instantly and
+      debounces the persist-to-Room + `RecommendationRepository.refreshProfileShortlist` call
 - [x] **Acceptance bar, not optional:** fixture tests proving all sliders at s=0 reproduce the
       exact same shortlist a build with no sliders at all would produce
       (`SliderAcceptanceBarTest` — runs the full affinity→scoring→shortlist pipeline and the
       family blend twice, once wired to `RecommenderSpec` constants directly and once through
       `SliderSettings.DEFAULT`/`FamilyBlendSlider.DEFAULT`, and asserts bit-identical output)
-- [x] Deterministic fixture unit tests for the scorer — base algorithm (40 tests) + slider
-      variations (22 more: `SliderSettingsTest`, `SliderAcceptanceBarTest`,
-      `ProfileSlidersRepositoryTest`, plus `UserPreferencesRepositoryTest` additions for the
-      family-blend preference) — 236 tests total, 0 failures
-- [ ] `./gradlew test assembleDebug` green (green as of this checkpoint — 236 tests, 0
-      failures — but milestone isn't done yet, see remaining items above)
+- [x] Deterministic fixture unit tests for the scorer — base algorithm + slider variations +
+      orchestration (`RecommendationRepositoryTest`, `HomeViewModelTest` additions,
+      `TunePicksViewModelTest`, `RecommendationSchedulerTest`) — 259 tests total, 0 failures
+- [x] `./gradlew test assembleDebug` green — 259 tests, 0 failures, `assembleDebug` clean
 - [ ] Live verification / screenshots: base recommendations, at least one slider visibly
-      changing Home's output
+      changing Home's output — pending this milestone's final pass (checkpoint 4)
 
 **M3 progress note (checkpoint 2 of 4, this pass — `feature-builder`):** the four sliders'
 math and storage, layered on the checkpoint-1 engine. `SliderSettings`/`FamilyBlendSlider` are
@@ -566,20 +588,24 @@ fetching, WorkManager, the "Tune my picks" screen, and Home wiring — that's th
 checkpoints of this milestone. `./gradlew test assembleDebug` is green at 236 tests / 0
 failures as of this checkpoint.
 
-**M3 progress note (checkpoint 3, in progress — `feature-builder`):** candidate-pool fetching
+**M3 progress note (checkpoint 3 of 4, this pass — `feature-builder`):** candidate-pool fetching
 and full orchestration landed — `RecommendationRepository` (`data/repository/`) wires the
 checkpoint-1/2 pure engine to real Room/TMDB data: builds each profile's affinity vector from
 their watch/rating/watchlist history, gathers candidates from `/discover` ∪ `/recommendations`,
 excludes watched/listed/dismissed/over-age-cap titles, scores and assembles the shortlist, and
 persists it (or, for an ad-hoc who's-watching subset, computes without persisting). Cold-start
-profiles are left alone rather than writing a misleading personalised shortlist — Home's
-existing "Popular on your services" row already covers that case per PLAN.md §5a/M2c. Also
-lands the family-blend-slider visibility gate Kev resolved mid-build (see above). 9 new
-orchestration tests (`RecommendationRepositoryTest`) — deliberately not re-proving the scoring
-math (that's `data/recommend`'s job), focused on exclusions/cold-start/persistence/gating with
-a MockWebServer-scripted candidate pool. 245 tests, 0 failures. **Still pending in this
-checkpoint:** WorkManager weekly job + notification, the "Tune my picks" screen, Home hero
-rework, and slider-triggered immediate recompute.
+profiles are left alone rather than writing a misleading personalised shortlist. Also lands the
+family-blend-slider visibility gate Kev resolved mid-build (see above), the WorkManager weekly
+job + notification, the "Tune my picks" screen with slider-triggered debounced recompute, and
+the Home hero/For You rework sourcing from the real shortlist instead of raw popularity.
+
+**Deliberately not built this checkpoint (scope decision, not an oversight — flagged in the
+build report):** the who's-watching chip row / "Family Night" carousel UI on Home. The backend
+it needs (`RecommendationRepository.refreshFamilyShortlist(persist=false)`, an ad-hoc blend for
+any profile subset) is fully built and tested; only Home's UI call site is missing. Everything
+else in this checkpoint's brief (candidate-pool fetching, WorkManager + notification, "Tune my
+picks", Home hero rework, slider-triggered recompute) is done. 259 tests, 0 failures.
+`./gradlew test assembleDebug` green.
 
 ## M4 — Polish
 

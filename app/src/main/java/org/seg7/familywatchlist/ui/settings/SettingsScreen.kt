@@ -80,7 +80,7 @@ import org.seg7.familywatchlist.ui.theme.toColor
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(modifier: Modifier = Modifier) {
+fun SettingsScreen(onOpenTunePicks: () -> Unit, modifier: Modifier = Modifier) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
     val activeAccent by container.userPreferencesRepository.accentColor
@@ -117,6 +117,23 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 title = "Streaming services",
                 subtitle = "Change which services you subscribe to",
                 onClick = { scope.launch { container.userPreferencesRepository.setServicesSetupRequested(true) } },
+            )
+        }
+
+        Text(
+            text = "RECOMMENDATIONS",
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+            modifier = Modifier.padding(start = Dimens.Gutter, top = 28.dp, bottom = 10.dp),
+        )
+        Column(
+            modifier = Modifier.padding(horizontal = Dimens.Gutter),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SettingsRow(
+                title = "Tune my picks",
+                subtitle = "Adjust discovery, recency, and personal-match sliders",
+                onClick = onOpenTunePicks,
             )
         }
 

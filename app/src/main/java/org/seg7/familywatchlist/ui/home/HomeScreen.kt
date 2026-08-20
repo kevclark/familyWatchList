@@ -81,6 +81,7 @@ fun HomeScreen(
 ) {
     val container = LocalAppContainer.current
     val viewModel: HomeViewModel = viewModel(
+        key = "home-${activeProfile.id}",
         factory = viewModelFactory {
             initializer {
                 HomeViewModel(
@@ -88,6 +89,9 @@ fun HomeScreen(
                     container.providerRepository,
                     container.watchlistRepository,
                     container.userPreferencesRepository,
+                    container.recommendationRepository,
+                    container.titleRepository,
+                    activeProfile.id,
                 )
             }
         },
@@ -138,7 +142,7 @@ fun HomeScreen(
             }
 
             item(key = "for-you") {
-                ForYouPlaceholder(onOpenSearch = onOpenSearch)
+                ForYouRow(state = state, onOpenTitle = onOpenTitle, onOpenSearch = onOpenSearch)
             }
 
             item(key = "popular-movies") {
@@ -337,47 +341,79 @@ private fun HomeHeroEmpty(
 }
 
 /**
- * Pre-M3 placeholder for PLAN.md §5's *For {profile}* row.
+ * PLAN.md §5's *For {profile}* row — real as of M3, retiring the pre-M3 "coming soon" placeholder
+ * (PLAN.md §5a "Post-M2b decisions"). Always visible, per that same decision — never omitted.
  *
- * PLAN.md §5a "Post-M2b decisions" (2026-08-19): this section is **always visible** on Home,
- * never omitted regardless of how much the active profile has logged — that's a change from
- * M2b, which dropped personalised rows entirely rather than showing §4's cold-start placeholder.
- * The copy here is deliberately *not* §4's real cold-start wording ("not enough watched yet"):
- * that phrasing implies logging more titles unlocks personalisation today, which isn't true
- * pre-M3 — the scoring engine simply doesn't exist yet, independent of log count.
- *
- * **Retire this, don't extend it.** Once M3 ships the real recommender, this whole composable
- * (and its call site in [HomeScreen]) gets replaced by §4's actual behaviour: <5 logged events
- * → "Popular on your services" (already built, see `popular-movies`/`popular-tv` above), 5+ →
- * real scored picks. Nothing here should grow new logic in the meantime.
+ * Two states, both driven by [HomeViewModel]:
+ *  - **Cold start** ([HomeUiState.isColdStartForYou], PLAN.md §4: "< 5 watch events -> popular
+ *    on your services"): a combined movies+TV popularity carousel, labelled "Popular on your
+ *    services" — the same underlying `/discover` data the type-specific Popular rows below
+ *    render, just merged into one row in the prominent "For You" slot rather than duplicating
+ *    §4's cold-start copy as a second, separate concept.
+ *  - **Warm profile**: [HomeUiState.forYouTitles], the real scored shortlist, labelled "For You".
+ *    Empty (shortlist not computed yet, or a genuinely empty result) falls back to the same
+ *    "nothing here yet, go search" prompt the pre-M3 placeholder used, rather than an empty row.
  */
 @Composable
-private fun ForYouPlaceholder(onOpenSearch: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        SectionHeader(title = "For You")
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Dimens.Gutter)
-                .clip(MaterialTheme.shapes.medium)
-                .background(InkRaised)
-                .padding(horizontal = 16.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = "We're still learning what you like — personalised picks arrive in a " +
-                    "future update.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = ChalkMuted,
+private fun ForYouRow(state: HomeUiState, onOpenTitle: (Int, MediaType) -> Unit, onOpenSearch: () -> Unit) {
+    if (state.isColdStartForYou) {
+        val combined = (state.popularMovies + state.popularTv)
+            .sortedByDescending { it.popularity ?: 0.0 }
+            .take(10)
+        if (combined.isEmpty()) return
+        PosterCarousel(
+            title = "For You — popular on your services",
+            items = combined,
+            key = { "for-you-cold-${it.mediaType}-${it.tmdbId}" },
+        ) { title ->
+            PosterCard(
+                title = title.title,
+                posterPath = title.posterPath,
+                onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
             )
-            Button(
-                onClick = onOpenSearch,
-                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
-                shape = MaterialTheme.shapes.small,
+        }
+        return
+    }
+
+    if (state.forYouTitles.isEmpty()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SectionHeader(title = "For You")
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimens.Gutter)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(InkRaised)
+                    .padding(horizontal = 16.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Find something to watch", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "Building your picks — check back in a moment, or pull to refresh.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ChalkMuted,
+                )
+                Button(
+                    onClick = onOpenSearch,
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text("Find something to watch", style = MaterialTheme.typography.labelLarge)
+                }
             }
         }
+        return
+    }
+
+    PosterCarousel(
+        title = "For You",
+        items = state.forYouTitles,
+        key = { "for-you-${it.mediaType}-${it.tmdbId}" },
+    ) { title ->
+        PosterCard(
+            title = title.title,
+            posterPath = title.posterPath,
+            onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+        )
     }
 }
 

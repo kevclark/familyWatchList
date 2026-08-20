@@ -115,6 +115,9 @@ dependencies {
     // Onboarding-complete flag + active-profile selection (M2a, PLAN.md §1/§5)
     implementation(libs.androidx.datastore.preferences)
 
+    // Weekly shortlist regeneration + notification (PLAN.md §4, M3)
+    implementation(libs.androidx.work.runtime.ktx)
+
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
 
