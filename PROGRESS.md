@@ -493,7 +493,8 @@ built as specified:
 ## M3 — Recommender
 
 Done means: scoring engine (incl. watchlist signal) + fixture-based unit tests, Home
-shortlists, family scope, weekly WorkManager job + Monday notification.
+shortlists, family scope, weekly WorkManager job + Monday notification, **plus the four
+tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not a follow-up.**
 
 - [ ] Affinity vectors: rating + recency weights, watchlist signal at +0.6
 - [ ] IDF damping + per-attribute-type L2 normalisation
@@ -503,8 +504,21 @@ shortlists, family scope, weekly WorkManager job + Monday notification.
 - [ ] Family scope `0.5×mean + 0.5×min` + strictest age cap; who's-watching chips
 - [ ] Cold start (<5 events) → "Popular on your services"
 - [ ] WorkManager weekly Monday 06:00 + notification deep-link; POST_NOTIFICATIONS request
-- [ ] Deterministic fixture unit tests for the scorer
+- [ ] Home hero sources from the profile's top-scored pick, not raw popularity (PLAN.md §4's
+      2026-08-19 design note — retires the current `discover.movies.firstOrNull()` approach)
+- [ ] Four sliders (PLAN.md §4a), per-profile storage: discovery (wildcard count + diversity
+      cap), recency half-life, personal-match-vs-popular (affinity/quality weight), and the
+      family-scope mean/min blend (needs its own UI home — not one profile's slider set;
+      flag your chosen mechanism clearly)
+- [ ] "Tune my picks" screen, reachable from profile picker or Settings
+- [ ] Slider changes recompute that profile's shortlist immediately, debounced ~300–500ms
+      (mirror `SearchViewModel`'s existing debounce pattern)
+- [ ] **Acceptance bar, not optional:** fixture tests proving all sliders at s=0 reproduce the
+      exact same shortlist a build with no sliders at all would produce
+- [ ] Deterministic fixture unit tests for the scorer (base algorithm + slider variations)
 - [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification / screenshots: base recommendations, at least one slider visibly
+      changing Home's output
 
 ## M4 — Polish
 

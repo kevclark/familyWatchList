@@ -198,6 +198,52 @@ silent refresh. Manual pull-to-refresh on Home does the same on demand.
 
 This is all deterministic Kotlin — unit-testable with fixture data, no runtime LLM/API cost.
 
+### 4a. Tunable sliders (Kev, 2026-08-20 — all four confirmed for v1, not a trim-down set)
+
+Four per-profile sliders, each a signed value **s ∈ [-1, +1], default 0 exactly reproducing
+the fixed spec above** — 0 is "the algorithm as already designed," not an arbitrary midpoint.
+Live in a dedicated **"Tune my picks" screen**, reachable from the profile picker or Settings.
+Changing a slider **recomputes that profile's shortlist immediately** (debounced ~300–500ms
+after the user stops dragging, same pattern as `SearchViewModel`'s existing debounce — don't
+recompute on every drag frame) rather than waiting for the weekly job; the weekly
+WorkManager run still applies whatever the slider is currently set to.
+
+1. **"Sticks to my taste" (s=−1) ↔ "Surprise me" (s=+1)** — shortlist-assembly stage only,
+   doesn't touch the core scoring formula:
+   - wildcard slot count: `round(1 + s)` → 0 at s=−1, **1 at s=0 (matches spec exactly)**, 2 at s=+1
+   - diversity cap (max per genre): `round(2 − s)` → 3 at s=−1 (looser), **2 at s=0 (matches
+     spec)**, 1 at s=+1 (tightest, forces most variety)
+2. **"Recent favourites" (s=+1) ↔ "All-time favourites" (s=−1)** — adjusts the recency
+   half-life on a log/exponential curve (half-life is multiplicative, not linear):
+   `halfLifeDays = 180 × 4^(−s)` → **180 at s=0 (exact spec default)**, ~45 days at s=+1
+   (recent-weighted), ~720 days at s=−1 (near all-time). Exact exponent base is an
+   implementation choice — 4 is a suggestion, pick something that gives a noticeable but not
+   absurd range; the s=0 default must land on exactly 180.
+3. **"Personal match" (s=−1) ↔ "Popular & well-reviewed" (s=+1)** — shifts weight between
+   `affinityMatch` and `tmdbQuality` in the scoring formula; `freshness`'s 0.15 stays fixed
+   (it's not really part of this axis). **s=0 must reproduce affinityWeight=0.70,
+   qualityWeight=0.15 exactly** (today's spec). These are relative ranking weights, not a
+   probability distribution — they don't need to sum to 1, so pick a monotonic mapping with
+   both weights staying positive across the full range (e.g. affinity roughly 0.85→0.40,
+   quality roughly 0.05→0.35 as s goes −1→+1) — exact curve is an implementation choice as
+   long as s=0 hits the spec values precisely and both extremes stay sane/positive.
+4. **Family scope only: "Everyone's happy" (s=−1) ↔ "Average taste wins" (s=+1)** — replaces
+   the fixed 0.5×mean + 0.5×min blend with `meanWeight = 0.5 + 0.5×s`, `minWeight = 1 −
+   meanWeight` → pure least-misery at s=−1, **exact 0.5/0.5 spec default at s=0**, pure
+   average-taste at s=+1. This one has no natural home on a single profile's own slider set —
+   it's a property of a *family-scope shortlist request*, so needs its own storage/UI
+   treatment (e.g. a shared setting, or picked per family-night session) rather than living on
+   any one profile's "Tune my picks" screen. Flag your preferred mechanism in your build
+   report if the spec here is ambiguous — this is the one slider whose UI home isn't as
+   settled as the other three.
+
+**Storage:** per-profile slider values, new columns/table on `Profile` or a small companion
+table — whichever fits the existing schema more cleanly, your call.
+
+**Testing requirement, not optional:** fixture tests must prove **s=0 on all sliders
+reproduces bit-for-bit the same shortlist a build with no sliders at all would have produced**
+— this is the concrete acceptance bar for "sliders didn't silently change default behaviour."
+
 ---
 
 ## 5. Screens
