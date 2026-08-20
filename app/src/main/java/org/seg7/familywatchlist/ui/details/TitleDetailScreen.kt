@@ -82,9 +82,13 @@ import org.seg7.familywatchlist.ui.theme.OnAccent
  * into the page, the back button floats over it with no app bar behind it, and the poster
  * overlaps the seam between hero and content the way a streaming service does.
  *
- * PLAN.md §5 also lists a "Because you liked …" reason line "when reached from a shortlist" —
- * not built here, because shortlists are M3's output and there is no route into this screen
- * that carries a reason yet.
+ * PLAN.md §5 also lists a "Because you liked …" reason line "when reached from a shortlist".
+ * M3 landed the data this needs ([org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity.reasons],
+ * populated by [org.seg7.familywatchlist.data.repository.RecommendationRepository] — verified live,
+ * e.g. `["John Lasseter","Animation","Comedy"]` for a real "For You" pick), but wiring it through
+ * here — a route parameter carrying the reason from a shortlist card tap, decoded and rendered —
+ * is **not built this milestone**, a scope decision flagged in the M3 report rather than an
+ * oversight. `onOpenTitle` stays a plain `(Int, MediaType) -> Unit` everywhere for now.
  */
 @Composable
 fun TitleDetailScreen(

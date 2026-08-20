@@ -180,6 +180,10 @@ class RecommendationRepository(
         scopeKey: String,
     ): List<ShortlistEntryEntity> {
         val entries = assembled.map { it.toEntity(weekStart, scopeKey, reasonsFor(vector, it.candidate.title)) }
+        // Clear this cycle's previously-SUGGESTED rows first — a recompute (slider change,
+        // manual refresh) replaces the shortlist, it doesn't just add to it. See
+        // ShortlistDao.deleteSuggestedForScope's kdoc for why DISMISSED/WATCHED rows survive.
+        shortlistDao.deleteSuggestedForScope(weekStart, scopeKey)
         shortlistDao.upsertAll(entries)
         return entries
     }

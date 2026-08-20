@@ -33,4 +33,17 @@ interface ShortlistDao {
 
     @Query("DELETE FROM shortlist_entries WHERE weekStart < :before")
     suspend fun deleteOlderThan(before: LocalDate)
+
+    /**
+     * Clears this scope/week's still-SUGGESTED rows before a recompute writes a fresh set —
+     * without this, [org.seg7.familywatchlist.data.repository.RecommendationRepository]'s
+     * `upsertAll` only ever adds/updates rows for tmdbIds present in the new assembled list,
+     * so a title that scored well last time but didn't make this recompute's cut (e.g. after a
+     * slider change) would linger forever, growing the shortlist past its target size on every
+     * recompute instead of replacing it. DISMISSED and WATCHED rows are deliberately untouched:
+     * DISMISSED still needs to exclude that candidate from this cycle's next recompute, and
+     * WATCHED is a real historical record, not a stale suggestion.
+     */
+    @Query("DELETE FROM shortlist_entries WHERE weekStart = :weekStart AND scopeKey = :scopeKey AND state = 'SUGGESTED'")
+    suspend fun deleteSuggestedForScope(weekStart: LocalDate, scopeKey: String)
 }
