@@ -12,7 +12,13 @@ private fun candidate(id: Int, score: Double, quality: Double = score, genre: In
 class ShortlistAssemblerTest {
 
     @Test
-    fun `assembles ~8 with a 2-per-genre cap and 1 wildcard from an unexplored genre, at the spec default`() {
+    fun `assembles ~8 with a 2-per-genre cap and 1 wildcard from an unexplored genre, at a small target size`() {
+        // Deliberately uses an explicit small targetSize rather than ShortlistConfig.SPEC_DEFAULT
+        // (which is production's real 30) — this test's fixture only has 12 candidates, and its
+        // whole point is hand-verifying the diversity-cap/wildcard mechanics against a small,
+        // fully-worked-out pool. diversityCap and wildcardCount below still match SPEC_DEFAULT's
+        // real values (2 and 1) — only targetSize is intentionally decoupled, since asking for 30
+        // from a 12-candidate pool would trigger the backfill path this test isn't about.
         val candidates = listOf(
             candidate(1, 10.0, genre = 1),
             candidate(2, 9.0, genre = 1),
@@ -27,8 +33,13 @@ class ShortlistAssemblerTest {
             candidate(11, 0.5, quality = 0.9, genre = 5), // unexplored genre, lower quality
             candidate(12, 0.4, quality = 0.95, genre = 5), // unexplored genre, highest quality -> wildcard
         )
+        val config = ShortlistConfig(
+            wildcardCount = RecommenderSpec.WILDCARD_COUNT,
+            diversityCap = RecommenderSpec.DIVERSITY_CAP,
+            targetSize = 8,
+        )
 
-        val result = ShortlistAssembler.assemble(candidates, ShortlistConfig.SPEC_DEFAULT)
+        val result = ShortlistAssembler.assemble(candidates, config)
 
         assertEquals(8, result.size)
         val core = result.filterNot { it.isWildcard }.map { it.candidate.title.tmdbId }.toSet()

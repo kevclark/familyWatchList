@@ -178,7 +178,9 @@ score = 0.70 × affinityMatch        # dot product vs candidate attrs, per-type 
       + 0.15 × freshness            # newer release + recently-added-to-provider boost
 ```
 
-**Shortlist assembly (weekly, ~8 titles per scope):** greedy by score with a diversity cap
+**Shortlist assembly (weekly, ~30 titles per scope — bumped from an original 8 at Kev's
+request, 2026-08-20: "I end up scrolling for hours [elsewhere], which is what I want this app
+to remove... but the suggestion count should still be higher"):** greedy by score with a diversity cap
 (max 2 per primary genre) + **1 wildcard slot** (high-quality title from an unexplored genre)
 so taste doesn't tunnel.
 

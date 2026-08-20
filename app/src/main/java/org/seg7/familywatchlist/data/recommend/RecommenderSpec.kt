@@ -12,7 +12,7 @@ object RecommenderSpec {
     const val FRESHNESS_WEIGHT: Double = 0.15
     const val WILDCARD_COUNT: Int = 1
     const val DIVERSITY_CAP: Int = 2
-    const val SHORTLIST_TARGET_SIZE: Int = 8
+    const val SHORTLIST_TARGET_SIZE: Int = 30
     const val FAMILY_MEAN_WEIGHT: Double = 0.5
     const val FAMILY_MIN_WEIGHT: Double = 0.5
 
