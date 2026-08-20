@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-19 (M2f — configurable region — by `feature-builder`).
+Last updated: 2026-08-20 (M3 — recommender, incl. the four tunable sliders — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -490,7 +490,7 @@ built as specified:
       and that re-subscribing + a real query goes back to the ordinary
       matched-nothing/has-results messaging.
 
-## M3 — Recommender
+## M3 — Recommender ✅
 
 Done means: scoring engine (incl. watchlist signal) + fixture-based unit tests, Home
 shortlists, family scope, weekly WorkManager job + Monday notification, **plus the four
@@ -563,10 +563,11 @@ tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not
       `SliderSettings.DEFAULT`/`FamilyBlendSlider.DEFAULT`, and asserts bit-identical output)
 - [x] Deterministic fixture unit tests for the scorer — base algorithm + slider variations +
       orchestration (`RecommendationRepositoryTest`, `HomeViewModelTest` additions,
-      `TunePicksViewModelTest`, `RecommendationSchedulerTest`) — 259 tests total, 0 failures
-- [x] `./gradlew test assembleDebug` green — 259 tests, 0 failures, `assembleDebug` clean
-- [ ] Live verification / screenshots: base recommendations, at least one slider visibly
-      changing Home's output — pending this milestone's final pass (checkpoint 4)
+      `TunePicksViewModelTest`, `RecommendationSchedulerTest`) — 260 tests total, 0 failures
+- [x] `./gradlew test assembleDebug` green — 260 tests, 0 failures, `assembleDebug` clean
+- [x] Live verification / screenshots: base recommendations, at least one slider visibly
+      changing Home's output — done on-device (emulator, `-gpu swangle`, renderer confirmed via
+      `dumpsys SurfaceFlinger`), see the checkpoint 4 note below and `docs/m3-live-*.png`
 
 **M3 progress note (checkpoint 2 of 4, this pass — `feature-builder`):** the four sliders'
 math and storage, layered on the checkpoint-1 engine. `SliderSettings`/`FamilyBlendSlider` are
@@ -602,10 +603,51 @@ the Home hero/For You rework sourcing from the real shortlist instead of raw pop
 **Deliberately not built this checkpoint (scope decision, not an oversight — flagged in the
 build report):** the who's-watching chip row / "Family Night" carousel UI on Home. The backend
 it needs (`RecommendationRepository.refreshFamilyShortlist(persist=false)`, an ad-hoc blend for
-any profile subset) is fully built and tested; only Home's UI call site is missing. Everything
-else in this checkpoint's brief (candidate-pool fetching, WorkManager + notification, "Tune my
-picks", Home hero rework, slider-triggered recompute) is done. 259 tests, 0 failures.
-`./gradlew test assembleDebug` green.
+any profile subset) is fully built and tested; only Home's UI call site is missing. Also not
+wired: `TitleDetailScreen`'s "Because you liked …" reason line (PLAN.md §5) — the data exists
+now (`ShortlistEntryEntity.reasons`), the route parameter to carry it through from a shortlist
+card tap does not. Everything else in this checkpoint's brief (candidate-pool fetching,
+WorkManager + notification, "Tune my picks", Home hero rework, slider-triggered recompute) is
+done.
+
+**M3 progress note (checkpoint 4 of 4, final pass — `feature-builder`):** live emulator
+verification (`-gpu swangle`, renderer confirmed via `dumpsys SurfaceFlinger` before trusting
+the session) against 3 pre-existing profiles from earlier milestones' testing. Seeded profile
+"Kev" past the cold-start threshold (6 tagged watch events across Toy Story/Toy Story 2/
+Paddington/Paddington 2/Spider-Man: No Way Home, two UP ratings) directly via `run-as sqlite3`
+— the same established technique M2d/M2e/M2g used — then drove the real UI:
+- **POST_NOTIFICATIONS fired correctly** on first reaching Home (`docs/m3-live-03-permission.png`).
+- **Base recommendations, real and live**: tapping refresh triggered a genuine
+  `refreshProfileShortlist` — real `/discover` + `/recommendations` + detail-fetch network calls
+  against TMDB, no mocks. Result: hero flipped from the old raw-popularity Spider-Man pick to
+  **Toy Story 2** (top-scored, 0.949), with reasons `["John Lasseter","Animation","Comedy"]`
+  correctly citing the director/genre overlap with Kev's rated titles
+  (`docs/m3-live-05-home.png` before -> `docs/m3-live-07-foryou.png` after).
+- **"Tune my picks" screen** renders all four sliders including "Family Night blend" (visible —
+  the account has 3 profiles) at their s=0 defaults (`docs/m3-live-09-tune-my-picks.png`).
+- **A slider visibly changing Home's output**: moved the Discovery slider to ~+0.96 ("Surprise
+  me") — persisted to `profile_sliders`, debounced recompute fired, and the "For You" row's
+  third card visibly changed from *Spider-Man: Homecoming* to *Project Hail Mary* as the
+  loosened diversity cap pulled in an unexplored genre (`docs/m3-live-13-discovery-slider2.png`,
+  `docs/m3-live-16-home-final.png`).
+- **WorkManager genuinely scheduled on-device**: `adb shell dumpsys jobscheduler` shows the real
+  `androidx.work.systemjobscheduler` job for this package with `Minimum latency: +3d9h...` —
+  correctly the distance from Thursday to next Monday 06:00.
+
+**Real bug found and fixed during this verification, not simulated:** the second slider move
+(Personal-match, then Discovery) grew `shortlist_entries` from 8 rows to 9 instead of replacing
+the set — `ShortlistDao.upsertAll` only ever adds/updates rows for tmdbIds present in the new
+assembled list, so a candidate that scored well on a previous recompute but didn't make this
+one's cut lingered forever. Root-caused live via `sqlite3` row counts, fixed with a new
+`ShortlistDao.deleteSuggestedForScope` (clears this cycle's still-SUGGESTED rows before the new
+set is written; DISMISSED/WATCHED rows are deliberately preserved), called from
+`RecommendationRepository.persistShortlist` before `upsertAll`. Verified live afterwards: two
+further recomputes both held steady at exactly 8 rows. Regression test added
+(`RecommendationRepositoryTest`, seeds a stale SUGGESTED row directly to sidestep
+`DiscoverRepository`'s legitimate 24h `/recommendations` cache, which would otherwise mask the
+bug on a second live call within the same day).
+
+**M3 — Recommender: done.** 260 tests, 0 failures. `./gradlew test assembleDebug` green.
 
 ## M4 — Polish
 

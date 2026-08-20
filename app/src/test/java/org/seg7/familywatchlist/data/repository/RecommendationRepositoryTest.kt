@@ -199,6 +199,35 @@ class RecommendationRepositoryTest {
         assertEquals(listOf(999), persisted.map { it.tmdbId })
     }
 
+    /**
+     * Regression test for a real bug caught during this milestone's live emulator verification:
+     * moving a "Tune my picks" slider grew the persisted shortlist from 8 to 9 rows instead of
+     * replacing it — `upsertAll` only ever adds/updates rows for tmdbIds present in the new
+     * list, so a candidate that scored well last time but doesn't make this recompute's cut
+     * lingered forever. Fixed by `ShortlistDao.deleteSuggestedForScope` clearing this cycle's
+     * SUGGESTED rows before the new set is written. A stale row is seeded directly here (rather
+     * than via two live recomputes) to sidestep `DiscoverRepository`'s legitimate 24h
+     * `/recommendations` cache, which would otherwise serve the first call's candidate again on
+     * the second call regardless of this bug.
+     */
+    @Test
+    fun `a recompute clears a previously-SUGGESTED candidate that no longer makes the cut`() = runTest {
+        val id = seedWarmProfile()
+        val weekStart = repo.currentWeekStart()
+        // A stale leftover from an earlier computation, for a candidate that will not appear
+        // in this cycle's pool at all.
+        db.shortlistDao().upsertAll(
+            listOf(ShortlistEntryEntity(weekStart, id.toString(), 777, MediaType.MOVIE, score = 0.9, reasons = "[]", state = ShortlistState.SUGGESTED))
+        )
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Fresh Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Fresh Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+
+        repo.refreshProfileShortlist(id, region = "GB")
+
+        val persisted = db.shortlistDao().getForScope(weekStart, id.toString())
+        assertEquals(listOf(999), persisted.map { it.tmdbId })
+    }
+
     @Test
     fun `refreshFamilyShortlist with persist=true writes the FAMILY scope`() = runTest {
         val a = seedWarmProfile()
