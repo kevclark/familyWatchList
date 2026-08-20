@@ -230,12 +230,17 @@ WorkManager run still applies whatever the slider is currently set to.
 4. **Family scope only: "Everyone's happy" (s=−1) ↔ "Average taste wins" (s=+1)** — replaces
    the fixed 0.5×mean + 0.5×min blend with `meanWeight = 0.5 + 0.5×s`, `minWeight = 1 −
    meanWeight` → pure least-misery at s=−1, **exact 0.5/0.5 spec default at s=0**, pure
-   average-taste at s=+1. This one has no natural home on a single profile's own slider set —
-   it's a property of a *family-scope shortlist request*, so needs its own storage/UI
-   treatment (e.g. a shared setting, or picked per family-night session) rather than living on
-   any one profile's "Tune my picks" screen. Flag your preferred mechanism in your build
-   report if the spec here is ambiguous — this is the one slider whose UI home isn't as
-   settled as the other three.
+   average-taste at s=+1.
+   **UI-home decision, RESOLVED by Kev 2026-08-20:** this slider is only shown/relevant at
+   all when the account has **2 or more profiles** — a single-profile account never has a
+   family scope, so the slider would be meaningless clutter for most of this app's actual
+   users (family size varies). Hide it entirely when `profileCount < 2`; when hidden, its
+   effective value stays at the neutral default **s=0** (i.e. hiding it never silently
+   changes scoring — if a second profile gets added later, the family blend behaves exactly
+   as originally spec'd until someone actually touches the slider). Where it lives when
+   visible (shared app-level setting vs. shown alongside the who's-watching chip row) is
+   still the build agent's call — the *visibility gating* is now settled, the exact UI
+   placement isn't.
 
 **Storage:** per-profile slider values, new columns/table on `Profile` or a small companion
 table — whichever fits the existing schema more cleanly, your call.
