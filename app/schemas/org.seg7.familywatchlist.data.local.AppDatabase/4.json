@@ -1,0 +1,613 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "143aa9bac57ebf88af01e1fcee4d7eb1",
+    "entities": [
+      {
+        "tableName": "profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `avatarKey` TEXT NOT NULL, `ageRatingCap` TEXT, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avatarKey",
+            "columnName": "avatarKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ageRatingCap",
+            "columnName": "ageRatingCap",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "titles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `title` TEXT NOT NULL, `year` INTEGER, `posterPath` TEXT, `backdropPath` TEXT, `overview` TEXT, `runtimeMin` INTEGER, `certification` TEXT, `voteAverage` REAL, `voteCount` INTEGER, `popularity` REAL, `trailerKey` TEXT, `fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`tmdbId`, `mediaType`))",
+        "fields": [
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "posterPath",
+            "columnName": "posterPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "backdropPath",
+            "columnName": "backdropPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "overview",
+            "columnName": "overview",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "runtimeMin",
+            "columnName": "runtimeMin",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "certification",
+            "columnName": "certification",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "voteAverage",
+            "columnName": "voteAverage",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "voteCount",
+            "columnName": "voteCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "popularity",
+            "columnName": "popularity",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "trailerKey",
+            "columnName": "trailerKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tmdbId",
+            "mediaType"
+          ]
+        }
+      },
+      {
+        "tableName": "title_attributes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `attrType` TEXT NOT NULL, `attrId` INTEGER NOT NULL, `name` TEXT NOT NULL, `ord` INTEGER, PRIMARY KEY(`tmdbId`, `mediaType`, `attrType`, `attrId`))",
+        "fields": [
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attrType",
+            "columnName": "attrType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attrId",
+            "columnName": "attrId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ord",
+            "columnName": "ord",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tmdbId",
+            "mediaType",
+            "attrType",
+            "attrId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_title_attributes_tmdbId_mediaType",
+            "unique": false,
+            "columnNames": [
+              "tmdbId",
+              "mediaType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_title_attributes_tmdbId_mediaType` ON `${TABLE_NAME}` (`tmdbId`, `mediaType`)"
+          }
+        ]
+      },
+      {
+        "tableName": "watch_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `watchedAt` TEXT NOT NULL, `note` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watchedAt",
+            "columnName": "watchedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_watch_events_tmdbId_mediaType",
+            "unique": false,
+            "columnNames": [
+              "tmdbId",
+              "mediaType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_events_tmdbId_mediaType` ON `${TABLE_NAME}` (`tmdbId`, `mediaType`)"
+          }
+        ]
+      },
+      {
+        "tableName": "watch_event_profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`watchEventId` INTEGER NOT NULL, `profileId` INTEGER NOT NULL, PRIMARY KEY(`watchEventId`, `profileId`))",
+        "fields": [
+          {
+            "fieldPath": "watchEventId",
+            "columnName": "watchEventId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "watchEventId",
+            "profileId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_watch_event_profiles_profileId",
+            "unique": false,
+            "columnNames": [
+              "profileId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_watch_event_profiles_profileId` ON `${TABLE_NAME}` (`profileId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "ratings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` INTEGER NOT NULL, `tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `value` TEXT NOT NULL, `ratedAt` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `tmdbId`, `mediaType`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ratedAt",
+            "columnName": "ratedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId",
+            "tmdbId",
+            "mediaType"
+          ]
+        }
+      },
+      {
+        "tableName": "watchlist_entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `addedByProfileId` INTEGER NOT NULL, `addedAt` INTEGER NOT NULL, `state` TEXT NOT NULL, PRIMARY KEY(`tmdbId`, `mediaType`))",
+        "fields": [
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedByProfileId",
+            "columnName": "addedByProfileId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addedAt",
+            "columnName": "addedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tmdbId",
+            "mediaType"
+          ]
+        }
+      },
+      {
+        "tableName": "providers",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`providerId` INTEGER NOT NULL, `name` TEXT NOT NULL, `logoPath` TEXT, `subscribed` INTEGER NOT NULL, `displayPriority` INTEGER NOT NULL, PRIMARY KEY(`providerId`))",
+        "fields": [
+          {
+            "fieldPath": "providerId",
+            "columnName": "providerId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logoPath",
+            "columnName": "logoPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "subscribed",
+            "columnName": "subscribed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayPriority",
+            "columnName": "displayPriority",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "providerId"
+          ]
+        }
+      },
+      {
+        "tableName": "provider_availability",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `providerId` INTEGER NOT NULL, `kind` TEXT NOT NULL, `fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`tmdbId`, `mediaType`, `providerId`))",
+        "fields": [
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "providerId",
+            "columnName": "providerId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tmdbId",
+            "mediaType",
+            "providerId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_provider_availability_tmdbId_mediaType",
+            "unique": false,
+            "columnNames": [
+              "tmdbId",
+              "mediaType"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_provider_availability_tmdbId_mediaType` ON `${TABLE_NAME}` (`tmdbId`, `mediaType`)"
+          }
+        ]
+      },
+      {
+        "tableName": "shortlist_entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`weekStart` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `score` REAL NOT NULL, `reasons` TEXT NOT NULL, `state` TEXT NOT NULL, PRIMARY KEY(`weekStart`, `scopeKey`, `tmdbId`, `mediaType`))",
+        "fields": [
+          {
+            "fieldPath": "weekStart",
+            "columnName": "weekStart",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scopeKey",
+            "columnName": "scopeKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "score",
+            "columnName": "score",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reasons",
+            "columnName": "reasons",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "weekStart",
+            "scopeKey",
+            "tmdbId",
+            "mediaType"
+          ]
+        }
+      },
+      {
+        "tableName": "discover_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryHash` TEXT NOT NULL, `tmdbId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `ord` INTEGER NOT NULL, `fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`queryHash`, `tmdbId`, `mediaType`))",
+        "fields": [
+          {
+            "fieldPath": "queryHash",
+            "columnName": "queryHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tmdbId",
+            "columnName": "tmdbId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaType",
+            "columnName": "mediaType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ord",
+            "columnName": "ord",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryHash",
+            "tmdbId",
+            "mediaType"
+          ]
+        }
+      },
+      {
+        "tableName": "profile_sliders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`profileId` INTEGER NOT NULL, `discovery` REAL NOT NULL, `recency` REAL NOT NULL, `personalMatch` REAL NOT NULL, PRIMARY KEY(`profileId`))",
+        "fields": [
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discovery",
+            "columnName": "discovery",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recency",
+            "columnName": "recency",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "personalMatch",
+            "columnName": "personalMatch",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "profileId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '143aa9bac57ebf88af01e1fcee4d7eb1')"
+    ]
+  }
+}

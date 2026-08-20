@@ -513,32 +513,44 @@ tunable sliders confirmed by Kev on 2026-08-20 (PLAN.md §4a) — all in v1, not
 - [ ] WorkManager weekly Monday 06:00 + notification deep-link; POST_NOTIFICATIONS request
 - [ ] Home hero sources from the profile's top-scored pick, not raw popularity (PLAN.md §4's
       2026-08-19 design note — retires the current `discover.movies.firstOrNull()` approach)
-- [ ] Four sliders (PLAN.md §4a), per-profile storage: discovery (wildcard count + diversity
-      cap), recency half-life, personal-match-vs-popular (affinity/quality weight), and the
-      family-scope mean/min blend (needs its own UI home — not one profile's slider set;
-      flag your chosen mechanism clearly)
+- [x] Four sliders (PLAN.md §4a) — math + per-profile storage. `data/recommend/SliderSettings.kt`
+      (discovery -> wildcard count + diversity cap, recency -> half-life, personalMatch ->
+      affinity/quality weight split) plus `FamilyBlendSlider` (mean/min blend). Per-profile
+      storage: new `profile_sliders` table (schema v3→v4, `MIGRATION_3_4`,
+      `ProfileSlidersEntity`/`Dao`/`ProfileSlidersRepository`) — a profile with no row reads as
+      `SliderSettings.DEFAULT`. The family-blend slider is a **shared app-level** DataStore
+      preference (`UserPreferencesRepository.familyBlendSlider`), not per-profile — see that
+      property's kdoc for the full reasoning (also in this checkpoint's build report); UI wiring
+      (screen + Settings row) is still pending
 - [ ] "Tune my picks" screen, reachable from profile picker or Settings
 - [ ] Slider changes recompute that profile's shortlist immediately, debounced ~300–500ms
       (mirror `SearchViewModel`'s existing debounce pattern)
-- [ ] **Acceptance bar, not optional:** fixture tests proving all sliders at s=0 reproduce the
+- [x] **Acceptance bar, not optional:** fixture tests proving all sliders at s=0 reproduce the
       exact same shortlist a build with no sliders at all would produce
-- [x] Deterministic fixture unit tests for the scorer base algorithm — 40 new tests across
-      `AffinityEngineTest`, `ScorerTest`, `ShortlistAssemblerTest`, `FamilyBlendTest`
-      (`app/src/test/java/.../data/recommend/`); slider-variation tests still pending
-- [ ] `./gradlew test assembleDebug` green (green as of this checkpoint — 214 tests, 0
+      (`SliderAcceptanceBarTest` — runs the full affinity→scoring→shortlist pipeline and the
+      family blend twice, once wired to `RecommenderSpec` constants directly and once through
+      `SliderSettings.DEFAULT`/`FamilyBlendSlider.DEFAULT`, and asserts bit-identical output)
+- [x] Deterministic fixture unit tests for the scorer — base algorithm (40 tests) + slider
+      variations (22 more: `SliderSettingsTest`, `SliderAcceptanceBarTest`,
+      `ProfileSlidersRepositoryTest`, plus `UserPreferencesRepositoryTest` additions for the
+      family-blend preference) — 236 tests total, 0 failures
+- [ ] `./gradlew test assembleDebug` green (green as of this checkpoint — 236 tests, 0
       failures — but milestone isn't done yet, see remaining items above)
 - [ ] Live verification / screenshots: base recommendations, at least one slider visibly
       changing Home's output
 
-**M3 progress note (checkpoint 1 of 4, this pass — `feature-builder`):** core scoring engine
-only (`org.seg7.familywatchlist.data.recommend` package) — pure, Room/TMDB-free functions
-covering affinity vectors, IDF damping, per-type L2 normalisation, the 0.70/0.15/0.15 scoring
-formula, shortlist assembly (diversity cap + wildcard), and family blend + strictest age cap —
-plus fixture unit tests proving each stage against hand-computed expectations. Candidate-pool
-fetching, Room storage for the recommender's output/sliders, WorkManager, the "Tune my picks"
-screen, and Home wiring are **not yet built** — that's the remaining checkpoints of this
-milestone. `./gradlew test assembleDebug` is green at 214 tests / 0 failures as of this
-checkpoint.
+**M3 progress note (checkpoint 2 of 4, this pass — `feature-builder`):** the four sliders'
+math and storage, layered on the checkpoint-1 engine. `SliderSettings`/`FamilyBlendSlider` are
+pure derivations (each `s ∈ [-1,1]`, default 0) that convert to the engine's `ScoringWeights`/
+`ShortlistConfig`/`FamilyBlendWeights`/half-life; the acceptance bar
+(`SliderAcceptanceBarTest`) proves s=0 reproduces the no-slider pipeline exactly, both by
+running the full pipeline twice and by asserting the derived config objects are `equals()`.
+Family-blend-slider UI-home judgment call: a shared app-level DataStore preference (option 1
+of two considered — full reasoning on `UserPreferencesRepository.familyBlendSlider`'s kdoc and
+in the build report), not per-session or per-profile. Not yet built this checkpoint: candidate-pool
+fetching, WorkManager, the "Tune my picks" screen, and Home wiring — that's the remaining
+checkpoints of this milestone. `./gradlew test assembleDebug` is green at 236 tests / 0
+failures as of this checkpoint.
 
 ## M4 — Polish
 
