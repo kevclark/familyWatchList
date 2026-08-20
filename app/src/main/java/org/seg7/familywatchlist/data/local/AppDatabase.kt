@@ -8,6 +8,7 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 import org.seg7.familywatchlist.data.local.dao.DiscoverCacheDao
 import org.seg7.familywatchlist.data.local.dao.ProfileDao
+import org.seg7.familywatchlist.data.local.dao.ProfileSlidersDao
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
 import org.seg7.familywatchlist.data.local.dao.ProviderDao
 import org.seg7.familywatchlist.data.local.dao.RatingDao
@@ -18,6 +19,7 @@ import org.seg7.familywatchlist.data.local.dao.WatchEventDao
 import org.seg7.familywatchlist.data.local.dao.WatchlistDao
 import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
+import org.seg7.familywatchlist.data.local.entity.ProfileSlidersEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
@@ -45,8 +47,9 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         ProviderAvailabilityEntity::class,
         ShortlistEntryEntity::class,
         DiscoverCacheEntity::class,
+        ProfileSlidersEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -61,6 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun providerAvailabilityDao(): ProviderAvailabilityDao
     abstract fun shortlistDao(): ShortlistDao
     abstract fun discoverCacheDao(): DiscoverCacheDao
+    abstract fun profileSlidersDao(): ProfileSlidersDao
 
     companion object {
         const val NAME = "family_watchlist.db"
@@ -88,6 +92,23 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_2_3: Migration = object : Migration(2, 3) {
             override fun migrate(connection: SQLiteConnection) {
                 connection.execSQL("ALTER TABLE titles ADD COLUMN voteCount INTEGER")
+            }
+        }
+
+        /**
+         * v3 -> v4 (PLAN.md §4a, M3): creates `profile_sliders` — per-profile storage for the
+         * three "Tune my picks" sliders (see [ProfileSlidersEntity]'s kdoc for why this is a
+         * companion table rather than columns on `profiles`). No seed data: a profile with no row
+         * here reads as [org.seg7.familywatchlist.data.recommend.SliderSettings.DEFAULT] at the
+         * repository layer, so nothing needs backfilling for existing profiles.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `profile_sliders` (`profileId` INTEGER NOT NULL, " +
+                        "`discovery` REAL NOT NULL, `recency` REAL NOT NULL, `personalMatch` REAL NOT NULL, " +
+                        "PRIMARY KEY(`profileId`))"
+                )
             }
         }
     }

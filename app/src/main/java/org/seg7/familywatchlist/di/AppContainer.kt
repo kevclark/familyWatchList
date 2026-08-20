@@ -15,6 +15,7 @@ import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.RegionCatalogRepository
@@ -35,7 +36,7 @@ class AppContainer(context: Context) {
     val clock: AppClock = SystemAppClock()
 
     val database: AppDatabase = Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.NAME)
-        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
         .build()
 
     val tmdbApi: TmdbApi = TmdbClient.create(
@@ -77,6 +78,10 @@ class AppContainer(context: Context) {
     // (see the class kdoc for why a 24h-style TTL doesn't apply here).
     val regionCatalogRepository: RegionCatalogRepository by lazy {
         RegionCatalogRepository(tmdbApi)
+    }
+
+    val profileSlidersRepository: ProfileSlidersRepository by lazy {
+        ProfileSlidersRepository(database.profileSlidersDao())
     }
 
     val ratingRepository: RatingRepository by lazy {

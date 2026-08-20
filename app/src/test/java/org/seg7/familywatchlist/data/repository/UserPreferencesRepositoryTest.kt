@@ -1,6 +1,7 @@
 package org.seg7.familywatchlist.data.repository
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
@@ -138,5 +139,42 @@ class UserPreferencesRepositoryTest {
         repo.clearRegionServicesMismatch()
 
         assertFalse(repo.regionServicesMismatch.first())
+    }
+
+    @Test
+    fun `familyBlendSlider defaults to 0`() = runTest {
+        val repo = newRepo("prefs_family_blend_defaults")
+
+        assertEquals(0.0, repo.familyBlendSlider.first(), 1e-9)
+    }
+
+    @Test
+    fun `setFamilyBlendSlider round-trips across the full range`() = runTest {
+        val repo = newRepo("prefs_family_blend_roundtrip")
+
+        for (value in listOf(-1.0, -0.5, 0.0, 0.5, 1.0)) {
+            repo.setFamilyBlendSlider(value)
+            assertEquals(value, repo.familyBlendSlider.first(), 1e-9)
+        }
+    }
+
+    @Test
+    fun `setFamilyBlendSlider rejects an out-of-range value`() = runTest {
+        val repo = newRepo("prefs_family_blend_reject")
+
+        try {
+            repo.setFamilyBlendSlider(1.5)
+            assertTrue("expected IllegalArgumentException", false)
+        } catch (expected: IllegalArgumentException) {
+            // expected
+        }
+    }
+
+    @Test
+    fun `familyBlendSlider falls back to 0 on a corrupted stored value`() = runTest {
+        val (repo, dataStore) = newRepoAndStore("prefs_family_blend_corrupt")
+        dataStore.updateData { it.toMutablePreferences().apply { this[doublePreferencesKey("family_blend_slider")] = 4.0 } }
+
+        assertEquals(0.0, repo.familyBlendSlider.first(), 1e-9)
     }
 }

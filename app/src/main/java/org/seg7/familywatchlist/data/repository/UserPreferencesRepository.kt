@@ -3,6 +3,7 @@ package org.seg7.familywatchlist.data.repository
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -83,6 +84,36 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
     val regionServicesMismatch: Flow<Boolean> =
         dataStore.data.map { it[REGION_SERVICES_MISMATCH] ?: false }
 
+    /**
+     * PLAN.md §4a slider 4 ("Everyone's happy" <-> "Average taste wins"): the family mean/min
+     * blend, stored as a **shared, app-level** preference rather than per-profile.
+     *
+     * **Judgment call, flagged per PLAN.md §4a's explicit ask** ("this is the one slider whose
+     * UI home isn't as settled as the other three ... flag your preferred mechanism"): this
+     * slider tunes a property of a *family-scope shortlist request* (which profiles are selected
+     * varies per Home visit via the who's-watching chips), not any single profile's own taste —
+     * so it has no natural per-profile row to live on. Two mechanisms were considered:
+     *  1. **A shared app-level setting (chosen).** One value for the whole household, changed in
+     *     Settings, applied to every family-scope computation until changed again. Simple, and
+     *     matches how the other cross-cutting preferences here (region, accent) already work.
+     *  2. Per-session, picked alongside the who's-watching chips each time a subset is chosen.
+     *     More "correct" in spirit (family movie night's taste-averaging preference could
+     *     plausibly differ from a different night's), but adds a control to Home's chip row that
+     *     has to be re-set constantly for a single household's fairly stable preference, and has
+     *     nowhere obvious to persist between sessions without inventing new state.
+     * Went with (1): stored once in Settings, applied to both the weekly persisted "FAMILY"
+     * shortlist and any on-the-fly who's-watching-chip recompute. If Kev finds himself wanting a
+     * different blend for a specific movie night, that's the concrete signal (2) should be built
+     * instead — flagged in the build report as the judgment call it is.
+     */
+    val familyBlendSlider: Flow<Double> =
+        dataStore.data.map { prefs -> prefs[FAMILY_BLEND_SLIDER]?.takeIf { it in -1.0..1.0 } ?: 0.0 }
+
+    suspend fun setFamilyBlendSlider(value: Double) {
+        require(value in -1.0..1.0) { "family blend slider must be in [-1, 1], was $value" }
+        dataStore.edit { it[FAMILY_BLEND_SLIDER] = value }
+    }
+
     suspend fun setOnboardingComplete(complete: Boolean) {
         dataStore.edit { it[ONBOARDING_COMPLETE] = complete }
     }
@@ -129,6 +160,7 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
         val ACCENT_COLOR: Preferences.Key<String> = stringPreferencesKey("accent_color")
         val REGION: Preferences.Key<String> = stringPreferencesKey("region")
         val REGION_SERVICES_MISMATCH: Preferences.Key<Boolean> = booleanPreferencesKey("region_services_mismatch")
+        val FAMILY_BLEND_SLIDER: Preferences.Key<Double> = doublePreferencesKey("family_blend_slider")
         const val DEFAULT_REGION: String = TmdbApi.REGION_GB
     }
 }
