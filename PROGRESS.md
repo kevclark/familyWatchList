@@ -653,22 +653,38 @@ bug on a second live call within the same day).
 
 Kev's follow-up, 2026-08-20: default shortlist size already bumped 8→30 directly by the
 orchestrator (commit `3c4fff1`) after he flagged 8 as too thin for a "remove the scrolling"
-app. He then asked for the count itself to be user-configurable, not just a bigger fixed
-number. Full spec in PLAN.md §4a, slider 5 ("Suggestion count").
+app. He then asked for the count itself to be user-configurable. **Design corrected same
+day**: the orchestrator initially proposed a fixed max=50 UI ceiling without confirming it
+with Kev first — Kev pushed back on the process (a real design call made and implemented
+without checking), and then proposed a better mechanism than either original option: the
+slider's max should be the profile's *real* eligible-candidate count, already computed by
+the recommender itself, not a guessed number. Full corrected spec in PLAN.md §4a, slider 5.
 
-- [ ] Per-profile integer preference, range 4–50, default 30 — overrides
+- [ ] Per-profile integer preference for the user's *requested* count, default 30 — overrides
       `RecommenderSpec.SHORTLIST_TARGET_SIZE` per-profile, doesn't replace the constant
-      (constant stays the fallback/spec default)
-- [ ] Threads into `ShortlistConfig.targetSize` for that profile's personal shortlist refresh
+- [ ] `refreshProfileShortlist`'s existing `eligible` pool count is persisted (alongside the
+      profile's slider prefs) on every refresh — this is the real, current ceiling, not an
+      invented one
+- [ ] "Tune my picks" screen reads the **last-known persisted** eligible count for the
+      slider's max — not a live fetch on screen-open (offline-first, avoids needless network
+      calls just to view Settings)
+- [ ] At refresh time, actual target = `min(userRequestedCount, currentEligibleCount)` — a
+      shrunk pool this week doesn't erase what the user originally asked for; it recovers
+      automatically if the pool grows back
+- [ ] Edge case handled gracefully: slider min adapts if eligible count is ever below 4
+      (`min(4, eligibleCount)`); if eligible count is 0, disable the slider with a short
+      explanatory message rather than an inverted/broken range
 - [ ] UI: slider on the existing "Tune my picks" screen alongside the four taste sliders
       (visual consistency call — flag if a numeric field is actually preferred)
 - [ ] Family-scope shortlists stay at the fixed default (30) — deliberately out of scope,
       not an oversight (see PLAN.md §4a slider 5's "scope boundary" note)
-- [ ] Tests: preference default/round-trip, value actually threads into the real
-      `ShortlistConfig` used for that profile's refresh (not just stored and ignored)
+- [ ] Tests: preference default/round-trip, the `min(requested, eligible)` clamping logic
+      specifically (including the ceiling-recovers-later case), edge case at eligible<4 and
+      eligible=0
 - [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: change the count, confirm the profile's shortlist actually grows/
-      shrinks to match
+- [ ] Live verification: change the requested count, confirm the profile's shortlist actually
+      grows/shrinks to match; confirm the slider's max reflects a real persisted eligible
+      count, not a hardcoded number
 
 ## M4 — Polish
 
