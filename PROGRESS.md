@@ -818,10 +818,12 @@ one-off combinations different from the saved Family profile.
 - [ ] Log-watch while Family is active writes real `WatchEventProfile` rows against every
       member's own `Profile.id` (never against the Family profile's own id) — identical
       effect to today's manual multi-select, not new recommender logic
-- [ ] Weekly WorkManager job: reconsider `refreshAll`'s current "blend everyone by default"
-      family refresh now that a curated Family profile exists — should it refresh the Family
-      profile's actual membership instead of unconditionally all profiles? Flag your reasoning
-      either way, this is a real behaviour question the plan doesn't fully resolve
+- [ ] **RESOLVED by Kev, 2026-08-21** (was an open question — now locked, don't re-litigate):
+      `refreshAll` refreshes every individual profile AND the Family profile (if one exists),
+      each getting its own weekly shortlist exactly like any other profile — using its real
+      curated membership, not a hardcoded "blend everyone" default. No separate legacy
+      "everyone" fallback needs to coexist alongside the curated Family profile — if no Family
+      profile has been created yet, there's simply nothing family-scoped to refresh that week
 - [ ] Tests: family-profile creation/membership CRUD, active-profile sentinel branching,
       log-watch auto-tag-all-members, persisted family shortlist generation via the curated
       (not "everyone") membership
