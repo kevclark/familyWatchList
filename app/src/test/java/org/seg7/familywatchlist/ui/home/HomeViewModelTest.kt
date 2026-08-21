@@ -230,16 +230,19 @@ class HomeViewModelTest {
     }
 
     /**
-     * PLAN.md §4's "Age-cap safety gap" (M3g): a cold-start profile's Popular row (and the
-     * cold-start hero fallback, which reads the same [DiscoverRepository] data) previously applied
-     * **zero** age-rating filtering. Seeds three already-detail-fetched titles (real certification
-     * data, matching how a title genuinely gets a certification cached — discover summary payloads
-     * never carry one, see [DiscoverRepositoryTest]'s "discover never clobbers a title that already
-     * has full detail data cached") and confirms: over-cap excluded, at-cap survives, no-cert
-     * survives (PLAN.md §8: unknown certification data never excludes a title).
+     * PLAN.md §4's "Age-cap safety gap" (M3g), tightened by "Residual gap found by M3g" (M3h):
+     * a cold-start profile's Popular row (and the cold-start hero fallback, which reads the same
+     * [DiscoverRepository] data) previously applied **zero** age-rating filtering. Seeds three
+     * already-detail-fetched titles (real certification data, matching how a title genuinely gets
+     * a certification cached — discover summary payloads never carry one, see
+     * [DiscoverRepositoryTest]'s "discover never clobbers a title that already has full detail data
+     * cached") and confirms: over-cap excluded, at-cap survives (regression check against M3g's
+     * own correctness), **unknown-cert now also excluded** — the M3h flip, specific to this one
+     * call site — unlike [FamilyBlend.isOverCap]'s own "unknown != unsafe" default, which stays
+     * unchanged for every other caller (see [HomeViewModel.survivesAgeCap]'s kdoc).
      */
     @Test
-    fun `Popular rows are filtered to the active profile's age cap — over survives never, at-cap and unknown-cert both survive`() = runTest {
+    fun `Popular rows for a capped profile require confirmed at-or-under-cap certification — over and unknown-cert both excluded, at-cap survives`() = runTest {
         db.titleDao().upsertAll(
             listOf(
                 TitleEntity(
@@ -270,6 +273,41 @@ class HomeViewModelTest {
         val cappedProfile = ActiveProfile.Individual(profileRepository.getById(cappedProfileId)!!)
         val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
         val state = viewModel(watchlistRepository, cappedProfile).uiState.first { it.popularMovies.isNotEmpty() }
+
+        assertEquals(setOf(1002), state.popularMovies.map { it.tmdbId }.toSet())
+    }
+
+    /**
+     * PLAN.md §4 "Residual gap found by M3g, resolved by Kev 2026-08-21" (M3h): the uncertain-
+     * certification exclusion is a targeted flip for a *capped* profile only — an uncapped profile
+     * ([ProfileEntity.ageRatingCap] null) must see **zero** behavioural difference from before this
+     * pass. Same "Unknown Cert" (1003, `certification = null`) title as the capped-profile test
+     * above, but against the default (uncapped) [activeProfile] used throughout this file — it must
+     * survive exactly as it always has, proving the M3h change doesn't leak into the uncapped path.
+     */
+    @Test
+    fun `Popular rows for an uncapped profile are unaffected by an uncertain-certification title`() = runTest {
+        db.titleDao().upsertAll(
+            listOf(
+                TitleEntity(
+                    tmdbId = 1002, mediaType = MediaType.MOVIE, title = "Right At The Cap", year = 2020,
+                    posterPath = null, backdropPath = null, overview = null, runtimeMin = 100,
+                    certification = "12", voteAverage = 7.0, popularity = 80.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+                TitleEntity(
+                    tmdbId = 1003, mediaType = MediaType.MOVIE, title = "Unknown Cert", year = 2020,
+                    posterPath = null, backdropPath = null, overview = null, runtimeMin = 100,
+                    certification = null, voteAverage = 7.0, popularity = 70.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+            )
+        )
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        server.enqueue(MockResponse(body = discoverMoviePageJson(listOf(1002 to "Right At The Cap", 1003 to "Unknown Cert"))))
+        server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        // `activeProfile` (this file's default) has `ageRatingCap = null`.
+        val state = viewModel(watchlistRepository).uiState.first { it.popularMovies.isNotEmpty() }
 
         assertEquals(setOf(1002, 1003), state.popularMovies.map { it.tmdbId }.toSet())
     }

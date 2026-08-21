@@ -59,14 +59,18 @@ import org.seg7.familywatchlist.ui.ActiveProfile
  * renders an introductory "getting started" panel instead of a title-shaped hero — a popular pick
  * masquerading as "your pick" was exactly the thing PLAN.md §4's cold-start note was fixing.
  *
- * ## Age-cap safety fix (PLAN.md §4's "Age-cap safety gap" note, 2026-08-21, M3g)
+ * ## Age-cap safety fix (PLAN.md §4's "Age-cap safety gap" note, 2026-08-21, M3g; tightened by the
+ * "Residual gap found by M3g" note, M3h)
  * [DiscoverRepository.discoverMovies]/`discoverTv` apply no age-rating filtering themselves (they
  * have no notion of "for whom") — [popularMovies]/[popularTv]/the cold-start "Popular on your
  * services" row are filtered right here in [refresh], against [RecommendationRepository.resolveAgeRatingCap]'s
- * resolution of the active profile's (or Family's strictest member) cap, via the same
- * [FamilyBlend.isOverCap] check the real recommender's scoring path already used. A title with no
- * cached certification data is never excluded (PLAN.md §8: unknown != unsafe) — same as
- * everywhere else this check runs.
+ * resolution of the active profile's (or Family's strictest member) cap, via [survivesAgeCap].
+ * Unlike every other [FamilyBlend.isOverCap] call site (the warm recommender's scoring, Search),
+ * where "unknown != unsafe" correctly lets an uncertain-certification title through, a capped
+ * profile's Popular/cold-start rows require *confirmed* at-or-under-cap certification — TMDB's raw
+ * `/discover` stubs carry no certification data, so the permissive default would leave a freshly-
+ * discovered, never-detail-fetched title completely unfiltered for a capped child's profile. See
+ * [survivesAgeCap]'s kdoc for the full reasoning. An uncapped profile is unaffected either way.
  *
  * ## Family Night (M3c)
  * The who's-watching chip row: [familyNightProfiles] lists every profile on the account (chip row
@@ -250,8 +254,8 @@ class HomeViewModel(
                 // your services" row both read popularMovies/popularTv), reusing the exact same
                 // check the real recommender's scoring path already uses.
                 val ageCap = recommendationRepository.resolveAgeRatingCap(activeProfile.id)
-                val filteredMovies = movies.filterNot { FamilyBlend.isOverCap(it.certification, ageCap) }
-                val filteredTv = tv.filterNot { FamilyBlend.isOverCap(it.certification, ageCap) }
+                val filteredMovies = movies.filter { it.survivesAgeCap(ageCap) }
+                val filteredTv = tv.filter { it.survivesAgeCap(ageCap) }
                 Triple(subscribed.isNotEmpty(), filteredMovies, filteredTv)
             }.onSuccess { (hasServices, movies, tv) ->
                 _discover.value = DiscoverState(
@@ -320,6 +324,26 @@ class HomeViewModel(
     fun removeFromWatchlist(tmdbId: Int, mediaType: MediaType) {
         viewModelScope.launch { watchlistRepository.remove(tmdbId, mediaType) }
     }
+
+    /**
+     * PLAN.md §4 "Residual gap found by M3g, resolved by Kev 2026-08-21" (M3h). [FamilyBlend.isOverCap]
+     * treats an unrecognised/uncached certification as "don't exclude" — the correct, deliberate
+     * "unknown != unsafe" default everywhere else this check runs (the warm recommender's scoring
+     * path, Search). That default is wrong specifically for this one path: TMDB's raw `/discover`
+     * results are bare stubs with no certification data at all, so letting an uncertain title
+     * through here means a freshly-discovered, never-viewed title can reach a capped child's
+     * profile completely unfiltered — worst right at a fresh install, exactly when a new child
+     * profile is most likely being set up.
+     *
+     * This is a targeted flip for *this call site only* — it does not touch [FamilyBlend.isOverCap]
+     * itself, which stays exactly as permissive as before for every other caller. For a profile
+     * with a cap set, a title only survives with *confirmed* certification data at-or-under that
+     * cap; an uncapped profile ([cap] null) is completely unaffected (short-circuits true before
+     * touching certification at all — zero behavioural change for the common case). No new network
+     * calls: this only narrows which already-fetched candidates qualify for display.
+     */
+    private fun TitleEntity.survivesAgeCap(cap: String?): Boolean =
+        cap == null || (certification != null && !FamilyBlend.isOverCap(certification, cap))
 
     private data class DiscoverState(
         val movies: List<TitleEntity> = emptyList(),
