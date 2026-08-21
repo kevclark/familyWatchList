@@ -16,6 +16,7 @@ import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
@@ -47,12 +48,25 @@ import org.seg7.familywatchlist.ui.ActiveProfile
  *    is cheap after the first time in practice: candidate titles are cached for 30 days
  *    ([TitleRepository]'s TTL), so only genuinely new/stale candidates ever hit the network.
  *
- * ## Home hero (PLAN.md §4's 2026-08-19 design note)
+ * ## Home hero (PLAN.md §4's 2026-08-19 design note, revised by the 2026-08-21 "Cold-start Home
+ * treatment" note, M3g)
  * Used to be `discover.movies.firstOrNull()` — raw popularity, "a generic, impersonal pick".
  * Now sources from the profile's **top-scored personalised pick** (the first entry of the
- * already-score-sorted `For You` list) when one exists, falling back to the same popular pick as
- * before for cold-start profiles or while the very first shortlist is still computing — a
- * documented, deliberate fallback rather than showing nothing.
+ * already-score-sorted `For You` list) when one exists, falling back to the same popular pick
+ * only while a *warm* profile's very first shortlist is still computing — a documented,
+ * deliberate fallback rather than showing nothing. **Cold-start profiles never get this fallback
+ * any more** (M3g): [HomeUiState.hero] is `null` for them, and [org.seg7.familywatchlist.ui.home.HomeScreen]
+ * renders an introductory "getting started" panel instead of a title-shaped hero — a popular pick
+ * masquerading as "your pick" was exactly the thing PLAN.md §4's cold-start note was fixing.
+ *
+ * ## Age-cap safety fix (PLAN.md §4's "Age-cap safety gap" note, 2026-08-21, M3g)
+ * [DiscoverRepository.discoverMovies]/`discoverTv` apply no age-rating filtering themselves (they
+ * have no notion of "for whom") — [popularMovies]/[popularTv]/the cold-start "Popular on your
+ * services" row are filtered right here in [refresh], against [RecommendationRepository.resolveAgeRatingCap]'s
+ * resolution of the active profile's (or Family's strictest member) cap, via the same
+ * [FamilyBlend.isOverCap] check the real recommender's scoring path already used. A title with no
+ * cached certification data is never excluded (PLAN.md §8: unknown != unsafe) — same as
+ * everywhere else this check runs.
  *
  * ## Family Night (M3c)
  * The who's-watching chip row: [familyNightProfiles] lists every profile on the account (chip row
@@ -161,10 +175,12 @@ class HomeViewModel(
             familyNightProfiles = family.profiles,
             familyNightSelectedIds = family.selectedIds,
             familyNightTitles = family.titles,
-            // PLAN.md §4's 2026-08-19 design note: the top-scored personalised pick, not raw
-            // popularity — falling back to the same "popular on your services" pick only when
-            // there's genuinely no personalised data yet (cold start / shortlist still empty).
-            hero = forYouTitles.firstOrNull() ?: discover.movies.firstOrNull() ?: discover.tv.firstOrNull(),
+            // PLAN.md §4's 2026-08-19 design note, revised by M3g's "Cold-start Home treatment":
+            // the top-scored personalised pick, not raw popularity — falling back to the popular
+            // pick only while a *warm* profile's first shortlist is still computing. A cold-start
+            // profile gets null here, never a popularity-pick masquerading as "your pick" —
+            // HomeScreen renders the intro panel instead when isColdStartForYou is true.
+            hero = if (coldStart) null else forYouTitles.firstOrNull() ?: discover.movies.firstOrNull() ?: discover.tv.firstOrNull(),
             isLoading = discover.isLoading,
             errorMessage = discover.error,
             hasSubscribedServices = discover.hasSubscribedServices,
@@ -228,7 +244,15 @@ class HomeViewModel(
                 // to Home's existing empty state (HomeHeroEmpty / PosterCarousel hiding on empty).
                 val movies = discoverRepository.discoverMovies(subscribed, region)
                 val tv = discoverRepository.discoverTv(subscribed, region)
-                Triple(subscribed.isNotEmpty(), movies, tv)
+                // PLAN.md §4's "Age-cap safety gap" (M3g): DiscoverRepository itself applies no
+                // age-rating filtering — it has no notion of "for whom". Filter here, right
+                // before these results reach the UI (Popular rows + the cold-start "Popular on
+                // your services" row both read popularMovies/popularTv), reusing the exact same
+                // check the real recommender's scoring path already uses.
+                val ageCap = recommendationRepository.resolveAgeRatingCap(activeProfile.id)
+                val filteredMovies = movies.filterNot { FamilyBlend.isOverCap(it.certification, ageCap) }
+                val filteredTv = tv.filterNot { FamilyBlend.isOverCap(it.certification, ageCap) }
+                Triple(subscribed.isNotEmpty(), filteredMovies, filteredTv)
             }.onSuccess { (hasServices, movies, tv) ->
                 _discover.value = DiscoverState(
                     movies = movies,

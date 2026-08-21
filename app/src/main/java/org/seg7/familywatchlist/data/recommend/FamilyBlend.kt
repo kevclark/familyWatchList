@@ -44,6 +44,29 @@ object FamilyBlend {
     fun certRank(cert: String): Int? = CERT_RANK[cert]
 
     /**
+     * PLAN.md §4/§8 (M3g safety fix): the single shared "is this title over the cap" check —
+     * originally only reachable inside [org.seg7.familywatchlist.data.repository.RecommendationRepository]'s
+     * warm-profile scoring path (as a private `TitleEntity.exceedsCap` extension), which meant a
+     * cold-start profile's Popular/hero rows and Search applied **zero** age-rating filtering.
+     * Pulled out here so every title-surfacing path can reuse the exact same rule rather than a
+     * second, possibly-drifting implementation — [org.seg7.familywatchlist.data.repository.DiscoverRepository]'s
+     * results (via `HomeViewModel`), [org.seg7.familywatchlist.data.repository.SearchRepository],
+     * and the ad-hoc Family Night blend (`RecommendationRepository.refreshFamilyShortlist`, whose
+     * candidate scoring already combines [strictestCap] with this same check) all funnel through it.
+     *
+     * [cap] null means "no cap set" and never excludes anything. A [certification] that's null or
+     * unrecognised is **never** excluded either — "unknown certification data never excludes a
+     * title" (PLAN.md §8's documented UK-certification-data-quality risk: unknown is not the same
+     * as unsafe) — this must stay exactly as permissive as the recommender's own established
+     * behaviour, not stricter.
+     */
+    fun isOverCap(certification: String?, cap: String?): Boolean {
+        val capRank = cap?.let { certRank(it) } ?: return false
+        val titleRank = certification?.let { certRank(it) } ?: return false
+        return titleRank > capRank
+    }
+
+    /**
      * PLAN.md §4: "apply the strictest ageRatingCap among them." Null means "no cap" for that
      * profile and never tightens the result; an unrecognised (non-UK-cert) string is ignored for
      * ranking purposes rather than crashing, since it can't be compared — real GB certifications

@@ -12,6 +12,7 @@ import org.seg7.familywatchlist.common.AppClock
 import org.seg7.familywatchlist.data.local.dao.TitleDao
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
 import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
@@ -28,6 +29,12 @@ import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
  *     any prior detail fetch and only reaches the network (through the existing 4 req/s throttle)
  *     for titles not already cached.
  *  3. Drop anything with no GB availability on a currently-subscribed provider.
+ *  4. PLAN.md §4/§8 (M3g safety fix): also drop anything over the caller's [search] `ageRatingCap`
+ *     — Search is a title-surfacing path reachable by a capped profile directly (unlike the
+ *     watchlist add-gate, a deliberate action typically taken on the shared family list rather
+ *     than "shown to" a specific child), so it must respect the same age cap the real recommender
+ *     already enforces. Reuses [FamilyBlend.isOverCap], the same shared check — a title with no
+ *     cached certification data is never excluded (PLAN.md §8: unknown != unsafe).
  *
  * There's no `/search/multi?with_watch_providers=` — TMDB doesn't offer that parameter on this
  * endpoint, only on `/discover`, which doesn't take a free-text query — so this can't be done in
@@ -54,9 +61,12 @@ class SearchRepository(
      */
     /**
      * [region] (PLAN.md §7 M2f) defaults to [REGION_GB]; real callers (`SearchViewModel`) thread
-     * the live `UserPreferencesRepository.region` value through.
+     * the live `UserPreferencesRepository.region` value through. [ageRatingCap] (PLAN.md §4/§8,
+     * M3g) defaults to `null` ("don't filter") for the same reason — real callers resolve and
+     * thread the active profile's/Family's live cap via
+     * [org.seg7.familywatchlist.data.repository.RecommendationRepository.resolveAgeRatingCap].
      */
-    fun search(query: String, region: String = REGION_GB, page: Int = 1): Flow<List<TitleEntity>> = channelFlow {
+    fun search(query: String, region: String = REGION_GB, page: Int = 1, ageRatingCap: String? = null): Flow<List<TitleEntity>> = channelFlow {
         val candidates = fetchCandidates(query, page)
         if (candidates.isEmpty()) {
             send(emptyList())
@@ -74,11 +84,16 @@ class SearchRepository(
             launch {
                 concurrencyLimit.withPermit {
                     val available = availabilityGate.isAvailableOnSubscribedProvider(candidate.tmdbId, candidate.mediaType, region)
-                    if (available) {
-                        sendMutex.withLock {
-                            slots[index] = candidate
-                            send(slots.filterNotNull())
-                        }
+                    if (!available) return@withPermit
+                    // The availability check above may have just detail-fetched this title for
+                    // the first time (ensureFresh inside AvailabilityGate) — re-read through Room
+                    // rather than trusting `candidate`'s pre-fetch (possibly stub-only,
+                    // certification-less) snapshot.
+                    val certification = titleDao.get(candidate.tmdbId, candidate.mediaType)?.certification ?: candidate.certification
+                    if (FamilyBlend.isOverCap(certification, ageRatingCap)) return@withPermit
+                    sendMutex.withLock {
+                        slots[index] = candidate
+                        send(slots.filterNotNull())
                     }
                 }
             }
