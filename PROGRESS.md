@@ -792,6 +792,44 @@ needed** — both already exist and are tested from M3/M3b, this is UI wiring on
       shortlist), and its correct *absence* on Batman Begins' details screen reached via
       Search
 
+## M3d — Family profile (first-class, persistent)
+
+Kev's request, 2026-08-21: creating/selecting the same 4 people every visit via the ad-hoc
+chip row is tedious for a combination the household uses constantly. Confirmed design (all
+three questions answered with the recommended option): a real, first-class profile — selectable
+at the profile picker exactly like an individual, with its own persistent Home — not a chip-row
+preset; just one (not multiple named groups); logging a watch while it's active auto-tags
+every member. Full spec in PLAN.md §4 (new subsection right after the existing family-scope
+paragraph). The ad-hoc "who's watching tonight?" row (M3c) is NOT replaced — it stays for
+one-off combinations different from the saved Family profile.
+
+- [ ] `FamilyProfile` + `FamilyProfileMember` entities (PLAN.md §2) — one row, 2+ members
+      required, editable membership, cascades cleanly on a member's deletion
+- [ ] "+ Create family profile" reachable from the profile picker, alongside adding an
+      individual — pick members from existing profiles (2+), name (default "Family"), avatar
+- [ ] Selectable as the active profile exactly like a real person — sentinel-based
+      `activeProfileId` distinction (or equivalent) recommended in the plan; build agent's
+      call on exact mechanism as long as every read site handles both cases unambiguously
+- [ ] Home, when Family is active, sources hero/For You from the **persisted** family
+      shortlist (`refreshFamilyShortlist` with `persist=true`, curated membership — NOT the
+      ad-hoc `persist=false` path M3c built, and NOT hardcoded to "every profile on the
+      account" the way the weekly job's current default is) — reuse the existing mean/min
+      blend + slider-4 + strictest-age-cap logic unchanged
+- [ ] Log-watch while Family is active writes real `WatchEventProfile` rows against every
+      member's own `Profile.id` (never against the Family profile's own id) — identical
+      effect to today's manual multi-select, not new recommender logic
+- [ ] Weekly WorkManager job: reconsider `refreshAll`'s current "blend everyone by default"
+      family refresh now that a curated Family profile exists — should it refresh the Family
+      profile's actual membership instead of unconditionally all profiles? Flag your reasoning
+      either way, this is a real behaviour question the plan doesn't fully resolve
+- [ ] Tests: family-profile creation/membership CRUD, active-profile sentinel branching,
+      log-watch auto-tag-all-members, persisted family shortlist generation via the curated
+      (not "everyone") membership
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: create a family profile from 2+ real profiles, select it as active,
+      confirm Home shows a real persisted blended shortlist, log a watch under it and confirm
+      every member got tagged
+
 ## M4 — Polish
 
 - [ ] Trailers via TMDB `/videos` → YouTube intent
