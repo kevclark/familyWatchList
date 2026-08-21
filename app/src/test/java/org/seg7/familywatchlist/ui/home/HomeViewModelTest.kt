@@ -99,6 +99,7 @@ class HomeViewModelTest {
             providerRepository = providerRepository,
             profileRepository = profileRepository,
             profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
+            familyProfileRepository = familyProfileRepository,
             shortlistDao = db.shortlistDao(),
             clock = clock,
         )

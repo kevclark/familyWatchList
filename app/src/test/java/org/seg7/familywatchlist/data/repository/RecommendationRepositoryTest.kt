@@ -52,6 +52,7 @@ class RecommendationRepositoryTest {
     private lateinit var repo: RecommendationRepository
     private lateinit var profileRepository: ProfileRepository
     private lateinit var profileSlidersRepository: ProfileSlidersRepository
+    private lateinit var familyProfileRepository: FamilyProfileRepository
 
     private val today: LocalDate = LocalDate.of(2026, 8, 20)
 
@@ -81,6 +82,7 @@ class RecommendationRepositoryTest {
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         profileRepository = ProfileRepository(db.profileDao(), clock)
         profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao())
+        familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
 
         repo = RecommendationRepository(
             watchEventDao = db.watchEventDao(),
@@ -92,6 +94,7 @@ class RecommendationRepositoryTest {
             providerRepository = providerRepository,
             profileRepository = profileRepository,
             profileSlidersRepository = profileSlidersRepository,
+            familyProfileRepository = familyProfileRepository,
             shortlistDao = db.shortlistDao(),
             clock = clock,
         )
@@ -425,6 +428,87 @@ class RecommendationRepositoryTest {
         val entries = repo.refreshFamilyShortlist(listOf(a, b), region = "GB", FamilyBlendSlider.DEFAULT, persist = true)
 
         assertEquals(RecommenderSpec.SHORTLIST_TARGET_SIZE, entries.size)
+    }
+
+    /**
+     * PLAN.md §4's M3d open question on [RecommendationRepository.refreshAll], resolved by Kev
+     * 2026-08-21: refresh every profile, plus the Family profile's *own real curated membership*
+     * (never "every profile on the account"). Proven concretely, not just by absence of a bug:
+     * `c` is a genuine third profile on the account with its own distinct UP rating (title 6,
+     * driving candidate 4000) that neither `a` nor `b` (the Family profile's actual two members)
+     * shares — if `refreshAll` still blended "everyone" the old way, candidate 4000 would leak
+     * into the FAMILY scope. It never appears there; only 999 (from `a`/`b`'s shared rating) does.
+     */
+    @Test
+    fun `refreshAll refreshes every profile plus the Family profile's curated membership, never every profile on the account`() = runTest {
+        val a = seedWarmProfile()
+        val b = seedWarmProfile()
+        val c = seedWarmProfile()
+        db.titleAttributeDao().upsertAll(listOf(TitleAttributeEntity(6, MediaType.MOVIE, AttrType.GENRE, 35, "Comedy", null)))
+        db.ratingDao().upsert(RatingEntity(c, 6, MediaType.MOVIE, RatingValue.UP, clock.current))
+        familyProfileRepository.save("Family", "avatar", listOf(a, b)).getOrThrow()
+
+        // a's refresh: /recommendations(1) -> 999, then a detail fetch for 999.
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Shared Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Shared Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+        // b's refresh: same rating (title 1) as a -> both /recommendations(1) and title 999's
+        // detail are already cached (24h TTL / 30-day TTL respectively) -- no further requests.
+        // c's refresh: its own distinct rating (title 6) -> a genuinely new /recommendations call
+        // and detail fetch, never reused by anything else in this test.
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 4000, title = "C Only Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 4000, title = "C Only Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+        // Family refresh (curated to a, b only): /recommendations(1) and 999's detail are both
+        // already cached from a's own refresh above -- no further requests, and critically, c's
+        // rating (title 6) is never consulted at all since c isn't part of the curated membership.
+
+        repo.refreshAll(region = "GB")
+
+        val weekStart = repo.currentWeekStart()
+        assertEquals(listOf(999), db.shortlistDao().getForScope(weekStart, a.toString()).map { it.tmdbId })
+        // c also carries seedWarmProfile's own title-1 UP rating, so c's *personal* shortlist
+        // legitimately sees both candidates — the point of this test is what the FAMILY scope
+        // does NOT see, asserted next.
+        assertTrue(
+            "c's own personal shortlist should see its distinct candidate 4000",
+            db.shortlistDao().getForScope(weekStart, c.toString()).map { it.tmdbId }.contains(4000),
+        )
+        assertEquals(
+            "the Family profile's shortlist must reflect only its curated members (a, b) — 4000 (from c, a non-member) must never leak in",
+            listOf(999),
+            db.shortlistDao().getForScope(weekStart, FAMILY_SCOPE_KEY).map { it.tmdbId },
+        )
+        assertEquals(4, server.requestCount)
+    }
+
+    @Test
+    fun `refreshAll with no Family profile created yet refreshes profiles only -- no 'blend everyone' fallback`() = runTest {
+        val a = seedWarmProfile()
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Solo Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Solo Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+
+        repo.refreshAll(region = "GB")
+
+        val weekStart = repo.currentWeekStart()
+        assertEquals(listOf(999), db.shortlistDao().getForScope(weekStart, a.toString()).map { it.tmdbId })
+        assertEquals(emptyList<ShortlistEntryEntity>(), db.shortlistDao().getForScope(weekStart, FAMILY_SCOPE_KEY))
+    }
+
+    /** PLAN.md §4's under-2-members edge case (M3d), exercised through the weekly job specifically: a Family profile that cascaded below its member floor is skipped, not blended as if it were a solo profile. */
+    @Test
+    fun `refreshAll skips a Family profile that has dropped below 2 members`() = runTest {
+        val a = seedWarmProfile()
+        val b = seedWarmProfile()
+        familyProfileRepository.save("Family", "avatar", listOf(a, b)).getOrThrow()
+        profileRepository.delete(profileRepository.getById(b)!!)
+
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Solo Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Solo Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+
+        repo.refreshAll(region = "GB")
+
+        val weekStart = repo.currentWeekStart()
+        assertEquals(emptyList<ShortlistEntryEntity>(), db.shortlistDao().getForScope(weekStart, FAMILY_SCOPE_KEY))
+        assertEquals(2, server.requestCount)
     }
 
     private fun recommendationsJsonMulti(candidateIds: List<Int>): String {

@@ -22,6 +22,7 @@ import org.seg7.familywatchlist.data.recommend.RecommenderSpec
 import org.seg7.familywatchlist.data.recommend.SliderSettings
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -78,6 +79,7 @@ class TunePicksViewModelTest {
             providerRepository = providerRepository,
             profileRepository = profileRepository,
             profileSlidersRepository = profileSlidersRepository,
+            familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock),
             shortlistDao = db.shortlistDao(),
             clock = clock,
         )

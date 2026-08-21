@@ -67,6 +67,7 @@ class RecommendationRepository(
     private val providerRepository: ProviderRepository,
     private val profileRepository: ProfileRepository,
     private val profileSlidersRepository: ProfileSlidersRepository,
+    private val familyProfileRepository: FamilyProfileRepository,
     private val shortlistDao: ShortlistDao,
     private val clock: AppClock,
 ) {
@@ -133,12 +134,27 @@ class RecommendationRepository(
         return entries
     }
 
-    /** Convenience for the weekly WorkManager job: refreshes every profile, then the default "everyone" family scope. */
-    suspend fun refreshAll(region: String) {
+    /**
+     * The weekly WorkManager job's entry point: refreshes every individual profile's own
+     * shortlist, plus the Family profile's — *if one exists* — using its real curated
+     * membership.
+     *
+     * **Resolved by Kev, 2026-08-21** (PLAN.md §4's M3d open question on this exact behaviour):
+     * "there should be one [shortlist] for every profile anyway, which would include the Family
+     * profile" — i.e. Family is refreshed the same way any other profile is, on its own real
+     * membership, not as a separate "blend everyone" fallback mechanism kept running alongside
+     * it. Concretely: **no unconditional "blend everyone" call any more.** If no Family profile
+     * has been created yet, there is simply nothing family-scoped to refresh that week — no
+     * fallback substitute for it (the old pre-M3d default, which unconditionally blended every
+     * profile on the account under [FAMILY_SCOPE_KEY] regardless of whether a curated Family
+     * profile existed, is gone).
+     */
+    suspend fun refreshAll(region: String, familyBlendSlider: FamilyBlendSlider = FamilyBlendSlider.DEFAULT) {
         val profiles = profileRepository.observeAll().first()
         profiles.forEach { refreshProfileShortlist(it.id, region) }
-        if (profiles.isNotEmpty()) {
-            refreshFamilyShortlist(profiles.map { it.id }, region, FamilyBlendSlider.DEFAULT, persist = true)
+        val family = familyProfileRepository.get()
+        if (family != null && family.hasEnoughMembers) {
+            refreshFamilyShortlist(family.memberIds, region, familyBlendSlider, persist = true)
         }
     }
 
