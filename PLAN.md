@@ -245,6 +245,24 @@ two call sites are affected — check Search, the ad-hoc Family Night blend (M3c
 watchlist add-gate (M2d) for the same gap while this is being fixed, and close any found using
 the same shared check.
 
+**Residual gap found by M3g, resolved by Kev 2026-08-21 (queued as M3h).** The Popular row/
+cold-start-hero filter can only check a title's certification if it's already cached (from a
+prior search/details view/scoring pass) — TMDB's raw `/discover` results are bare stubs with
+no certification data. Letting an uncertain-certification title through (today's behaviour,
+matching the "unknown ≠ unsafe" convention used elsewhere) means a freshly-discovered,
+never-viewed title can still reach a capped child's profile unfiltered — worst right at a
+fresh install, exactly when a new child's profile is most likely being set up. Force-fetching
+every candidate's certification before rendering would cost up to ~240 extra throttled TMDB
+calls (a multi-minute stall) — not viable. **Fix, confirmed by Kev, not the "unknown ≠
+unsafe" default used elsewhere:** for a profile that actually has a non-null `ageRatingCap`
+set, the Popular row / cold-start hero specifically must require *confirmed* certification
+at-or-under the cap — excluding both over-cap AND unknown-certification titles, not just
+over-cap. Zero extra network cost (only narrows which already-fetched candidates qualify).
+Uncapped profiles (`ageRatingCap == null`) are unaffected either way. The warm recommender's
+own "unknown ≠ unsafe" precedent stays as-is elsewhere — this flip is specific to this one
+path, where showing nothing is a fine outcome (there's always an alternative title) but
+showing something wrong isn't.
+
 **Cold-start Home treatment (Kev, 2026-08-21).** The hero previously fell back to
 `discover.movies.firstOrNull()` for a cold-start profile — a title masquerading as "your
 pick" when it's just popularity, with no visual distinction from a real personalised hero

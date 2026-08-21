@@ -1019,6 +1019,27 @@ applies everywhere regardless of the intro-screen question. Full spec in PLAN.md
       1`) and the emulator shut down cleanly to leave the device back at the clean-slate state
       this session found it in.
 
+## M3h — Close the uncertain-certification gap for capped profiles
+
+M3g's own build flagged this and explicitly asked for sign-off rather than silently deciding
+— Kev confirmed the fix, 2026-08-21. Full spec in PLAN.md §4, "Residual gap found by M3g".
+
+- [ ] For a profile with a non-null `ageRatingCap`, the Popular row / cold-start hero require
+      *confirmed* certification data at-or-under the cap — a title with no cached
+      certification is excluded, not passed through
+- [ ] Uncapped profiles (`ageRatingCap == null`) unaffected — no behaviour change for them
+- [ ] The warm recommender's existing "unknown ≠ unsafe" precedent is untouched everywhere
+      else — this is a targeted flip for this one path only, not a global policy change
+- [ ] No new network calls — this only narrows which already-fetched candidates qualify,
+      doesn't force certification fetches
+- [ ] Tests: a capped profile's Popular/cold-start results exclude an uncertain-certification
+      title (not just an over-cap one); an uncapped profile's results are unaffected by the
+      same uncertain-certification title; a confirmed at-or-under-cap title still survives
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: reproduce M3g's exact finding (Reacher, cert 15, uncached at the
+      time) and confirm it's now excluded from a capped profile's Popular row rather than
+      slipping through
+
 ## M4 — Polish
 
 - [ ] Trailers via TMDB `/videos` → YouTube intent
