@@ -43,7 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
+import org.seg7.familywatchlist.data.repository.FamilyProfileWithMembers
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.avatar.AvatarBadge
 import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
@@ -76,18 +79,22 @@ fun ProfilePickerScreen(modifier: Modifier = Modifier) {
     val viewModel: ProfileViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
-                ProfileViewModel(container.profileRepository, container.userPreferencesRepository)
+                ProfileViewModel(container.profileRepository, container.userPreferencesRepository, container.familyProfileRepository)
             }
         },
     )
 
     val profiles by viewModel.profiles.collectAsState()
     val isAtCap by viewModel.isAtProfileCap.collectAsState()
+    val familyProfile by viewModel.familyProfile.collectAsState()
+    val activeProfileId by container.userPreferencesRepository.activeProfileId.collectAsState(initial = null)
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showAddDialog by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ProfileEntity?>(null) }
     var confirmDelete by remember { mutableStateOf<ProfileEntity?>(null) }
+    var showFamilyDialog by remember { mutableStateOf(false) }
+    var editingFamily by remember { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -117,12 +124,15 @@ fun ProfilePickerScreen(modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.displayMedium,
                         color = Chalk,
                     )
-                    // The clarifying copy — §5a known defect #3.
+                    // The clarifying copy — §5a known defect #3, updated for PLAN.md §4/M3d: a
+                    // shared Family profile now genuinely exists, so the old "there's no shared
+                    // Family profile" line would actively mislead.
                     Text(
                         text = "One profile per person, up to 10 — that's how the app learns each " +
-                            "of your tastes separately. There's no shared \"Family\" profile to " +
-                            "create: when several of you watch something together, you tick " +
-                            "everyone at once while logging it.",
+                            "of your tastes separately. For a one-off combination, tick everyone " +
+                            "at once while logging a watch. For the same people basically every " +
+                            "time, create a Family profile below instead — it's its own selectable " +
+                            "profile with its own picks, blended from its members.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = ChalkMuted,
                     )
@@ -132,6 +142,7 @@ fun ProfilePickerScreen(modifier: Modifier = Modifier) {
             items(profiles, key = { it.id }) { profile ->
                 ProfileTile(
                     profile = profile,
+                    active = profile.id == activeProfileId,
                     onClick = { viewModel.selectActive(profile.id) },
                     onEdit = { editing = profile },
                     onDelete = { confirmDelete = profile },
@@ -141,17 +152,47 @@ fun ProfilePickerScreen(modifier: Modifier = Modifier) {
                 item(key = "add") { AddProfileTile(onClick = { showAddDialog = true }) }
             }
 
+            // PLAN.md §4: the Family profile is a separate concept from the 10-profile cap
+            // above — it renders regardless of isAtCap, and needing 2+ real profiles to pick
+            // members from (not the cap) is what gates whether "+ Create family profile" shows.
+            familyProfile?.let { family ->
+                item(key = "family") {
+                    FamilyProfileTile(
+                        family = family,
+                        active = activeProfileId == FAMILY_PROFILE_SENTINEL_ID,
+                        onClick = {
+                            if (family.hasEnoughMembers) viewModel.selectFamilyActive() else editingFamily = true
+                        },
+                        onEdit = { editingFamily = true },
+                    )
+                }
+            }
+            if (familyProfile == null && profiles.size >= FamilyProfileRepository.MIN_MEMBERS) {
+                item(key = "create-family") { CreateFamilyProfileTile(onClick = { showFamilyDialog = true }) }
+            }
+
             item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
-                Text(
-                    text = if (isAtCap) {
-                        "You've reached the 10-profile limit — delete one to add another."
-                    } else {
-                        "Long-press a profile to edit or delete it."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ChalkFaint,
-                    modifier = Modifier.padding(top = 20.dp),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 20.dp)) {
+                    Text(
+                        text = if (isAtCap) {
+                            "You've reached the 10-profile limit — delete one to add another."
+                        } else {
+                            "Long-press a profile to edit or delete it."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ChalkFaint,
+                    )
+                    if (familyProfile?.hasEnoughMembers == false) {
+                        // PLAN.md §4's under-2-members edge case (M3d judgment call): visible but
+                        // flagged, not hidden — tapping it opens the edit dialog to fix membership
+                        // rather than silently doing nothing or crashing.
+                        Text(
+                            text = "Family needs at least ${FamilyProfileRepository.MIN_MEMBERS} members again — tap it to fix.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Crimson,
+                        )
+                    }
+                }
             }
         }
 
@@ -199,12 +240,41 @@ fun ProfilePickerScreen(modifier: Modifier = Modifier) {
             },
         )
     }
+
+    // PLAN.md §4 (M3d): create/edit share one dialog (showFamilyDialog for create, editingFamily
+    // for edit) since FamilyProfileRepository.save() is itself create-or-edit — see its kdoc.
+    if (showFamilyDialog) {
+        FamilyProfileEditDialog(
+            existingProfiles = profiles,
+            initial = null,
+            onDismiss = { showFamilyDialog = false },
+            onSave = { name, avatarKey, memberIds ->
+                viewModel.saveFamilyProfile(name, avatarKey, memberIds)
+                showFamilyDialog = false
+            },
+        )
+    }
+
+    if (editingFamily) {
+        familyProfile?.let { family ->
+            FamilyProfileEditDialog(
+                existingProfiles = profiles,
+                initial = FamilyProfileEditInitial(family.profile.name, family.profile.avatarKey, family.memberIds.toSet()),
+                onDismiss = { editingFamily = false },
+                onSave = { name, avatarKey, memberIds ->
+                    viewModel.saveFamilyProfile(name, avatarKey, memberIds)
+                    editingFamily = false
+                },
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProfileTile(
     profile: ProfileEntity,
+    active: Boolean,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -219,7 +289,7 @@ private fun ProfileTile(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        AvatarBadge(option = avatarKeyToOption(profile.avatarKey), size = 82.dp, name = profile.name)
+        AvatarBadge(option = avatarKeyToOption(profile.avatarKey), size = 82.dp, selected = active, name = profile.name)
         Text(
             text = profile.name,
             style = MaterialTheme.typography.titleSmall,
@@ -286,5 +356,99 @@ private fun AddProfileTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
             )
         }
         Text(text = "Add someone", style = MaterialTheme.typography.titleSmall, color = ChalkMuted)
+    }
+}
+
+/**
+ * PLAN.md §4 (M3d): the Family profile's own tile, selectable exactly like a real person's.
+ * [active] rings it in the accent the same way [ProfileTile] does. When
+ * [FamilyProfileWithMembers.hasEnoughMembers] is false (this build's chosen handling of the
+ * under-2-members edge case — see `ProfilePickerScreen`'s footer note and `ActiveProfile`'s
+ * kdoc), the tile stays visible rather than disappearing, but visually flags the problem and its
+ * tap target opens the edit dialog to fix membership instead of trying to select a broken state.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FamilyProfileTile(
+    family: FamilyProfileWithMembers,
+    active: Boolean,
+    onClick: () -> Unit,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .padding(vertical = 10.dp)
+            .combinedClickable(onClick = onClick, onLongClick = onEdit),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box {
+            AvatarBadge(
+                option = avatarKeyToOption(family.profile.avatarKey),
+                size = 82.dp,
+                selected = active,
+                name = family.profile.name,
+            )
+            if (!family.hasEnoughMembers) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .align(Alignment.TopEnd)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(Crimson),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("!", style = MaterialTheme.typography.labelSmall, color = Chalk)
+                }
+            }
+        }
+        Text(
+            text = family.profile.name,
+            style = MaterialTheme.typography.titleSmall,
+            color = Chalk,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = if (family.hasEnoughMembers) "${family.members.size} MEMBERS" else "NEEDS MORE MEMBERS",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (family.hasEnoughMembers) ChalkFaint else Crimson,
+        )
+    }
+}
+
+@Composable
+private fun CreateFamilyProfileTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .padding(vertical = 10.dp)
+            .clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(82.dp)
+                .clip(MaterialTheme.shapes.large)
+                .background(InkRaised)
+                .border(1.dp, Accent.copy(alpha = 0.5f), MaterialTheme.shapes.large),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "Create family profile",
+                tint = Accent,
+                modifier = Modifier.size(30.dp),
+            )
+        }
+        Text(
+            text = "Create family profile",
+            style = MaterialTheme.typography.titleSmall,
+            color = ChalkMuted,
+            maxLines = 2,
+            textAlign = TextAlign.Center,
+        )
     }
 }

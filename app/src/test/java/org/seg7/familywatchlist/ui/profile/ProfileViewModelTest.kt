@@ -18,11 +18,13 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.MainDispatcherRule
 import org.seg7.familywatchlist.testutil.buildInMemoryDb
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 
 /**
  * PLAN.md §5 screen 2: profile CRUD, the 10-profile cap surfacing as a UI event (enforcement
@@ -47,6 +49,8 @@ class ProfileViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var viewModel: ProfileViewModel
     private lateinit var userPreferencesRepository: UserPreferencesRepository
+    private lateinit var profileRepository: ProfileRepository
+    private lateinit var familyProfileRepository: FamilyProfileRepository
 
     @Before
     fun setUp() {
@@ -56,7 +60,9 @@ class ProfileViewModelTest {
             produceFile = { context.preferencesDataStoreFile("profile_vm_test_${System.nanoTime()}") },
         )
         userPreferencesRepository = UserPreferencesRepository(dataStore)
-        viewModel = ProfileViewModel(ProfileRepository(db.profileDao(), FakeClock()), userPreferencesRepository)
+        profileRepository = ProfileRepository(db.profileDao(), FakeClock())
+        familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), FakeClock())
+        viewModel = ProfileViewModel(profileRepository, userPreferencesRepository, familyProfileRepository)
     }
 
     @After
@@ -127,5 +133,60 @@ class ProfileViewModelTest {
         viewModel.selectActive(alex.id)
 
         assertEquals(alex.id, userPreferencesRepository.activeProfileId.first { it == alex.id })
+    }
+
+    @Test
+    fun `selectFamilyActive sets the sentinel, not a real profile id`() = runTest {
+        viewModel.selectFamilyActive()
+
+        assertEquals(FAMILY_PROFILE_SENTINEL_ID, userPreferencesRepository.activeProfileId.first { it != null })
+    }
+
+    @Test
+    fun `saveFamilyProfile with 2+ members creates it, observable via familyProfile`() = runTest {
+        val kev = profileRepository.addProfile("Kev", "a", null).getOrThrow()
+        val sam = profileRepository.addProfile("Sam", "a", null).getOrThrow()
+
+        viewModel.saveFamilyProfile("Family", "avatar-x", listOf(kev, sam))
+
+        // familyProfile combines the family row and its membership from two separately-written,
+        // independently-invalidated Room tables (see FamilyProfileRepository.save's two writes)
+        // — waiting on member count, not just non-null, avoids catching the transient emission
+        // between "family row written" and "membership row written".
+        val family = viewModel.familyProfile.first { it != null && it.memberIds.isNotEmpty() }!!
+        assertEquals("Family", family.profile.name)
+        assertEquals(setOf(kev, sam), family.memberIds.toSet())
+    }
+
+    @Test
+    fun `saveFamilyProfile with fewer than 2 members surfaces an error event and saves nothing`() = runTest {
+        val kev = profileRepository.addProfile("Kev", "a", null).getOrThrow()
+        val eventChannel = Channel<ProfileUiEvent>(capacity = 1)
+        val collectorJob = backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            viewModel.events.collect { eventChannel.trySend(it) }
+        }
+
+        viewModel.saveFamilyProfile("Family", "a", listOf(kev))
+        val event = eventChannel.receive()
+
+        assertTrue(event is ProfileUiEvent.Error)
+        assertTrue(!familyProfileRepository.exists())
+        collectorJob.cancel()
+    }
+
+    @Test
+    fun `saveFamilyProfile a second time edits the same family profile in place`() = runTest {
+        val kev = profileRepository.addProfile("Kev", "a", null).getOrThrow()
+        val sam = profileRepository.addProfile("Sam", "a", null).getOrThrow()
+        val ellie = profileRepository.addProfile("Ellie", "a", null).getOrThrow()
+        viewModel.saveFamilyProfile("Family", "a", listOf(kev, sam))
+        viewModel.familyProfile.first { it != null && it.memberIds.isNotEmpty() }
+
+        viewModel.saveFamilyProfile("The Clarks", "b", listOf(sam, ellie))
+
+        val family = viewModel.familyProfile.first {
+            it?.profile?.name == "The Clarks" && it.memberIds.toSet() == setOf(sam, ellie)
+        }!!
+        assertEquals(setOf(sam, ellie), family.memberIds.toSet())
     }
 }
