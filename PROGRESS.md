@@ -734,6 +734,31 @@ guaranteed permanent fix for the wider pattern (`ProfileViewModelTest`, unrelate
 by this pass, showed the same category of flake at least once during this investigation) — worth
 a dedicated pass if it recurs.
 
+## M3c — Family Night chips + "Because you liked…" reason line
+
+Kev's request, 2026-08-21: build the two pieces M3 deliberately deferred, as a standalone
+review before M4 rather than folded silently into the polish pass. **No new backend work
+needed** — both already exist and are tested from M3/M3b, this is UI wiring only:
+
+- [ ] **Family Night chip row** (Home): multi-select chips for "who's watching tonight?".
+      When 2+ profiles are selected, call `RecommendationRepository.refreshFamilyShortlist`
+      with `persist = false` (already built for exactly this ad-hoc case — see its kdoc) and
+      show the blended results in a row on Home. Only relevant with 2+ profiles on the
+      account at all — same visibility gating already established for the family-blend
+      slider (PLAN.md §4a slider 4)
+- [ ] **"Because you liked…" reason line** (title details, PLAN.md §5 screen 4): when a title
+      details screen is reached for a title that has a current `SUGGESTED` shortlist entry
+      for the active profile's scope, look it up, parse its `reasons` JSON (already persisted
+      by `RecommendationRepository.reasonsFor` — top 3 attribute names, e.g.
+      `["John Lasseter","Animation","Comedy"]`) and render "Because you liked …". Only shown
+      when such an entry exists — not for titles reached via Search/My List/History directly,
+      matching the plan's "when reached from a shortlist" wording exactly
+- [ ] Tests: chip-row selection → correct ad-hoc family blend call; reason-line lookup
+      present/absent correctly depending on shortlist-entry existence
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification / screenshots: both features working on-device, for Kev's review
+      ahead of M4
+
 ## M4 — Polish
 
 - [ ] Trailers via TMDB `/videos` → YouTube intent
