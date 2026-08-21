@@ -914,6 +914,32 @@ spec in PLAN.md §4 "Per-profile notification control".
       correct last-stored value (Sam still off); re-enabled Sam and confirmed `sqlite3` showed
       `(2, 1)`, restoring the household to its default all-on state.
 
+## M3f — Configurable weekly refresh schedule
+
+Kev's request, 2026-08-21: Monday isn't the useful day for him, Friday morning is. Confirmed
+this is currently a hardcoded literal (`DayOfWeek.MONDAY`, hour `6` in
+`RecommendationScheduler`) before scoping — not a preference at all. Kev wants a real
+Settings control, not just a different hardcoded default (consistent with everything else
+made configurable this session). Full spec in PLAN.md §4 "Configurable schedule".
+
+- [ ] Day-of-week + hour-of-day preference (DataStore, matching existing patterns), default
+      **Friday, 06:00**
+- [ ] Settings UI: day picker + hour picker (no minute granularity needed)
+- [ ] `RecommendationScheduler.initialDelayMillis` reads the stored preference instead of
+      hardcoded `DayOfWeek.MONDAY`/`6`
+- [ ] **Critical correctness requirement**: changing the setting must actually reschedule the
+      underlying WorkManager job (`ExistingPeriodicWorkPolicy.UPDATE` or explicit cancel-then-
+      reschedule) — the existing `KEEP` policy on every app-start call is correct and must stay
+      as-is for routine launches, but a genuine settings change needs a different code path or
+      the new preference silently does nothing while the old schedule keeps running
+- [ ] Tests: preference default/round-trip, `initialDelayMillis` computes correctly for a
+      non-Monday/non-6am configured value, changing the setting actually triggers a reschedule
+      (not just a stored-but-inert preference)
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: change the schedule in Settings, confirm (via WorkManager's own
+      inspection tools/dumpsys, or equivalent) that the actually-scheduled next run reflects
+      the new day/time, not the old one
+
 ## M4 — Polish
 
 - [ ] Trailers via TMDB `/videos` → YouTube intent
