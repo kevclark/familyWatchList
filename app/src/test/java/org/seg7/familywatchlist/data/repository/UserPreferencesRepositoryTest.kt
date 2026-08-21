@@ -177,4 +177,27 @@ class UserPreferencesRepositoryTest {
 
         assertEquals(0.0, repo.familyBlendSlider.first(), 1e-9)
     }
+
+    /**
+     * PLAN.md §4 "Per-profile notification control" (M3e): default **on** — before this pass
+     * there was no in-app master switch at all, so defaulting off would silently change existing
+     * behaviour for everyone rather than being a genuine opt-out.
+     */
+    @Test
+    fun `notificationsEnabled defaults to true`() = runTest {
+        val repo = newRepo("prefs_notifications_defaults")
+
+        assertTrue(repo.notificationsEnabled.first())
+    }
+
+    @Test
+    fun `setNotificationsEnabled round-trips both ways`() = runTest {
+        val repo = newRepo("prefs_notifications_roundtrip")
+
+        repo.setNotificationsEnabled(false)
+        assertFalse(repo.notificationsEnabled.first())
+
+        repo.setNotificationsEnabled(true)
+        assertTrue(repo.notificationsEnabled.first())
+    }
 }

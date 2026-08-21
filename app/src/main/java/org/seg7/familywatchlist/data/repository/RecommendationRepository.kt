@@ -23,6 +23,7 @@ import org.seg7.familywatchlist.data.local.dao.TitleAttributeDao
 import org.seg7.familywatchlist.data.local.dao.WatchEventDao
 import org.seg7.familywatchlist.data.local.dao.WatchlistDao
 import org.seg7.familywatchlist.data.local.entity.AttrType
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
@@ -48,6 +49,18 @@ import org.seg7.familywatchlist.data.recommend.WatchlistSignal
 
 /** PLAN.md §4: "FAMILY" is the persisted default scope; the who's-watching chip row's ad-hoc subsets are computed on the fly and never written here. */
 const val FAMILY_SCOPE_KEY: String = "FAMILY"
+
+/**
+ * PLAN.md §4 "Per-profile notification control" (M3e): one entry per profile (individual or the
+ * Family profile, via [org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID])
+ * whose weekly refresh *genuinely completed* this run — [RecommendationRepository.refreshAll]
+ * only ever returns entries for profiles that finished without throwing, so a profile whose
+ * refresh failed (network error, TMDB hiccup, etc.) never appears here even if its own
+ * notification toggle is on. [name] is carried along so
+ * [org.seg7.familywatchlist.work.RecommendationWorker] doesn't need a second lookup just to
+ * build the notification text.
+ */
+data class ProfileRefreshResult(val profileId: Long, val name: String)
 
 /**
  * PLAN.md §4/§4a: orchestrates the pure `data/recommend` engine against real Room/TMDB data —
@@ -148,14 +161,33 @@ class RecommendationRepository(
      * fallback substitute for it (the old pre-M3d default, which unconditionally blended every
      * profile on the account under [FAMILY_SCOPE_KEY] regardless of whether a curated Family
      * profile existed, is gone).
+     *
+     * **PLAN.md §4 "Per-profile notification control" (M3e):** each profile's (and Family's, if
+     * it exists) refresh is wrapped independently — one profile throwing (network error, TMDB
+     * hiccup) is caught here and does *not* abort the rest of the loop the way an unhandled
+     * exception used to (that old behaviour would have silently skipped every profile still
+     * queued behind the failing one, not just the failing one itself). The returned
+     * [ProfileRefreshResult] list is exactly the set of profiles that genuinely finished this
+     * run — [org.seg7.familywatchlist.work.RecommendationWorker] uses it, together with the
+     * master/per-profile notification toggles, to decide who the weekly notification mentions;
+     * a profile that failed never appears here regardless of its own toggle.
      */
-    suspend fun refreshAll(region: String, familyBlendSlider: FamilyBlendSlider = FamilyBlendSlider.DEFAULT) {
+    suspend fun refreshAll(
+        region: String,
+        familyBlendSlider: FamilyBlendSlider = FamilyBlendSlider.DEFAULT,
+    ): List<ProfileRefreshResult> {
         val profiles = profileRepository.observeAll().first()
-        profiles.forEach { refreshProfileShortlist(it.id, region) }
+        val completed = mutableListOf<ProfileRefreshResult>()
+        profiles.forEach { profile ->
+            runCatching { refreshProfileShortlist(profile.id, region) }
+                .onSuccess { completed += ProfileRefreshResult(profile.id, profile.name) }
+        }
         val family = familyProfileRepository.get()
         if (family != null && family.hasEnoughMembers) {
-            refreshFamilyShortlist(family.memberIds, region, familyBlendSlider, persist = true)
+            runCatching { refreshFamilyShortlist(family.memberIds, region, familyBlendSlider, persist = true) }
+                .onSuccess { completed += ProfileRefreshResult(FAMILY_PROFILE_SENTINEL_ID, family.profile.name) }
         }
+        return completed
     }
 
     /**

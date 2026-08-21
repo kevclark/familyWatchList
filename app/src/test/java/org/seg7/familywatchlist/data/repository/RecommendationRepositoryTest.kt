@@ -18,6 +18,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.AttrType
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
 import org.seg7.familywatchlist.data.local.entity.RatingValue
@@ -113,8 +114,8 @@ class RecommendationRepositoryTest {
      * single watched title) doesn't wash Comedy's affinity out to exactly 0 the way a
      * single-genre fixture would.
      */
-    private suspend fun seedWarmProfile(ageRatingCap: String? = null): Long {
-        val id = profileRepository.addProfile("Kev", "avatar", ageRatingCap).getOrThrow()
+    private suspend fun seedWarmProfile(ageRatingCap: String? = null, name: String = "Kev"): Long {
+        val id = profileRepository.addProfile(name, "avatar", ageRatingCap).getOrThrow()
         listOf(1, 2, 3, 4).forEach { tmdbId ->
             db.titleAttributeDao().upsertAll(listOf(TitleAttributeEntity(tmdbId, MediaType.MOVIE, AttrType.GENRE, 35, "Comedy", null)))
             db.watchEventDao().logWatch(
@@ -509,6 +510,64 @@ class RecommendationRepositoryTest {
         val weekStart = repo.currentWeekStart()
         assertEquals(emptyList<ShortlistEntryEntity>(), db.shortlistDao().getForScope(weekStart, FAMILY_SCOPE_KEY))
         assertEquals(2, server.requestCount)
+    }
+
+    /**
+     * PLAN.md §4 "Per-profile notification control" (M3e): [RecommendationRepository.refreshAll]'s
+     * return value is what [org.seg7.familywatchlist.work.RecommendationWorker] uses to decide
+     * who this week's notification can even mention — proves both the individual profiles and
+     * the Family profile (keyed by [FAMILY_PROFILE_SENTINEL_ID], not its own `family_profile.id`)
+     * come back with their real display names.
+     */
+    @Test
+    fun `refreshAll's returned list carries every completed profile plus Family, keyed by the sentinel id`() = runTest {
+        val a = seedWarmProfile(name = "Kev")
+        val b = seedWarmProfile(name = "Sam")
+        familyProfileRepository.save("The Family", "avatar", listOf(a, b)).getOrThrow()
+
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Shared Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Shared Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+        // b shares a's title-1 UP rating, and the Family refresh (curated to a, b) does too --
+        // all three reuse the same already-cached /recommendations(1) + title-999 detail.
+
+        val completed = repo.refreshAll(region = "GB")
+
+        assertEquals(
+            setOf(
+                ProfileRefreshResult(a, "Kev"),
+                ProfileRefreshResult(b, "Sam"),
+                ProfileRefreshResult(FAMILY_PROFILE_SENTINEL_ID, "The Family"),
+            ),
+            completed.toSet(),
+        )
+    }
+
+    /**
+     * PLAN.md §4 "Per-profile notification control" (M3e): a profile's refresh throwing (network
+     * error, TMDB hiccup) must not silently swallow every other profile still queued behind it in
+     * the loop -- the old unwrapped `forEach` would have let that exception propagate straight
+     * out of `refreshAll`, aborting the whole run. `failing` is seeded first (so its failing
+     * request is the very first one dequeued) and given its own distinct UP rating (title 6, not
+     * shared with `succeeding`) so its /recommendations call can't be served from a cache
+     * `succeeding` already warmed.
+     */
+    @Test
+    fun `refreshAll excludes a profile whose refresh throws, without blocking or excluding the others`() = runTest {
+        val failing = seedWarmProfile(name = "Failing")
+        db.titleAttributeDao().upsertAll(listOf(TitleAttributeEntity(6, MediaType.MOVIE, AttrType.GENRE, 35, "Comedy", null)))
+        db.ratingDao().upsert(RatingEntity(failing, 6, MediaType.MOVIE, RatingValue.UP, clock.current))
+        val succeeding = seedWarmProfile(name = "Succeeding")
+
+        server.enqueue(MockResponse(code = 500)) // failing's /recommendations(1) call -- throws, nothing cached
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Shared Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Shared Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+
+        val completed = repo.refreshAll(region = "GB")
+
+        assertEquals(listOf(ProfileRefreshResult(succeeding, "Succeeding")), completed)
+        val weekStart = repo.currentWeekStart()
+        assertEquals(emptyList<ShortlistEntryEntity>(), db.shortlistDao().getForScope(weekStart, failing.toString()))
+        assertEquals(listOf(999), db.shortlistDao().getForScope(weekStart, succeeding.toString()).map { it.tmdbId })
     }
 
     private fun recommendationsJsonMulti(candidateIds: List<Int>): String {

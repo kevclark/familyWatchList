@@ -101,6 +101,23 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
     }
 
     /**
+     * PLAN.md §4 "Per-profile notification control" (M3e): the app-level master on/off switch,
+     * layered on top of (never replacing) the existing `POST_NOTIFICATIONS` OS permission check
+     * in [org.seg7.familywatchlist.work.ShortlistNotifier] — both must allow it for a
+     * notification to actually fire, and so must the per-profile toggle in
+     * [NotificationPreferencesRepository] (see [org.seg7.familywatchlist.work.NotificationGate]
+     * for where the three combine). Default **on**: before this pass there was no in-app off
+     * switch at all, so defaulting off would silently change existing behaviour for everyone,
+     * not just new opt-outs — PLAN.md §4's explicit "preserve current behaviour" ask.
+     */
+    val notificationsEnabled: Flow<Boolean> =
+        dataStore.data.map { it[NOTIFICATIONS_ENABLED] ?: true }
+
+    suspend fun setNotificationsEnabled(enabled: Boolean) {
+        dataStore.edit { it[NOTIFICATIONS_ENABLED] = enabled }
+    }
+
+    /**
      * PLAN.md §4a slider 4 ("Everyone's happy" <-> "Average taste wins"): the family mean/min
      * blend, stored as a **shared, app-level** preference rather than per-profile.
      *
@@ -179,6 +196,7 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
         val FAMILY_BLEND_SLIDER: Preferences.Key<Double> = doublePreferencesKey("family_blend_slider")
         val NOTIFICATION_PERMISSION_REQUESTED: Preferences.Key<Boolean> =
             booleanPreferencesKey("notification_permission_requested")
+        val NOTIFICATIONS_ENABLED: Preferences.Key<Boolean> = booleanPreferencesKey("notifications_enabled")
         const val DEFAULT_REGION: String = TmdbApi.REGION_GB
     }
 }
