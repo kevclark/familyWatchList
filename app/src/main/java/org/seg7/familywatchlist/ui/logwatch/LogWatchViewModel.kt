@@ -30,6 +30,17 @@ import org.seg7.familywatchlist.data.repository.WatchEventRepository
  * to edit/delete"): pass [editingEventId] and it loads that event's date and profile tags
  * instead of the defaults, and saves through
  * [WatchEventRepository.updateWatch] rather than logging a new one.
+ *
+ * ## Family auto-tag (PLAN.md §4, M3d)
+ * [initialSelectedProfileIds] is what actually decides the pre-ticked chips — the common
+ * single-person case passes `setOf(activeProfile.id)` (unchanged from M2b), but logging a watch
+ * while the *Family* profile is active passes every real member's [ProfileEntity.id] instead
+ * ([org.seg7.familywatchlist.ui.logwatch.LogWatchSheet] computes which). There is deliberately no
+ * separate "Family" code path below this point: [selectedProfileIds] is the exact same
+ * `Set<Long>` of real profile ids the manual multi-select chips already write through
+ * [toggleProfile] and [save] — auto-tagging is just a different *initial* value for a mechanism
+ * that already existed, so the DB result is provably identical to a manual multi-select of the
+ * same people (see `LogWatchViewModelTest`'s M3d cases for the actual equivalence proof).
  */
 class LogWatchViewModel(
     private val watchEventRepository: WatchEventRepository,
@@ -38,13 +49,13 @@ class LogWatchViewModel(
     profileRepository: ProfileRepository,
     private val tmdbId: Int,
     private val mediaType: MediaType,
-    private val activeProfileId: Long,
+    initialSelectedProfileIds: Set<Long>,
     private val today: LocalDate,
     private val editingEventId: Long? = null,
 ) : ViewModel() {
 
     private val _form = MutableStateFlow(
-        LogWatchForm(watchedAt = today, selectedProfileIds = setOf(activeProfileId)),
+        LogWatchForm(watchedAt = today, selectedProfileIds = initialSelectedProfileIds),
     )
 
     val uiState: StateFlow<LogWatchUiState> = combine(

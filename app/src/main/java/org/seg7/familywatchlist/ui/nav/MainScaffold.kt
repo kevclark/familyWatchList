@@ -205,7 +205,7 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
         LogWatchSheet(
             tmdbId = target.tmdbId,
             mediaType = target.mediaType,
-            activeProfileId = activeProfile.id,
+            activeProfile = activeProfile,
             editingEventId = target.editingEventId,
             onDismiss = { logWatchTarget = null },
         )

@@ -116,7 +116,7 @@ class LogWatchFlowUiTest {
             profileRepository = profileRepository,
             tmdbId = tmdbId,
             mediaType = MediaType.MOVIE,
-            activeProfileId = kevId,
+            initialSelectedProfileIds = setOf(kevId),
             today = today,
             editingEventId = null,
         )
