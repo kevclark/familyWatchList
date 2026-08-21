@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.dao.AvailabilityBadge
 import org.seg7.familywatchlist.data.local.entity.AttrType
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
@@ -43,9 +44,11 @@ data class TitleDetailUiState(
     val errorMessage: String? = null,
 )
 
-/** PLAN.md §5a: one-shot UI event — a blocked ＋ My List tap, surfaced as a Snackbar rather than a silent no-op. */
+/** PLAN.md §5a: one-shot UI events — a blocked action, surfaced as a Snackbar rather than a silent no-op. */
 sealed interface TitleDetailUiEvent {
     data class WatchlistBlocked(val message: String) : TitleDetailUiEvent
+    /** PLAN.md §4 (M3d): a rating tap blocked because the Family profile is active — see [TitleDetailViewModel.rate]'s kdoc. */
+    data class ActionBlocked(val message: String) : TitleDetailUiEvent
 }
 
 /**
@@ -139,6 +142,12 @@ class TitleDetailViewModel(
      * for. Removing is never blocked.
      */
     fun toggleWatchlist() {
+        if (activeProfileId == FAMILY_PROFILE_SENTINEL_ID) {
+            viewModelScope.launch {
+                _events.emit(TitleDetailUiEvent.WatchlistBlocked("Switch to a person profile to add titles to the list."))
+            }
+            return
+        }
         viewModelScope.launch {
             val title = uiState.value.title
             val region = userPreferencesRepository.region.first()
@@ -153,8 +162,23 @@ class TitleDetailViewModel(
         }
     }
 
-    /** Thumbs for the active profile; tapping the current value again clears it. */
+    /**
+     * Thumbs for the active profile; tapping the current value again clears it.
+     *
+     * PLAN.md §4 (M3d): a [org.seg7.familywatchlist.data.local.entity.RatingEntity] is one row
+     * per real person, same reasoning as [toggleWatchlist]'s watchlist-attribution gate — a
+     * "family" rating attributed to [FAMILY_PROFILE_SENTINEL_ID] wouldn't belong to anyone's
+     * affinity vector and would just be dead data, so this is blocked rather than silently
+     * written. Rating per-member is still possible the normal way: log the watch (which
+     * auto-tags every member while Family is active — see `LogWatchViewModel`) and rate there.
+     */
     fun rate(value: RatingValue) {
+        if (activeProfileId == FAMILY_PROFILE_SENTINEL_ID) {
+            viewModelScope.launch {
+                _events.emit(TitleDetailUiEvent.ActionBlocked("Switch to a person profile to rate titles."))
+            }
+            return
+        }
         viewModelScope.launch {
             ratingRepository.setOrToggle(activeProfileId, tmdbId, mediaType, value)
         }

@@ -18,6 +18,8 @@ import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
@@ -25,6 +27,7 @@ import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistItemAvailability
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
+import org.seg7.familywatchlist.ui.ActiveProfile
 
 /**
  * Home's single continuous feed (PLAN.md §5 screen 3, restructured by §5a).
@@ -63,6 +66,20 @@ import org.seg7.familywatchlist.data.repository.WatchlistRepository
  * false` — the ad-hoc, non-persisted path that method's kdoc documents as built specifically for
  * this chip row — using the shared family-blend-slider preference already stored from M3
  * ([UserPreferencesRepository.familyBlendSlider]), not a second mechanism.
+ *
+ * ## The Family profile (PLAN.md §4, M3d)
+ * When [activeProfile] is [ActiveProfile.Family] -- the *persistent* counterpart to the ad-hoc
+ * chip row above, selected from the profile picker exactly like a person -- Home's hero/For You
+ * source from the Family profile's own **persisted** shortlist instead: [refresh] calls
+ * [RecommendationRepository.refreshFamilyShortlist] with `persist = true` and
+ * [ActiveProfile.Family.memberProfileIds] (the *curated* membership, never "every profile on the
+ * account"), and [forYouShortlist] observes [FAMILY_SCOPE_KEY] rather than a per-profile scope
+ * key. PLAN.md §4's cold-start note: the Family profile is never itself the subject of a watch
+ * event, so it has no cold-start concept of its own -- [_coldStart] is pinned `false` whenever
+ * [activeProfile] is Family, and shortlist quality is left entirely to the existing per-member
+ * cold-start handling already inside [org.seg7.familywatchlist.data.recommend.FamilyBlend] (a
+ * cold-start member simply contributes an empty/near-zero vector to the blend, no special-casing
+ * needed here).
  */
 @OptIn(FlowPreview::class)
 class HomeViewModel(
@@ -73,11 +90,19 @@ class HomeViewModel(
     private val recommendationRepository: RecommendationRepository,
     private val titleRepository: TitleRepository,
     private val profileRepository: ProfileRepository,
-    private val activeProfileId: Long,
+    private val familyProfileRepository: FamilyProfileRepository,
+    private val activeProfile: ActiveProfile,
 ) : ViewModel() {
 
+    /** The scope key [forYouShortlist]/[refresh] read and write against -- see the class kdoc's "Family profile" section. */
+    private val shortlistScopeKey: String =
+        if (activeProfile is ActiveProfile.Family) FAMILY_SCOPE_KEY else activeProfile.id.toString()
+
     private val _discover = MutableStateFlow(DiscoverState())
-    private val _coldStart = MutableStateFlow(true)
+    // PLAN.md §4: Family is never itself the subject of a watch event, so it has no cold-start
+    // concept of its own -- pinned false rather than driven by isColdStart (which would look up
+    // watch events for the sentinel id and always report "cold", misrepresenting a warm family).
+    private val _coldStart = MutableStateFlow(activeProfile !is ActiveProfile.Family)
 
     private val familyNightProfiles: StateFlow<List<ProfileEntity>> =
         profileRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -91,9 +116,9 @@ class HomeViewModel(
         watchlistRepository.observeActiveItemsWithAvailability(userPreferencesRepository.region)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Live, offline-first read of this profile's persisted shortlist — [refresh] is what regenerates it. */
+    /** Live, offline-first read of the active profile's (or Family's) persisted shortlist — [refresh] is what regenerates it. */
     private val forYouShortlist: StateFlow<List<ShortlistEntryEntity>> =
-        recommendationRepository.observeShortlist(recommendationRepository.currentWeekStart(), activeProfileId.toString())
+        recommendationRepository.observeShortlist(recommendationRepository.currentWeekStart(), shortlistScopeKey)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private data class HomeCore(
@@ -220,14 +245,42 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             runCatching {
-                val cold = recommendationRepository.isColdStart(activeProfileId)
-                _coldStart.value = cold
-                if (!cold) {
-                    val region = userPreferencesRepository.region.first()
-                    recommendationRepository.refreshProfileShortlist(activeProfileId, region)
-                    // forYouShortlist is a live Flow off Room (observeShortlist) — the write above
-                    // is picked up automatically, no manual re-read needed here.
+                when (activeProfile) {
+                    is ActiveProfile.Family -> {
+                        // PLAN.md §4: no cold-start concept for Family itself (see the class
+                        // kdoc's "Family profile" section) — always attempt the real, persisted
+                        // curated-membership blend, never the ad-hoc persist=false path M3c built.
+                        //
+                        // Membership is re-read live from familyProfileRepository rather than
+                        // reused from activeProfile.memberProfileIds: Compose's viewModel(key=...)
+                        // keeps this ViewModel instance alive across recompositions keyed only on
+                        // activeProfile.id (the sentinel, which never changes), so a membership
+                        // edit made in Settings while Home is already open would otherwise be
+                        // invisible to a subsequent pull-to-refresh until Home itself is torn down.
+                        _coldStart.value = false
+                        val memberIds = familyProfileRepository.get()?.memberIds
+                        if (!memberIds.isNullOrEmpty()) {
+                            val region = userPreferencesRepository.region.first()
+                            val slider = FamilyBlendSlider(userPreferencesRepository.familyBlendSlider.first())
+                            recommendationRepository.refreshFamilyShortlist(
+                                profileIds = memberIds,
+                                region = region,
+                                familyBlendSlider = slider,
+                                persist = true,
+                            )
+                        }
+                    }
+                    is ActiveProfile.Individual -> {
+                        val cold = recommendationRepository.isColdStart(activeProfile.id)
+                        _coldStart.value = cold
+                        if (!cold) {
+                            val region = userPreferencesRepository.region.first()
+                            recommendationRepository.refreshProfileShortlist(activeProfile.id, region)
+                        }
+                    }
                 }
+                // forYouShortlist is a live Flow off Room (observeShortlist) — the write above
+                // is picked up automatically, no manual re-read needed here.
             }
             // A failed shortlist recompute leaves whatever was already persisted/cached on
             // screen (same offline-first posture as the discover half above) rather than
