@@ -59,6 +59,7 @@ class LogWatchViewModelTest {
 
     private var kevId = 0L
     private var samId = 0L
+    private var ellieId = 0L
 
     @Before
     fun setUp() = runTest {
@@ -78,6 +79,7 @@ class LogWatchViewModelTest {
 
         kevId = profileRepository.addProfile("Kev", "INITIAL|7C5C4A|", null).getOrThrow()
         samId = profileRepository.addProfile("Sam", "INITIAL|4A6357|", null).getOrThrow()
+        ellieId = profileRepository.addProfile("Ellie", "INITIAL|8B5CF6|", null).getOrThrow()
         db.titleDao().upsert(
             TitleEntity(
                 tmdbId = tmdbId, mediaType = mediaType, title = "Paddington", year = 2014,
@@ -94,14 +96,17 @@ class LogWatchViewModelTest {
         db.close()
     }
 
-    private fun viewModel(editingEventId: Long? = null) = LogWatchViewModel(
+    private fun viewModel(
+        editingEventId: Long? = null,
+        initialSelectedProfileIds: Set<Long> = setOf(kevId),
+    ) = LogWatchViewModel(
         watchEventRepository = watchEventRepository,
         ratingRepository = ratingRepository,
         titleRepository = titleRepository,
         profileRepository = profileRepository,
         tmdbId = tmdbId,
         mediaType = mediaType,
-        activeProfileId = kevId,
+        initialSelectedProfileIds = initialSelectedProfileIds,
         today = today,
         editingEventId = editingEventId,
     )
@@ -274,5 +279,76 @@ class LogWatchViewModelTest {
         assertEquals(eventId, events.first().id)
         assertEquals(LocalDate.of(2026, 8, 1), events.first().watchedAt)
         assertEquals(setOf(kevId, samId), watchEventRepository.getProfileIds(eventId).toSet())
+    }
+
+    /**
+     * PLAN.md §4 (M3d): "identical effect to manually multi-selecting everyone on the log-watch
+     * sheet today, not new behaviour, just a shortcut." Proven directly rather than assumed: two
+     * independent saves — one starting from [LogWatchSheet]'s Family auto-tag initial selection
+     * (`initialSelectedProfileIds` pre-populated with every member, exactly what
+     * [initialLogWatchSelection] computes for [org.seg7.familywatchlist.ui.ActiveProfile.Family]),
+     * the other starting from today's ordinary single-person default and manually ticking the
+     * other two chips by hand — must write the exact same `WatchEventProfile` tag set.
+     */
+    @Test
+    fun `Family auto-tag writes the identical DB tag set as manually multi-selecting every member`() = runTest {
+        // Path A: the auto-tag shortcut — every member pre-selected, save with zero interaction.
+        val autoTagVm = viewModel(initialSelectedProfileIds = setOf(kevId, samId, ellieId))
+        val autoTagInitialState = autoTagVm.uiState.first { it.profiles.isNotEmpty() }
+        assertEquals(
+            "the sheet must open with every member already ticked, not just the active profile",
+            setOf(kevId, samId, ellieId),
+            autoTagInitialState.selectedProfileIds,
+        )
+        autoTagVm.save()
+        autoTagVm.uiState.first { it.saved }
+
+        val autoTagEvent = db.watchEventDao().observeAll().first().single()
+        val autoTagTagged = watchEventRepository.getProfileIds(autoTagEvent.id).toSet()
+        watchEventRepository.deleteWatch(autoTagEvent.id) // clean slate for path B below
+
+        // Path B: today's existing manual multi-select — start from the ordinary single-person
+        // default and tick the other two chips by hand, the exact mechanism a user drives today.
+        val manualVm = viewModel() // default: setOf(kevId), the pre-M3d behaviour
+        manualVm.uiState.first { it.profiles.isNotEmpty() }
+        manualVm.toggleProfile(samId)
+        manualVm.toggleProfile(ellieId)
+        manualVm.save()
+        manualVm.uiState.first { it.saved }
+
+        val manualEvent = db.watchEventDao().observeAll().first().single()
+        val manualTagged = watchEventRepository.getProfileIds(manualEvent.id).toSet()
+
+        assertEquals(setOf(kevId, samId, ellieId), autoTagTagged)
+        assertEquals(
+            "auto-tag and manual multi-select of the same people must write the identical WatchEventProfile tag set",
+            manualTagged,
+            autoTagTagged,
+        )
+    }
+
+    /**
+     * [initialLogWatchSelection] is the pure function [LogWatchSheet] actually calls — covered
+     * directly here (no Compose/Robolectric UI needed) rather than only indirectly through the
+     * ViewModel-level equivalence test above.
+     */
+    @Test
+    fun `initialLogWatchSelection pre-ticks just the individual, or every real Family member`() {
+        val individual = org.seg7.familywatchlist.ui.ActiveProfile.Individual(
+            org.seg7.familywatchlist.data.local.entity.ProfileEntity(
+                id = kevId, name = "Kev", avatarKey = "a", ageRatingCap = null, createdAt = 0,
+            ),
+        )
+        assertEquals(setOf(kevId), initialLogWatchSelection(individual))
+
+        val family = org.seg7.familywatchlist.ui.ActiveProfile.Family(
+            org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity(name = "Family", avatarKey = "a", createdAt = 0),
+            memberProfileIds = listOf(kevId, samId, ellieId),
+        )
+        assertEquals(setOf(kevId, samId, ellieId), initialLogWatchSelection(family))
+        // Never the Family profile's own sentinel id, even though it's what ActiveProfile.id reports.
+        assertTrue(
+            org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID !in initialLogWatchSelection(family),
+        )
     }
 }

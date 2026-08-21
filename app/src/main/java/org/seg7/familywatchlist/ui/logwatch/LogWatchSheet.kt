@@ -53,6 +53,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingValue
+import org.seg7.familywatchlist.ui.ActiveProfile
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.avatar.AvatarBadge
 import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
@@ -78,21 +79,42 @@ object LogWatchTags {
 }
 
 /**
+ * PLAN.md §4 (M3d)'s "auto-tag every member" shortcut, extracted as a pure function (same
+ * pattern as [org.seg7.familywatchlist.ui.resolveStartState]/[LogWatchViewModel.validate]) so
+ * it's directly unit-testable without Compose/Robolectric. A real person pre-ticks just
+ * themself; the Family profile pre-ticks every one of its real, curated members — never its own
+ * sentinel [org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID], which is
+ * never a selectable chip in the first place (the chip list is sourced from real profiles only).
+ */
+internal fun initialLogWatchSelection(activeProfile: ActiveProfile): Set<Long> = when (activeProfile) {
+    is ActiveProfile.Family -> activeProfile.memberProfileIds.toSet()
+    is ActiveProfile.Individual -> setOf(activeProfile.id)
+}
+
+/**
  * PLAN.md §5 screen 6. Opens as a modal sheet over whatever screen asked for it (details or
  * history), so logging never costs a navigation.
+ *
+ * PLAN.md §4 (M3d): [activeProfile] drives which chips start pre-ticked — a real person
+ * pre-ticks just themself (unchanged since M2b); the Family profile pre-ticks every one of its
+ * real members (see [ActiveProfile.Family.memberProfileIds]), the "auto-tag" shortcut. Never the
+ * Family profile's own sentinel id — that's never a selectable chip at all, since the chip list
+ * is sourced from [org.seg7.familywatchlist.data.repository.ProfileRepository.observeAll] (real
+ * people only), matching PLAN.md §4's "nothing is ever logged directly against it".
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogWatchSheet(
     tmdbId: Int,
     mediaType: MediaType,
-    activeProfileId: Long,
+    activeProfile: ActiveProfile,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     editingEventId: Long? = null,
 ) {
     val container = LocalAppContainer.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val initialSelectedProfileIds = initialLogWatchSelection(activeProfile)
     val viewModel: LogWatchViewModel = viewModel(
         key = "logwatch-$mediaType-$tmdbId-$editingEventId",
         factory = viewModelFactory {
@@ -104,7 +126,7 @@ fun LogWatchSheet(
                     profileRepository = container.profileRepository,
                     tmdbId = tmdbId,
                     mediaType = mediaType,
-                    activeProfileId = activeProfileId,
+                    initialSelectedProfileIds = initialSelectedProfileIds,
                     today = LocalDate.now(),
                     editingEventId = editingEventId,
                 )
