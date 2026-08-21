@@ -231,11 +231,27 @@ like Kev/Sam/Ellie, with its own real Home (hero, For You, the lot).
 **Cold start:** < 5 watch events for a profile → popular-on-your-services (age-filtered)
 labelled "Popular on your services" instead of "For you".
 
-**Refresh & notification:** WorkManager weekly (Monday 06:00, unmetered-preferred)
-regenerates shortlists + refreshes provider TTLs, then posts a local notification
-("Your family shortlist is ready 🍿") that deep-links to Home. `POST_NOTIFICATIONS`
-runtime permission is requested during onboarding (Android 13+); declining just means
-silent refresh. Manual pull-to-refresh on Home does the same on demand.
+**Refresh & notification:** WorkManager weekly (**configurable day/time, default Friday
+06:00** — see "Configurable schedule" below; was a hardcoded Monday 06:00 through M3e,
+unmetered-preferred) regenerates shortlists + refreshes provider TTLs, then posts a local
+notification ("Your family shortlist is ready 🍿") that deep-links to Home.
+`POST_NOTIFICATIONS` runtime permission is requested during onboarding (Android 13+);
+declining just means silent refresh. Manual pull-to-refresh on Home does the same on demand.
+
+**Configurable schedule (Kev, 2026-08-21, queued as M3f).** `RecommendationScheduler`'s day
+(`DayOfWeek.MONDAY`) and hour (`6`) are currently literal hardcoded values, not a preference —
+confirmed by direct code read before scoping this. Kev wants a real Settings control (day-of-
+week + hour-of-day), not just a different hardcoded default. **Default: Friday, 06:00**
+("Friday morning" — he didn't specify an exact hour, so the existing 06:00 convention carries
+over). **The subtle correctness requirement, easy to miss:** `scheduleWeekly` is currently
+called with `ExistingPeriodicWorkPolicy.KEEP` on every app start, *deliberately* idempotent so
+routine launches never reset an already-scheduled job's cadence. That's still correct for
+normal app-start calls — but when the user actually *changes* this setting, the underlying
+WorkManager job must be genuinely rescheduled (e.g. `ExistingPeriodicWorkPolicy.UPDATE`, or an
+explicit cancel-then-reschedule triggered specifically by the settings-change event) or the
+stored preference will silently do nothing — the old schedule keeps running underneath it.
+Minute-level granularity isn't needed (hour-only, matching the existing `:00` convention) —
+don't over-build a full time-of-day picker with minutes.
 
 **Per-profile notification control (Kev, 2026-08-21, queued as M3e — built after M3d lands,
 same files would otherwise conflict):** currently one fixed notification fires for the whole
