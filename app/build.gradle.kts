@@ -144,6 +144,9 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.junit)
+    // M3f: RecommendationSchedulerRescheduleTest drives real WorkManager under Robolectric to
+    // assert on ExistingPeriodicWorkPolicy.KEEP vs UPDATE behaviour, not just delay-math.
+    testImplementation(libs.androidx.work.testing)
     // Compose UI test for the log-watch flow, run on the JVM via Robolectric (PLAN.md §7
     // testing bar) so it lands in `./gradlew test` rather than needing a booted emulator.
     testImplementation(libs.androidx.compose.ui.test.junit4)
