@@ -37,7 +37,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
     val viewModel: AppViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
-                AppViewModel(container.userPreferencesRepository, container.profileRepository)
+                AppViewModel(container.userPreferencesRepository, container.profileRepository, container.familyProfileRepository)
             }
         },
     )

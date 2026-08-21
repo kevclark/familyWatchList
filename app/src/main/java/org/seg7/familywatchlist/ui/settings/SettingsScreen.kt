@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.R
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.repository.AccentColor
 import org.seg7.familywatchlist.data.repository.RegionOption
@@ -80,7 +81,7 @@ import org.seg7.familywatchlist.ui.theme.toColor
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onOpenTunePicks: () -> Unit, modifier: Modifier = Modifier) {
+fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier: Modifier = Modifier) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
     val activeAccent by container.userPreferencesRepository.accentColor
@@ -130,11 +131,25 @@ fun SettingsScreen(onOpenTunePicks: () -> Unit, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(horizontal = Dimens.Gutter),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            SettingsRow(
-                title = "Tune my picks",
-                subtitle = "Adjust discovery, recency, and personal-match sliders",
-                onClick = onOpenTunePicks,
-            )
+            // PLAN.md §4 (M3d): the four taste sliders tune one *person's* affinity vector — they
+            // have no meaning for the Family profile (its shortlist always uses the fixed spec
+            // weights; only the separate, already-app-level family-blend slider applies to it).
+            // Disabled rather than hidden outright, so it's discoverable that this exists and why
+            // it's unavailable right now, rather than silently vanishing from the list.
+            if (activeProfileId == FAMILY_PROFILE_SENTINEL_ID) {
+                SettingsRow(
+                    title = "Tune my picks",
+                    subtitle = "Switch to a person profile to tune personal picks — this doesn't apply to Family",
+                    onClick = {},
+                    enabled = false,
+                )
+            } else {
+                SettingsRow(
+                    title = "Tune my picks",
+                    subtitle = "Adjust discovery, recency, and personal-match sliders",
+                    onClick = onOpenTunePicks,
+                )
+            }
         }
 
         Text(
@@ -359,26 +374,28 @@ private fun RegionRow(region: RegionOption, selected: Boolean, onClick: () -> Un
 }
 
 @Composable
-private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit) {
+private fun SettingsRow(title: String, subtitle: String, onClick: () -> Unit, enabled: Boolean = true) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .background(InkRaised)
-            .clickableNoRipple(onClick)
+            .then(if (enabled) Modifier.clickableNoRipple(onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(text = title, style = MaterialTheme.typography.titleSmall, color = Chalk)
+            Text(text = title, style = MaterialTheme.typography.titleSmall, color = if (enabled) Chalk else ChalkFaint)
             Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = ChalkMuted)
         }
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = ChalkFaint,
-            modifier = Modifier.size(20.dp),
-        )
+        if (enabled) {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = ChalkFaint,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 

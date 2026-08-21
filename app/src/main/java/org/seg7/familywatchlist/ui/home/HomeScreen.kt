@@ -44,6 +44,7 @@ import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.ui.ActiveProfile
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.avatar.AvatarBadge
 import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
@@ -75,7 +76,7 @@ import org.seg7.familywatchlist.ui.theme.OnAccent
  */
 @Composable
 fun HomeScreen(
-    activeProfile: ProfileEntity,
+    activeProfile: ActiveProfile,
     onOpenTitle: (Int, MediaType) -> Unit,
     onOpenMyList: () -> Unit,
     onOpenSearch: () -> Unit,
@@ -95,7 +96,8 @@ fun HomeScreen(
                     container.recommendationRepository,
                     container.titleRepository,
                     container.profileRepository,
-                    activeProfile.id,
+                    container.familyProfileRepository,
+                    activeProfile,
                 )
             }
         },

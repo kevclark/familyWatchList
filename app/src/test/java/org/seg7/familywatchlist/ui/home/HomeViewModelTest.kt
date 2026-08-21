@@ -18,7 +18,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
+import org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
 import org.seg7.familywatchlist.data.local.entity.RatingValue
@@ -27,6 +29,7 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -37,6 +40,7 @@ import org.seg7.familywatchlist.data.repository.WatchlistRepository
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.MainDispatcherRule
 import org.seg7.familywatchlist.testutil.buildInMemoryDb
+import org.seg7.familywatchlist.ui.ActiveProfile
 
 /**
  * PLAN.md §5a's M2g refinement, exercised through Home's own "My List" carousel data: an item
@@ -62,8 +66,12 @@ class HomeViewModelTest {
     private lateinit var recommendationRepository: RecommendationRepository
     private lateinit var titleRepository: TitleRepository
     private lateinit var profileRepository: ProfileRepository
+    private lateinit var familyProfileRepository: FamilyProfileRepository
 
     private val profileId = 7L
+    private val activeProfile = ActiveProfile.Individual(
+        ProfileEntity(id = profileId, name = "P$profileId", avatarKey = "a", ageRatingCap = null, createdAt = 0),
+    )
 
     @Before
     fun setUp() = runTest {
@@ -80,6 +88,7 @@ class HomeViewModelTest {
         )
         titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
         profileRepository = ProfileRepository(db.profileDao(), clock)
+        familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
         recommendationRepository = RecommendationRepository(
             watchEventDao = db.watchEventDao(),
             ratingDao = db.ratingDao(),
@@ -112,7 +121,7 @@ class HomeViewModelTest {
         db.close()
     }
 
-    private fun viewModel(watchlistRepository: WatchlistRepository) =
+    private fun viewModel(watchlistRepository: WatchlistRepository, activeProfile: ActiveProfile = this.activeProfile) =
         HomeViewModel(
             discoverRepository,
             providerRepository,
@@ -121,7 +130,8 @@ class HomeViewModelTest {
             recommendationRepository,
             titleRepository,
             profileRepository,
-            profileId,
+            familyProfileRepository,
+            activeProfile,
         )
 
     @Test
@@ -301,5 +311,47 @@ class HomeViewModelTest {
 
         val weekStart = recommendationRepository.currentWeekStart()
         assertEquals(emptyList<Any>(), db.shortlistDao().getForScope(weekStart, FAMILY_SCOPE_KEY))
+    }
+
+    /**
+     * PLAN.md §4 (M3d): when [org.seg7.familywatchlist.ui.ActiveProfile] is
+     * [org.seg7.familywatchlist.ui.ActiveProfile.Family], Home's For You/hero must read the
+     * *persisted* [FAMILY_SCOPE_KEY] shortlist — not a per-profile scope key keyed off the
+     * sentinel id (which would be "-1", matching nothing real). No `familyProfileRepository.save`
+     * call here deliberately: with no Family profile actually persisted,
+     * `HomeViewModel.refresh()`'s Family branch finds `familyProfileRepository.get() == null` and
+     * skips `refreshFamilyShortlist` entirely (see its kdoc), so these directly-seeded rows are
+     * never clobbered — isolating the *read* side of the wiring from the write side, which M3d's
+     * `RecommendationRepositoryTest` additions cover separately.
+     */
+    @Test
+    fun `Family active reads the persisted FAMILY scope shortlist, and is never flagged cold-start`() = runTest {
+        val weekStart = recommendationRepository.currentWeekStart()
+        db.titleDao().upsert(
+            TitleEntity(
+                tmdbId = 777, mediaType = MediaType.MOVIE, title = "Family Pick", year = 2024,
+                posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                certification = null, voteAverage = null, popularity = 1.0, trailerKey = null, fetchedAt = clock.current,
+            )
+        )
+        db.shortlistDao().upsertAll(
+            listOf(
+                org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity(
+                    weekStart, FAMILY_SCOPE_KEY, 777, MediaType.MOVIE, score = 0.8, reasons = "[]",
+                    state = org.seg7.familywatchlist.data.local.entity.ShortlistState.SUGGESTED,
+                ),
+            )
+        )
+        val family = ActiveProfile.Family(
+            FamilyProfileEntity(name = "Family", avatarKey = "a", createdAt = 0),
+            memberProfileIds = listOf(1L, 2L),
+        )
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val state = viewModel(watchlistRepository, family).uiState.first { it.forYouTitles.isNotEmpty() }
+
+        assertFalse("PLAN.md §4: Family has no cold-start concept of its own", state.isColdStartForYou)
+        assertEquals(listOf(777), state.forYouTitles.map { it.tmdbId })
+        assertEquals(777, state.hero?.tmdbId)
     }
 }

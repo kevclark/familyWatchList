@@ -132,6 +132,7 @@ fun TitleDetailScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is TitleDetailUiEvent.WatchlistBlocked -> snackbarHostState.showSnackbar(event.message)
+                is TitleDetailUiEvent.ActionBlocked -> snackbarHostState.showSnackbar(event.message)
             }
         }
     }

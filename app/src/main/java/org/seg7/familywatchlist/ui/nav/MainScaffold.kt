@@ -39,7 +39,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import org.seg7.familywatchlist.data.local.entity.MediaType
-import org.seg7.familywatchlist.data.local.entity.ProfileEntity
+import org.seg7.familywatchlist.ui.ActiveProfile
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
 import org.seg7.familywatchlist.ui.details.TitleDetailScreen
@@ -95,7 +95,7 @@ private fun titleRoute(tmdbId: Int, mediaType: MediaType) = "title/${mediaType.n
  * half-navigated state.
  */
 @Composable
-fun MainScaffold(activeProfile: ProfileEntity, modifier: Modifier = Modifier) {
+fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
     val navController = rememberNavController()
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
@@ -162,7 +162,10 @@ fun MainScaffold(activeProfile: ProfileEntity, modifier: Modifier = Modifier) {
                     )
                 }
                 composable(BottomTab.Settings.route) {
-                    SettingsScreen(onOpenTunePicks = { navController.navigate(ROUTE_TUNE_PICKS) })
+                    SettingsScreen(
+                        activeProfileId = activeProfile.id,
+                        onOpenTunePicks = { navController.navigate(ROUTE_TUNE_PICKS) },
+                    )
                 }
                 composable(ROUTE_TUNE_PICKS) {
                     TunePicksScreen(activeProfileId = activeProfile.id, onBack = { navController.popBackStack() })

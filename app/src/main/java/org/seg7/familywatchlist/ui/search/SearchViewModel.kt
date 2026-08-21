@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -179,7 +180,23 @@ class SearchViewModel(
         runSearch(_query.value.trim())
     }
 
+    /**
+     * PLAN.md §4 (M3d): a Want-to-Watch add is attributed to a real person
+     * ([org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity.addedByProfileId]) —
+     * blocked with the same explanatory-event pattern as the availability gate below (not a
+     * silent no-op, and never writing [FAMILY_PROFILE_SENTINEL_ID] as an attribution) when the
+     * Family profile is active, mirroring how [org.seg7.familywatchlist.ui.details
+     * .TitleDetailViewModel.toggleWatchlist]/`.rate` handle the same case.
+     */
     fun toggleWatchlist(title: TitleEntity) {
+        if (activeProfileId == FAMILY_PROFILE_SENTINEL_ID) {
+            viewModelScope.launch {
+                _events.emit(
+                    SearchUiEvent.WatchlistBlocked("Switch to a person profile to add titles to the list.")
+                )
+            }
+            return
+        }
         viewModelScope.launch {
             val region = userPreferencesRepository.region.first()
             when (watchlistRepository.toggle(title.tmdbId, title.mediaType, activeProfileId, region)) {
