@@ -62,4 +62,28 @@ class FamilyBlendTest {
     fun `strictestCap ignores an unrecognised certification string`() {
         assertEquals("12", FamilyBlend.strictestCap(listOf("UNKNOWN", "12")))
     }
+
+    /** M3g: the shared "is this title over the cap" check reused by every title-surfacing path. */
+    @Test
+    fun `isOverCap excludes a title whose certification outranks the cap`() {
+        assertEquals(true, FamilyBlend.isOverCap(certification = "18", cap = "12"))
+    }
+
+    @Test
+    fun `isOverCap keeps a title at or under the cap`() {
+        assertEquals(false, FamilyBlend.isOverCap(certification = "12", cap = "12"))
+        assertEquals(false, FamilyBlend.isOverCap(certification = "U", cap = "12"))
+    }
+
+    /** PLAN.md §8: unknown certification data never excludes a title — must not be stricter than the recommender's own established behaviour. */
+    @Test
+    fun `isOverCap never excludes a title with missing or unrecognised certification data`() {
+        assertEquals(false, FamilyBlend.isOverCap(certification = null, cap = "12"))
+        assertEquals(false, FamilyBlend.isOverCap(certification = "UNKNOWN", cap = "12"))
+    }
+
+    @Test
+    fun `isOverCap never excludes anything when there is no cap`() {
+        assertEquals(false, FamilyBlend.isOverCap(certification = "18", cap = null))
+    }
 }

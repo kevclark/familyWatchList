@@ -29,7 +29,6 @@ import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistState
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
-import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.recommend.AffinityEngine
 import org.seg7.familywatchlist.data.recommend.AttrKey
@@ -382,10 +381,9 @@ class RecommendationRepository(
         ageCap: String?,
         region: String,
     ): List<ScoredCandidate> {
-        val capRank = ageCap?.let { FamilyBlend.certRank(it) }
         return pool.mapNotNull { key ->
             val title = titleRepository.ensureFresh(key.tmdbId, key.mediaType, region)
-            if (capRank != null && title.exceedsCap(capRank)) return@mapNotNull null
+            if (FamilyBlend.isOverCap(title.certification, ageCap)) return@mapNotNull null
             val attrEntities = titleAttributeDao.getForTitle(key.tmdbId, key.mediaType)
             val attrs = attrEntities.toAttrKeys()
             val candidate = ScoringCandidate(key, attrs, title.voteAverage, title.voteCount, title.year)
@@ -398,11 +396,22 @@ class RecommendationRepository(
         }
     }
 
-    /** A title with no certification data never gets excluded on age-cap grounds — PLAN.md §8's "best effort" UK certification data risk; unknown is not the same as unsafe. */
-    private fun TitleEntity.exceedsCap(capRank: Int): Boolean {
-        val titleRank = certification?.let { FamilyBlend.certRank(it) } ?: return false
-        return titleRank > capRank
-    }
+    /**
+     * PLAN.md §4/§8 (M3g safety fix): resolves the effective age cap for [profileId] — a real
+     * profile's own [org.seg7.familywatchlist.data.local.entity.ProfileEntity.ageRatingCap], or
+     * (when [profileId] is [FAMILY_PROFILE_SENTINEL_ID]) the strictest cap among the Family
+     * profile's *curated* members via [FamilyBlend.strictestCap] — the exact same rule
+     * [refreshFamilyShortlist] already applies to its own candidates. Exposed so every other
+     * title-surfacing path (`DiscoverRepository`'s results via `HomeViewModel`, `SearchRepository`)
+     * can gate on the same rule the real recommender uses without re-deriving it. Null means
+     * "don't filter" — no Family profile yet, or a real profile with no cap set.
+     */
+    suspend fun resolveAgeRatingCap(profileId: Long): String? =
+        if (profileId == FAMILY_PROFILE_SENTINEL_ID) {
+            familyProfileRepository.get()?.let { family -> FamilyBlend.strictestCap(family.members.map { it.ageRatingCap }) }
+        } else {
+            profileRepository.getById(profileId)?.ageRatingCap
+        }
 
     private fun List<TitleAttributeEntity>.toAttrKeys(): List<AttrKey> = map { AttrKey(it.attrType, it.attrId) }
 

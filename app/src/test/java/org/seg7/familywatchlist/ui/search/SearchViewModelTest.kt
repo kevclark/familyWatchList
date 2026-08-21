@@ -40,7 +40,11 @@ import org.seg7.familywatchlist.data.remote.dto.WatchProviderRegionsResponseDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProvidersResponseDto
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
+import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
@@ -95,19 +99,36 @@ class SearchViewModelTest {
         db.close()
     }
 
-    private fun buildViewModel(api: TmdbApi) {
+    private fun buildViewModel(api: TmdbApi, profileId: Long = activeProfileId) {
         val clock = FakeClock(startMillis = 1_000L)
         val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val gate = AvailabilityGate(titleRepository, providerRepository)
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, gate::isAvailableOnSubscribedProvider)
+        val profileRepository = ProfileRepository(db.profileDao(), clock)
+        val familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
+        val recommendationRepository = RecommendationRepository(
+            watchEventDao = db.watchEventDao(),
+            ratingDao = db.ratingDao(),
+            watchlistDao = db.watchlistDao(),
+            titleAttributeDao = db.titleAttributeDao(),
+            titleRepository = titleRepository,
+            discoverRepository = discoverRepository,
+            providerRepository = providerRepository,
+            profileRepository = profileRepository,
+            profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
+            familyProfileRepository = familyProfileRepository,
+            shortlistDao = db.shortlistDao(),
+            clock = clock,
+        )
         viewModel = SearchViewModel(
             searchRepository = SearchRepository(db.titleDao(), api, clock, gate),
             watchlistRepository = watchlistRepository,
             providerRepository = providerRepository,
-            activeProfileId = activeProfileId,
+            activeProfileId = profileId,
             userPreferencesRepository = userPreferencesRepository,
+            recommendationRepository = recommendationRepository,
         )
     }
 
@@ -184,6 +205,39 @@ class SearchViewModelTest {
 
         // Flipping chips never went back to the network — one search + one detail call per title.
         assertEquals(requestsAfterSearch, server.requestCount)
+    }
+
+    /**
+     * PLAN.md §4/§8 (M3g safety fix): end-to-end proof that the active profile's real, persisted
+     * `ageRatingCap` reaches [SearchRepository] through [SearchViewModel] — not just that
+     * [SearchRepository] itself filters correctly (covered by `SearchRepositoryTest`).
+     */
+    @Test
+    fun `an over-cap result is dropped once the active profile has a real persisted age cap`() = runTest {
+        subscribeNetflixOnly()
+        val profileRepository = ProfileRepository(db.profileDao(), FakeClock(startMillis = 1_000L))
+        val cappedProfileId = profileRepository.addProfile("Capped Kid", "avatar", "12").getOrThrow()
+        buildViewModel(TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" }), profileId = cappedProfileId)
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = SINGLE_MOVIE_RESULT_JSON) },
+                "/movie/38700" to {
+                    MockResponse(
+                        body = """
+                            {"id": 38700, "title": "Paddington", "release_date": "2014-11-28",
+                             "watch/providers": {"results": {"GB": {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]}}},
+                             "release_dates": {"results": [{"iso_3166_1": "GB", "release_dates": [{"certification": "18", "type": 3, "release_date": "2014-01-01T00:00:00.000Z"}]}]}}
+                        """.trimIndent()
+                    )
+                },
+            )
+        )
+
+        viewModel.onQueryChange("paddington")
+        viewModel.onSubmit()
+        val state = viewModel.uiState.first { it.hasSearched }
+
+        assertEquals(emptyList<String>(), state.results.map { it.title })
     }
 
     @Test

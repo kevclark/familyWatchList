@@ -22,6 +22,7 @@ import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistAddResult
@@ -105,6 +106,7 @@ class SearchViewModel(
     private val providerRepository: ProviderRepository,
     private val activeProfileId: Long,
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val recommendationRepository: RecommendationRepository,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -242,7 +244,10 @@ class SearchViewModel(
         _search.value = SearchInternal(isSearching = true)
         searchJob = viewModelScope.launch {
             val region = userPreferencesRepository.region.first()
-            searchRepository.search(query, region)
+            // PLAN.md §4/§8 (M3g): Search must respect the active profile's (or Family's
+            // strictest-member) age cap — the same rule the real recommender already enforces.
+            val ageRatingCap = recommendationRepository.resolveAgeRatingCap(activeProfileId)
+            searchRepository.search(query, region, ageRatingCap = ageRatingCap)
                 // Flow's `catch` never intercepts `CancellationException` (cancellation
                 // transparency) — only genuine failures (a bad network call, a decode error)
                 // land here, so a cancelled-by-requery job falls straight through to

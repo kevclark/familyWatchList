@@ -98,6 +98,58 @@ class SearchRepositoryTest {
         assertEquals(listOf("Paddington"), finalResults.map { it.title })
     }
 
+    /**
+     * PLAN.md §4/§8 (M3g safety fix): Search previously applied zero age-rating filtering — a
+     * capped profile's Search results could include an over-cap title. Three otherwise-identical,
+     * available results: over cap (excluded), at cap (survives), no certification data at all
+     * (survives — PLAN.md §8's "unknown != unsafe", matching the recommender's own established
+     * behaviour, not stricter).
+     */
+    @Test
+    fun `age-rating cap excludes an over-cap result, keeps at-cap and unknown-certification results`() = runTest {
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = TRIPLE_SEARCH_JSON) },
+                "/movie/1" to { MockResponse(body = detailJsonWithCertification(1, "Too Old", certification = "18")) },
+                "/movie/2" to { MockResponse(body = detailJsonWithCertification(2, "Right At The Cap", certification = "12")) },
+                "/movie/3" to { MockResponse(body = detailJson(3, "Unknown Cert", providerIds = listOf(8))) },
+            )
+        )
+
+        val finalResults = repo.search("test", ageRatingCap = "12").last()
+
+        assertEquals(setOf("Right At The Cap", "Unknown Cert"), finalResults.map { it.title }.toSet())
+    }
+
+    @Test
+    fun `no age-rating cap passed means no filtering at all`() = runTest {
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = SINGLE_RESULT_JSON) },
+                "/movie/38700" to { MockResponse(body = detailJsonWithCertification(38700, "Paddington", certification = "18")) },
+            )
+        )
+
+        val finalResults = repo.search("paddington").last()
+
+        assertEquals(listOf("Paddington"), finalResults.map { it.title })
+    }
+
+    private fun detailJsonWithCertification(id: Int, title: String, certification: String): String = """
+        {
+          "id": $id,
+          "title": "$title",
+          "watch/providers": {"results": {"GB": {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]}}},
+          "release_dates": {
+            "results": [
+              {"iso_3166_1": "GB", "release_dates": [{"certification": "$certification", "type": 3, "release_date": "2020-01-01T00:00:00.000Z"}]}
+            ]
+          }
+        }
+    """.trimIndent()
+
     @Test
     fun `an empty raw search never spawns an availability check`() = runTest {
         server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":0,"total_results":0}"""))
@@ -127,6 +179,19 @@ class SearchRepositoryTest {
               ],
               "total_pages": 1,
               "total_results": 1
+            }
+        """.trimIndent()
+
+        val TRIPLE_SEARCH_JSON = """
+            {
+              "page": 1,
+              "results": [
+                {"id": 1, "media_type": "movie", "title": "Too Old", "release_date": "2020-01-01", "poster_path": "/1.jpg", "vote_average": 7.0, "popularity": 90.0},
+                {"id": 2, "media_type": "movie", "title": "Right At The Cap", "release_date": "2020-01-01", "poster_path": "/2.jpg", "vote_average": 7.0, "popularity": 80.0},
+                {"id": 3, "media_type": "movie", "title": "Unknown Cert", "release_date": "2020-01-01", "poster_path": "/3.jpg", "vote_average": 7.0, "popularity": 70.0}
+              ],
+              "total_pages": 1,
+              "total_results": 3
             }
         """.trimIndent()
 

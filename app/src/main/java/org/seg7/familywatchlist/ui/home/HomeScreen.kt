@@ -113,14 +113,21 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(Dimens.RowGap),
         ) {
             item(key = "hero") {
-                HomeHero(
-                    hero = state.hero,
-                    isLoading = state.isLoading,
-                    errorMessage = state.errorMessage,
-                    onOpenTitle = onOpenTitle,
-                    onRetry = viewModel::refresh,
-                    onOpenSearch = onOpenSearch,
-                )
+                // PLAN.md §4 "Cold-start Home treatment" (Kev, 2026-08-21, M3g): a cold-start
+                // profile's hero is never a title, backdrop or "More info" button implying a
+                // specific recommendation — a plain getting-started panel with a CTA into Search.
+                if (state.isColdStartForYou) {
+                    ColdStartHero(onOpenSearch = onOpenSearch)
+                } else {
+                    HomeHero(
+                        hero = state.hero,
+                        isLoading = state.isLoading,
+                        errorMessage = state.errorMessage,
+                        onOpenTitle = onOpenTitle,
+                        onRetry = viewModel::refresh,
+                        onOpenSearch = onOpenSearch,
+                    )
+                }
             }
 
             if (state.myList.isNotEmpty()) {
@@ -312,6 +319,54 @@ private fun HomeHero(
                 onRetry = onRetry,
                 onOpenSearch = onOpenSearch,
             )
+        }
+    }
+}
+
+/**
+ * PLAN.md §4 "Cold-start Home treatment" (Kev, 2026-08-21, M3g): replaces the old
+ * `discover.movies.firstOrNull()` fallback for a cold-start profile's hero. That fallback showed
+ * a real title with no visual distinction from a genuine personalised pick (only a small row
+ * label underneath told them apart) — a popularity pick masquerading as "your pick". This is
+ * deliberately title-shaped-nothing: no backdrop image, no "More info" button, just explanatory
+ * copy and a CTA into Search. Same structural shell as [HomeHeroEmpty] (centered column over
+ * [InkRaised], same aspect ratio) so the transition between the two hero states — cold start vs.
+ * genuinely-nothing-to-show — reads as one consistent "empty hero" visual language, but the copy
+ * and the condition that triggers each are different: this one is keyed off
+ * [HomeUiState.isColdStartForYou] and shows regardless of whether Popular/discover data exists,
+ * where [HomeHeroEmpty] only shows for a warm profile with nothing at all cached yet.
+ */
+@Composable
+private fun ColdStartHero(onOpenSearch: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(Dimens.HeroAspect)
+            .background(InkRaised),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(Dimens.Gutter * 2),
+        ) {
+            Text(
+                text = "Let's find your picks",
+                style = MaterialTheme.typography.displaySmall,
+                color = Chalk,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = "Log a few things you've watched or add to your list, and we'll start finding what's next.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ChalkMuted,
+                textAlign = TextAlign.Center,
+            )
+            Button(
+                onClick = onOpenSearch,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
+                shape = MaterialTheme.shapes.small,
+            ) { Text("Search titles") }
         }
     }
 }

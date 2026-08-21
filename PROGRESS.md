@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-21 (M3e — per-profile notification control — by `feature-builder`).
+Last updated: 2026-08-21 (M3g — age-cap safety fix + cold-start intro screen — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -950,24 +950,74 @@ polish. Kev's actual fix, confirmed: replace the cold-start hero with an introdu
 (not a fake "pick"), keep the Popular row for browsing (confirmed useful, his call), age-fix
 applies everywhere regardless of the intro-screen question. Full spec in PLAN.md §4.
 
-- [ ] **Non-negotiable, ship regardless of anything else here**: age-cap filtering applied to
+- [x] **Non-negotiable, ship regardless of anything else here**: age-cap filtering applied to
       `DiscoverRepository`'s results (or wherever consumes them) — reuse the existing cert-
-      rank check from `RecommendationRepository`/`FamilyBlend`, don't duplicate it
-- [ ] Audit other title-surfacing paths for the same gap: Search, the ad-hoc Family Night
+      rank check from `RecommendationRepository`/`FamilyBlend`, don't duplicate it. The
+      previously-private `TitleEntity.exceedsCap` extension in `RecommendationRepository` is
+      now `FamilyBlend.isOverCap(certification, cap)` — a pure, public, standalone function
+      (no `TitleEntity` dependency, so any caller with just a nullable cert string and cap
+      string can use it). `HomeViewModel.refresh()` filters `popularMovies`/`popularTv`
+      (which also feeds the cold-start "For You" row and, pre-M3g, fed the cold-start hero
+      fallback) against it, resolving the active profile's (or Family's strictest-member) cap
+      via a new `RecommendationRepository.resolveAgeRatingCap(profileId)`
+- [x] Audit other title-surfacing paths for the same gap: Search, the ad-hoc Family Night
       blend (M3c), the watchlist add-gate (M2d) — fix any found using the same shared check,
-      document what was and wasn't affected
-- [ ] Cold-start hero replaced with an introductory panel — no movie backdrop, no implied
-      recommendation, explanatory copy + CTA into Search
-- [ ] "Popular on your services" row stays below it for a cold-start profile (Kev confirmed —
+      document what was and wasn't affected. **Search: was broken, now fixed** —
+      `SearchRepository.search` gained an `ageRatingCap` parameter, checked (via the same
+      `FamilyBlend.isOverCap`) once each candidate's availability check has already
+      detail-fetched it, so certification data is genuinely present, not a stub; `SearchViewModel`
+      resolves and threads the active profile's live cap through
+      `RecommendationRepository.resolveAgeRatingCap`. **Family Night ad-hoc blend (M3c): already
+      correct, no code change needed** — `refreshFamilyShortlist`'s candidate scoring already
+      computed `FamilyBlend.strictestCap` over the selected members and applied it via the same
+      check (now `isOverCap`) before this pass; confirmed by reading the call chain end to end,
+      not just trusting the scoring formula. **Watchlist add-gate (M2d): deliberately left
+      availability-only, out of scope** — judgment call, see the build report for the reasoning
+      (adding to the shared family list is a deliberate action, not a title being *shown to* a
+      specific capped profile as a recommendation)
+- [x] Cold-start hero replaced with an introductory panel — no movie backdrop, no implied
+      recommendation, explanatory copy + CTA into Search. New `HomeScreen.ColdStartHero`
+      composable (same structural shell as the existing `HomeHeroEmpty`, distinct copy: "Let's
+      find your picks" / "Log a few things you've watched or add to your list, and we'll start
+      finding what's next." / "Search titles"), rendered whenever `isColdStartForYou` is true —
+      `HomeViewModel.uiState`'s `hero` is now `null` for a cold-start profile (was previously
+      falling back to `discover.movies.firstOrNull()`)
+- [x] "Popular on your services" row stays below it for a cold-start profile (Kev confirmed —
       keep the row, not intro-screen-only), now correctly age-filtered
-- [ ] Tests: age-cap filtering applied correctly (a title over cap is excluded, one at/under
+- [x] Tests: age-cap filtering applied correctly (a title over cap is excluded, one at/under
       cap survives, one with no certification data survives per the existing "unknown ≠
       unsafe" precedent already established elsewhere), cold-start hero renders the intro
-      panel not a title, Popular row still populates and is filtered
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: a capped profile's Popular row and cold-start hero never show
+      panel not a title, Popular row still populates and is filtered. `FamilyBlendTest`
+      (`isOverCap` unit coverage: over/at-cap/unknown-cert/no-cap), `HomeViewModelTest` (Popular
+      row filtered — over excluded, at-cap and unknown-cert both survive; cold-start hero is
+      null even with Popular data present), `SearchRepositoryTest` (age cap excludes/keeps
+      results; no cap passed = no filtering), `SearchViewModelTest` (end-to-end: a real
+      persisted profile's cap actually reaches the repository call) — 367 tests, 51 classes,
+      0 failures
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification: a capped profile's Popular row and cold-start hero never show
       anything over their cap; the intro panel actually renders for a genuine zero-history
-      profile
+      profile. Done on-device (emulator, `-gpu swangle`, renderer confirmed via
+      `dumpsys SurfaceFlinger | grep GLES:` — ANGLE/SwiftShader Vulkan, not the crashing legacy
+      driver — before trusting the session) against the real pre-existing "Kevu" profile.
+      Confirmed cold-start intro panel rendering with zero code-level nudging (Kevu is
+      genuinely still cold-start from earlier sessions). Set Kevu's age cap to "12" via the
+      real Edit-profile UI; on-device `sqlite3` confirmed real cached certifications already on
+      this device — Spider-Man: No Way Home (634649, cert "12A") and Lioness (113962, cert
+      "15") — both rank *above* a "12" cap under `FamilyBlend`'s ordering (`U < PG < 12 < 12A <
+      15 < 18`). Before capping, both were visible in the Home carousels (Lioness in "For You",
+      Spider-Man peeking at the row edge). After capping and refreshing: both vanished from
+      every row — confirmed not just visually but against the raw candidate data itself:
+      `discover_cache` shows Spider-Man: No Way Home at `ord=0` (the single most popular raw
+      movie candidate that refresh cycle) and Lioness at `ord=2` in the TV page, i.e. both were
+      genuinely present in the unfiltered candidate pool and were actively filtered out, not
+      just absent from a re-randomised popularity page. Bonus real-world confirmation of the
+      "unknown ≠ unsafe" behaviour: Reacher (cert "15", confirmed on its own details screen)
+      remained visible in the capped Popular row throughout, because its certification hadn't
+      been detail-fetched yet at that point — see the build report's "Known limitation" note.
+      Cap reverted to `NULL` afterward (`UPDATE profiles SET ageRatingCap = NULL WHERE id =
+      1`) and the emulator shut down cleanly to leave the device back at the clean-slate state
+      this session found it in.
 
 ## M4 — Polish
 

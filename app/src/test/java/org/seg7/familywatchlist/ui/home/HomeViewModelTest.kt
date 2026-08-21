@@ -230,6 +230,76 @@ class HomeViewModelTest {
     }
 
     /**
+     * PLAN.md §4's "Age-cap safety gap" (M3g): a cold-start profile's Popular row (and the
+     * cold-start hero fallback, which reads the same [DiscoverRepository] data) previously applied
+     * **zero** age-rating filtering. Seeds three already-detail-fetched titles (real certification
+     * data, matching how a title genuinely gets a certification cached — discover summary payloads
+     * never carry one, see [DiscoverRepositoryTest]'s "discover never clobbers a title that already
+     * has full detail data cached") and confirms: over-cap excluded, at-cap survives, no-cert
+     * survives (PLAN.md §8: unknown certification data never excludes a title).
+     */
+    @Test
+    fun `Popular rows are filtered to the active profile's age cap — over survives never, at-cap and unknown-cert both survive`() = runTest {
+        db.titleDao().upsertAll(
+            listOf(
+                TitleEntity(
+                    tmdbId = 1001, mediaType = MediaType.MOVIE, title = "Too Old", year = 2020,
+                    posterPath = null, backdropPath = null, overview = null, runtimeMin = 100,
+                    certification = "18", voteAverage = 7.0, popularity = 90.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+                TitleEntity(
+                    tmdbId = 1002, mediaType = MediaType.MOVIE, title = "Right At The Cap", year = 2020,
+                    posterPath = null, backdropPath = null, overview = null, runtimeMin = 100,
+                    certification = "12", voteAverage = 7.0, popularity = 80.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+                TitleEntity(
+                    tmdbId = 1003, mediaType = MediaType.MOVIE, title = "Unknown Cert", year = 2020,
+                    posterPath = null, backdropPath = null, overview = null, runtimeMin = 100,
+                    certification = null, voteAverage = 7.0, popularity = 70.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+            )
+        )
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        server.enqueue(MockResponse(body = discoverMoviePageJson(listOf(1001 to "Too Old", 1002 to "Right At The Cap", 1003 to "Unknown Cert"))))
+        server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
+
+        // resolveAgeRatingCap resolves against the real, persisted row (RecommendationRepository ->
+        // ProfileRepository.getById) — not the ActiveProfile wrapper's own embedded snapshot — so
+        // the profile must actually be added, not just constructed in memory.
+        val cappedProfileId = profileRepository.addProfile("Capped Kid", "avatar", "12").getOrThrow()
+        val cappedProfile = ActiveProfile.Individual(profileRepository.getById(cappedProfileId)!!)
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val state = viewModel(watchlistRepository, cappedProfile).uiState.first { it.popularMovies.isNotEmpty() }
+
+        assertEquals(setOf(1002, 1003), state.popularMovies.map { it.tmdbId }.toSet())
+    }
+
+    /**
+     * PLAN.md §4 "Cold-start Home treatment" (M3g): a cold-start profile's hero must never be a
+     * title — [HomeUiState.hero] is null regardless of how much popular data exists — while the
+     * Popular row itself still populates normally (just filtered, proven by the test above).
+     */
+    @Test
+    fun `a cold-start profile's hero is null even though Popular data exists`() = runTest {
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        server.enqueue(MockResponse(body = discoverMoviePageJson(listOf(38700 to "Spider-Man: No Way Home"))))
+        server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val state = viewModel(watchlistRepository).uiState.first { it.popularMovies.isNotEmpty() }
+
+        assertTrue(state.isColdStartForYou)
+        assertEquals(null, state.hero)
+    }
+
+    private fun discoverMoviePageJson(entries: List<Pair<Int, String>>): String {
+        val results = entries.joinToString(",") { (id, title) ->
+            """{"id": $id, "title": "$title", "poster_path": "/p.jpg", "release_date": "2020-01-01", "vote_average": 7.0, "popularity": 50.0}"""
+        }
+        return """{"page":1,"results":[$results],"total_pages":1,"total_results":${entries.size}}"""
+    }
+
+    /**
      * PLAN.md §7 M2f: refresh() must source region from the live preference — not the
      * compile-time GB default — and actually send it, not silently keep hitting TMDB for GB.
      */
