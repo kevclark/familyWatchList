@@ -15,6 +15,7 @@ import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
+import org.seg7.familywatchlist.data.repository.NotificationPreferencesRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -44,6 +45,7 @@ class AppContainer(context: Context) {
             AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5,
             AppDatabase.MIGRATION_5_6,
+            AppDatabase.MIGRATION_6_7,
         )
         .build()
 
@@ -96,6 +98,13 @@ class AppContainer(context: Context) {
 
     val profileSlidersRepository: ProfileSlidersRepository by lazy {
         ProfileSlidersRepository(database.profileSlidersDao())
+    }
+
+    // PLAN.md §4 "Per-profile notification control" (M3e): per-profile half of the notification
+    // gate — see NotificationPreferencesRepository's kdoc for why this is DB-backed rather than
+    // living alongside the DataStore master toggle in UserPreferencesRepository.
+    val notificationPreferencesRepository: NotificationPreferencesRepository by lazy {
+        NotificationPreferencesRepository(database.notificationPreferenceDao())
     }
 
     val ratingRepository: RatingRepository by lazy {

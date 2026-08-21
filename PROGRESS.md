@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-21 (M3d — first-class persistent Family profile — by `feature-builder`).
+Last updated: 2026-08-21 (M3e — per-profile notification control — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -846,28 +846,73 @@ one-off combinations different from the saved Family profile.
       person profile to tune personal picks — this doesn't apply to Family" while Family is
       active. Screenshots and full command transcript in the build report.
 
-## M3e — Per-profile notification control (queued, launch after M3d)
+## M3e — Per-profile notification control ✅
 
 Kev's request, 2026-08-21, confirmed already-built-in before scoping (`ShortlistNotifier`/
 `RecommendationWorker` exist from M3) — deliberately queued rather than launched alongside
 M3d since both would touch `RecommendationWorker`/`refreshAll`/Settings concurrently. Full
 spec in PLAN.md §4 "Per-profile notification control".
 
-- [ ] Settings: master notifications on/off toggle, layered on top of (not replacing) the
-      existing `POST_NOTIFICATIONS` OS permission check — both must allow it to fire
-- [ ] Settings: per-profile checkboxes (every individual + the Family profile, once M3d
-      exists) for which profiles' completed refreshes actually notify
-- [ ] Default **on** for every profile — preserves current behaviour, not an opt-in reset
-- [ ] `RecommendationWorker`/`refreshAll`'s per-profile loop (M3d) checks each profile's
-      notification preference as it finishes refreshing
-- [ ] Notification mechanism (one per enabled profile vs. a single batched notification) —
-      implementation call, document whichever is chosen
-- [ ] Tests: preference default/round-trip, notification fires/doesn't fire per the
-      master-toggle × per-profile-toggle combination, correctly scoped to whichever
-      profile(s) actually finished refreshing
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: disable notifications for one profile, confirm it doesn't fire while
-      others still do; disable the master toggle, confirm nothing fires at all
+- [x] Settings: master notifications on/off toggle, layered on top of (not replacing) the
+      existing `POST_NOTIFICATIONS` OS permission check — both must allow it to fire.
+      `UserPreferencesRepository.notificationsEnabled` (new DataStore boolean, default **true**
+      — same pattern as `accentColor`/`region`/`familyBlendSlider`)
+- [x] Settings: per-profile toggles (every individual + the Family profile, keyed by M3d's
+      `FAMILY_PROFILE_SENTINEL_ID` — reused unchanged, no second identifier scheme) for which
+      profiles' completed refreshes actually notify. New `profile_notification_prefs` table
+      (schema v6→v7, `AppDatabase.MIGRATION_6_7`, `app/schemas/.../7.json`) — a variable-
+      cardinality set (up to 10 individuals + optionally Family) doesn't fit DataStore's fixed-
+      key model, same "small companion table, no FK" precedent as `profile_sliders`
+      (`NotificationPreferenceEntity`/`Dao`/`NotificationPreferencesRepository`)
+- [x] Default **on** for every profile (and the master toggle) — a profile/master with no
+      stored value reads as enabled at the repository layer, preserving current behaviour
+      rather than a cold opt-in reset
+- [x] `RecommendationRepository.refreshAll`'s per-profile loop (M3d) now wraps each profile's
+      (and Family's) refresh independently in `runCatching` and returns exactly the
+      `ProfileRefreshResult`s that genuinely finished — **a real behaviour change beyond the
+      original ask, needed to make "don't notify a profile that failed to refresh" testable at
+      all**: the old unwrapped loop let one profile's exception propagate straight out of
+      `refreshAll`, aborting every profile still queued behind it, not just the failing one.
+      `RecommendationWorker` reads the master toggle and each completed profile's own toggle
+      (new `NotificationGate.profilesToNotify`, a pure function with no Room/DataStore/Android
+      dependency) before calling `ShortlistNotifier` at all
+- [x] **Notification mechanism, decided: one batched notification per weekly run**, not one per
+      enabled profile — e.g. "Kev's and Family's picks are ready." Reasons (full writeup on
+      `ShortlistNotifier.notifyShortlistReady`'s kdoc): (1) preserves "matches today's existing
+      behaviour exactly" for the all-on case byte-for-byte — pre-M3e there was always exactly
+      one notification per run; (2) avoids up to 11 back-to-back notifications for a full
+      10-individual + Family household every Monday morning; (3) no per-profile notification-ID
+      scheme needed, `NOTIFICATION_ID` stays a single fixed constant. An empty post-gate list
+      (master off, or every completed profile individually off) posts nothing at all rather than
+      a blank notification
+- [x] Tests: preference default/round-trip
+      (`UserPreferencesRepositoryTest` for the master toggle, `NotificationPreferencesRepositoryTest`
+      for the per-profile table including the Family sentinel id); the master × per-profile
+      combination table from the task brief, as plain JVM tests with no Robolectric
+      (`NotificationGateTest` — master off + profile on → nothing; master on + one profile off →
+      that profile excluded, others still notify; master on + all on → matches today's
+      behaviour; a profile absent from `completed` never notifies even with its own toggle on);
+      `RecommendationRepositoryTest` (`refreshAll`'s returned list carries every completed
+      profile plus Family keyed by the sentinel; a profile whose refresh throws is excluded
+      without blocking or excluding the others — forced via a real MockWebServer 500);
+      `ShortlistNotifierTest` (empty list posts nothing; 1/2/3+ name possessive-join wording;
+      a second call replaces the first under the same fixed notification id, no stacking) — 343
+      tests total, 50 classes, 0 failures
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification on-device (emulator, `-gpu swangle`, renderer confirmed via
+      `dumpsys SurfaceFlinger | grep GLES:` first) against the real pre-existing Kev/Sam/Ellie +
+      "The Family" profiles from M3d's own verification session — reinstalling over the
+      existing app data proved `MIGRATION_6_7` applies cleanly to a real populated database, not
+      just a fresh one (`profile_notification_prefs` present in `.tables` afterward, all four
+      other tables' data untouched). Settings' new NOTIFICATIONS section rendered the master
+      toggle plus one row per profile (Kev, Sam, Ellie, The Family), every switch on by default.
+      Toggled Sam's row off — switch visually flipped, and `sqlite3` confirmed
+      `profile_notification_prefs` held exactly `(2, 0)` (Sam's real `profiles.id`). Toggled the
+      master switch off — the entire per-profile list disappeared immediately (not just
+      disabled), matching "no point showing per-profile toggles for a feature that's globally
+      off." Toggled the master back on — the list reappeared with every row reading its own
+      correct last-stored value (Sam still off); re-enabled Sam and confirmed `sqlite3` showed
+      `(2, 1)`, restoring the household to its default all-on state.
 
 ## M4 — Polish
 

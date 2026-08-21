@@ -28,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -153,6 +155,14 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
         }
 
         Text(
+            text = "NOTIFICATIONS",
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+            modifier = Modifier.padding(start = Dimens.Gutter, top = 28.dp, bottom = 10.dp),
+        )
+        NotificationSettingsSection(modifier = Modifier.padding(horizontal = Dimens.Gutter))
+
+        Text(
             text = "REGION",
             style = MaterialTheme.typography.labelSmall,
             color = ChalkFaint,
@@ -240,6 +250,82 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
                 }
                 showRegionPicker = false
             },
+        )
+    }
+}
+
+/**
+ * PLAN.md §4 "Per-profile notification control" (M3e). The master toggle is always visible; the
+ * per-profile list underneath it (every individual, plus the Family profile if one exists) only
+ * renders while the master is on — PLAN.md §4's own framing: "no point showing per-profile
+ * toggles for a feature that's globally off." Turning the master off doesn't touch any
+ * per-profile row's stored value — they're just not shown, and take effect again the moment the
+ * master is switched back on.
+ */
+@Composable
+private fun NotificationSettingsSection(modifier: Modifier = Modifier) {
+    val container = LocalAppContainer.current
+    val scope = rememberCoroutineScope()
+    val masterEnabled by container.userPreferencesRepository.notificationsEnabled
+        .collectAsStateWithLifecycle(initialValue = true)
+    val profiles by container.profileRepository.observeAll()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val familyProfile by container.familyProfileRepository.observe()
+        .collectAsStateWithLifecycle(initialValue = null)
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        NotificationToggleRow(
+            title = "Weekly shortlist notifications",
+            subtitle = "Master switch — also needs notification permission to actually fire",
+            checked = masterEnabled,
+            onCheckedChange = { enabled -> scope.launch { container.userPreferencesRepository.setNotificationsEnabled(enabled) } },
+        )
+        if (masterEnabled) {
+            profiles.forEach { profile ->
+                NotificationProfileToggleRow(profileId = profile.id, name = profile.name)
+            }
+            familyProfile?.let { family ->
+                NotificationProfileToggleRow(profileId = FAMILY_PROFILE_SENTINEL_ID, name = family.profile.name)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationProfileToggleRow(profileId: Long, name: String) {
+    val container = LocalAppContainer.current
+    val scope = rememberCoroutineScope()
+    val enabled by container.notificationPreferencesRepository.observe(profileId)
+        .collectAsStateWithLifecycle(initialValue = true)
+
+    NotificationToggleRow(
+        title = name,
+        subtitle = "Notify when $name's picks are ready",
+        checked = enabled,
+        onCheckedChange = { newValue ->
+            scope.launch { container.notificationPreferencesRepository.setEnabled(profileId, newValue) }
+        },
+    )
+}
+
+@Composable
+private fun NotificationToggleRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(InkRaised)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleSmall, color = Chalk)
+            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = ChalkMuted)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(),
         )
     }
 }

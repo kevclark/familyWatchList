@@ -8,6 +8,7 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 import org.seg7.familywatchlist.data.local.dao.DiscoverCacheDao
 import org.seg7.familywatchlist.data.local.dao.FamilyProfileDao
+import org.seg7.familywatchlist.data.local.dao.NotificationPreferenceDao
 import org.seg7.familywatchlist.data.local.dao.ProfileDao
 import org.seg7.familywatchlist.data.local.dao.ProfileSlidersDao
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
@@ -21,6 +22,7 @@ import org.seg7.familywatchlist.data.local.dao.WatchlistDao
 import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
 import org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity
 import org.seg7.familywatchlist.data.local.entity.FamilyProfileMemberEntity
+import org.seg7.familywatchlist.data.local.entity.NotificationPreferenceEntity
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.ProfileSlidersEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
@@ -53,8 +55,9 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         ProfileSlidersEntity::class,
         FamilyProfileEntity::class,
         FamilyProfileMemberEntity::class,
+        NotificationPreferenceEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -71,6 +74,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun discoverCacheDao(): DiscoverCacheDao
     abstract fun profileSlidersDao(): ProfileSlidersDao
     abstract fun familyProfileDao(): FamilyProfileDao
+    abstract fun notificationPreferenceDao(): NotificationPreferenceDao
 
     companion object {
         const val NAME = "family_watchlist.db"
@@ -163,6 +167,25 @@ abstract class AppDatabase : RoomDatabase() {
                 connection.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_family_profile_members_memberProfileId` " +
                         "ON `family_profile_members` (`memberProfileId`)"
+                )
+            }
+        }
+
+        /**
+         * v6 -> v7 (PLAN.md §4 "Per-profile notification control", M3e): creates
+         * `profile_notification_prefs` — per-profile (individual or, via M3d's
+         * [FAMILY_PROFILE_SENTINEL_ID] sentinel, the Family profile) opt-out of the weekly
+         * shortlist-ready notification. No FK, same "companion table" precedent as
+         * `profile_sliders` (see [NotificationPreferenceEntity]'s kdoc). No seed data: a profile
+         * with no row here reads as enabled at the repository layer
+         * ([org.seg7.familywatchlist.data.repository.NotificationPreferencesRepository]) — the
+         * default that preserves every existing profile's current (notifying) behaviour.
+         */
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `profile_notification_prefs` (`profileId` INTEGER NOT NULL, " +
+                        "`enabled` INTEGER NOT NULL, PRIMARY KEY(`profileId`))"
                 )
             }
         }
