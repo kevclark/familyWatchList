@@ -803,31 +803,31 @@ every member. Full spec in PLAN.md §4 (new subsection right after the existing 
 paragraph). The ad-hoc "who's watching tonight?" row (M3c) is NOT replaced — it stays for
 one-off combinations different from the saved Family profile.
 
-- [ ] `FamilyProfile` + `FamilyProfileMember` entities (PLAN.md §2) — one row, 2+ members
+- [x] `FamilyProfile` + `FamilyProfileMember` entities (PLAN.md §2) — one row, 2+ members
       required, editable membership, cascades cleanly on a member's deletion
-- [ ] "+ Create family profile" reachable from the profile picker, alongside adding an
+- [x] "+ Create family profile" reachable from the profile picker, alongside adding an
       individual — pick members from existing profiles (2+), name (default "Family"), avatar
-- [ ] Selectable as the active profile exactly like a real person — sentinel-based
+- [x] Selectable as the active profile exactly like a real person — sentinel-based
       `activeProfileId` distinction (or equivalent) recommended in the plan; build agent's
       call on exact mechanism as long as every read site handles both cases unambiguously
-- [ ] Home, when Family is active, sources hero/For You from the **persisted** family
+- [x] Home, when Family is active, sources hero/For You from the **persisted** family
       shortlist (`refreshFamilyShortlist` with `persist=true`, curated membership — NOT the
       ad-hoc `persist=false` path M3c built, and NOT hardcoded to "every profile on the
       account" the way the weekly job's current default is) — reuse the existing mean/min
       blend + slider-4 + strictest-age-cap logic unchanged
-- [ ] Log-watch while Family is active writes real `WatchEventProfile` rows against every
+- [x] Log-watch while Family is active writes real `WatchEventProfile` rows against every
       member's own `Profile.id` (never against the Family profile's own id) — identical
       effect to today's manual multi-select, not new recommender logic
-- [ ] **RESOLVED by Kev, 2026-08-21** (was an open question — now locked, don't re-litigate):
+- [x] **RESOLVED by Kev, 2026-08-21** (was an open question — now locked, don't re-litigate):
       `refreshAll` refreshes every individual profile AND the Family profile (if one exists),
       each getting its own weekly shortlist exactly like any other profile — using its real
       curated membership, not a hardcoded "blend everyone" default. No separate legacy
       "everyone" fallback needs to coexist alongside the curated Family profile — if no Family
       profile has been created yet, there's simply nothing family-scoped to refresh that week
-- [ ] Tests: family-profile creation/membership CRUD, active-profile sentinel branching,
+- [x] Tests: family-profile creation/membership CRUD, active-profile sentinel branching,
       log-watch auto-tag-all-members, persisted family shortlist generation via the curated
       (not "everyone") membership
-- [ ] `./gradlew test assembleDebug` green
+- [x] `./gradlew test assembleDebug` green
 - [ ] Live verification: create a family profile from 2+ real profiles, select it as active,
       confirm Home shows a real persisted blended shortlist, log a watch under it and confirm
       every member got tagged
