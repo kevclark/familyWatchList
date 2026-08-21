@@ -56,7 +56,14 @@ Single Gradle module (`app`). No multi-module ceremony for an app this size — 
 
 ```
 Profile           id PK, name, avatarKey (preset emoji+colour), ageRatingCap TEXT?  -- e.g. "12" (UK certs U/PG/12/15/18), NULL = no cap
-                  createdAt. Hard cap: 10 profiles (enforced in repository).
+                  createdAt. Hard cap: 10 profiles (enforced in repository). Real people only —
+                  the Family profile below is a separate concept, doesn't count against this cap.
+
+FamilyProfile     id PK (effectively a singleton — "just one" per Kev, 2026-08-21), name TEXT
+                  (default "Family", editable), avatarKey, createdAt.
+FamilyProfileMember (memberProfileId) PK, FK -> Profile, cascades on member deletion (removes
+                  them from the family, doesn't delete the family profile itself). Minimum 2
+                  members to create one — a "family" of one person isn't a blend.
 
 Title             tmdbId+mediaType composite PK. mediaType MOVIE|TV. title, year,
                   posterPath, backdropPath, overview, runtimeMin, certification (UK),
@@ -187,7 +194,39 @@ so taste doesn't tunnel.
 **Family scope:** aggregate the vectors of selected profiles as
 `0.5 × mean + 0.5 × min` (least-misery blend — nothing anyone hates), and apply the
 **strictest** ageRatingCap among them. Home has a "who's watching tonight?" chip row that
-recomputes this on the fly for any subset.
+recomputes this on the fly for any subset — this is the **ad-hoc** path, stays exactly as
+built (M3c), unreplaced by the below. It's for "just these two, tonight," not the household's
+standing combination.
+
+**The Family profile (Kev, 2026-08-21) is the complementary *persistent* path** for "the same
+people, basically every time" — reachable from the profile picker (a "+ Create family
+profile" option alongside adding an individual), selectable as **the active profile** exactly
+like Kev/Sam/Ellie, with its own real Home (hero, For You, the lot).
+
+- **Membership**: picked once from existing profiles at creation (2+ required), editable
+  later. Not necessarily "everyone" — could be a deliberate subset.
+- **Mechanics reuse, not rebuild**: this already has real infrastructure. `refreshFamilyShortlist`
+  (persisted variant) and the `FAMILY_SCOPE_KEY` path already exist — built for the weekly
+  job's "everyone" default. This feature is that same mechanism, generalised to run against
+  the Family profile's *curated* membership (not hardcoded "all profiles") and reachable from
+  Home directly (not just the background weekly job), using the same mean/min blend + slider-4
+  + strictest-age-cap logic already built, unchanged.
+- **Selecting it as "active"**: needs a way to distinguish "Family is active" from a real
+  `Profile.id` in whatever currently holds `activeProfileId` — a sentinel value (e.g. a
+  reserved negative ID, since real Room auto-increment IDs are always positive) is a clean,
+  low-blast-radius way to do this without touching the `Profile` table/cap logic at all. Build
+  agent's call on exact mechanism as long as the branch ("is Family active, or a real person")
+  is unambiguous everywhere `activeProfileId` currently gets read.
+- **Logging a watch while Family is active auto-tags every member** (Kev, 2026-08-21) —
+  identical effect to manually multi-selecting everyone on the log-watch sheet today, not new
+  behaviour, just a shortcut. Writes real `WatchEventProfile` rows against each member's own
+  `Profile.id` — nothing is ever logged against the Family profile's own id, so the recommender
+  needs zero new logic to understand a "virtual" profile.
+- **Cold start** doesn't apply to Family the same way (it's never itself the subject of a watch
+  event) — its shortlist quality is only as good as its members' own logged history, same as
+  the existing ad-hoc family blend already works today.
+- Deleting a member profile removes them from the Family profile's membership (cascade), not
+  the Family profile itself.
 
 **Cold start:** < 5 watch events for a profile → popular-on-your-services (age-filtered)
 labelled "Popular on your services" instead of "For you".
