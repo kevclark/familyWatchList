@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-21 (M3c — Family Night chips + "Because you liked…" reason line — by `feature-builder`).
+Last updated: 2026-08-21 (M3d — first-class persistent Family profile — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -792,7 +792,7 @@ needed** — both already exist and are tested from M3/M3b, this is UI wiring on
       shortlist), and its correct *absence* on Batman Begins' details screen reached via
       Search
 
-## M3d — Family profile (first-class, persistent)
+## M3d — Family profile (first-class, persistent) ✅
 
 Kev's request, 2026-08-21: creating/selecting the same 4 people every visit via the ad-hoc
 chip row is tedious for a combination the household uses constantly. Confirmed design (all
@@ -828,9 +828,23 @@ one-off combinations different from the saved Family profile.
       log-watch auto-tag-all-members, persisted family shortlist generation via the curated
       (not "everyone") membership
 - [x] `./gradlew test assembleDebug` green
-- [ ] Live verification: create a family profile from 2+ real profiles, select it as active,
+- [x] Live verification: create a family profile from 2+ real profiles, select it as active,
       confirm Home shows a real persisted blended shortlist, log a watch under it and confirm
-      every member got tagged
+      every member got tagged — done on-device (emulator, `-gpu swangle`, renderer confirmed via
+      `dumpsys SurfaceFlinger` first) against 3 real pre-existing profiles (Kev/Sam/Ellie).
+      Created "The Family" (panda avatar) with members Kev+Sam via the new picker dialog;
+      on-device `sqlite3` confirmed `family_profile`/`family_profile_members` rows. Selected it
+      active — Home genuinely re-rendered as the Family profile (panda badge, "Building your
+      picks" briefly, then a real hero "Project Hail Mary" + "For You" carousel from a freshly
+      persisted `FAMILY`-scope shortlist: `sqlite3` showed exactly 30 rows under `scopeKey=
+      "FAMILY"` with real reasons, e.g. `["Science Fiction","Adventure","friendship"]`). Logged a
+      watch of Project Hail Mary from the details screen reached off that shortlist — the sheet
+      opened with **Kev and Sam already ticked, Ellie not** (auto-tag, zero manual selection);
+      saved, and `sqlite3` confirmed `watch_event_profiles` held exactly `(eventId, 1)` and
+      `(eventId, 2)` — Kev and Sam's real `profiles.id`, never Ellie (id 3) and never the -1
+      sentinel. Also confirmed Settings' "Tune my picks" row renders disabled with "Switch to a
+      person profile to tune personal picks — this doesn't apply to Family" while Family is
+      active. Screenshots and full command transcript in the build report.
 
 ## M3e — Per-profile notification control (queued, launch after M3d)
 
