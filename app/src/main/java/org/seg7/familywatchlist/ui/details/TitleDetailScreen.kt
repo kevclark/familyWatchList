@@ -82,13 +82,17 @@ import org.seg7.familywatchlist.ui.theme.OnAccent
  * into the page, the back button floats over it with no app bar behind it, and the poster
  * overlaps the seam between hero and content the way a streaming service does.
  *
- * PLAN.md §5 also lists a "Because you liked …" reason line "when reached from a shortlist".
- * M3 landed the data this needs ([org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity.reasons],
- * populated by [org.seg7.familywatchlist.data.repository.RecommendationRepository] — verified live,
- * e.g. `["John Lasseter","Animation","Comedy"]` for a real "For You" pick), but wiring it through
- * here — a route parameter carrying the reason from a shortlist card tap, decoded and rendered —
- * is **not built this milestone**, a scope decision flagged in the M3 report rather than an
- * oversight. `onOpenTitle` stays a plain `(Int, MediaType) -> Unit` everywhere for now.
+ * PLAN.md §5 also lists a "Because you liked …" reason line "when reached from a shortlist"
+ * (M3c). Rather than a route parameter carrying the reason from a shortlist card tap — which
+ * would only work when the user actually arrived via that tap, and would go stale/wrong the
+ * moment the underlying shortlist entry is dismissed or falls out of a recompute —
+ * [TitleDetailViewModel] looks up whether *this* (tmdbId, mediaType) currently has a live
+ * SUGGESTED entry in the active profile's own persisted shortlist
+ * ([org.seg7.familywatchlist.data.repository.RecommendationRepository.reasonsForShortlistEntry]).
+ * That's equivalent in practice (a title is only ever reachable from a shortlist card while it's
+ * genuinely still on that shortlist) and correct regardless of navigation path — Search/My
+ * List/History all resolve to no reason line, exactly as the plan specifies, with no extra
+ * bookkeeping needed. `onOpenTitle` stays a plain `(Int, MediaType) -> Unit` everywhere.
  */
 @Composable
 fun TitleDetailScreen(
@@ -108,6 +112,7 @@ fun TitleDetailScreen(
                     container.titleRepository,
                     container.watchlistRepository,
                     container.ratingRepository,
+                    container.recommendationRepository,
                     tmdbId,
                     mediaType,
                     activeProfileId,
@@ -198,6 +203,20 @@ fun TitleDetailScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // PLAN.md §5 screen 4: "Because you liked …" — only when this title currently has a
+            // live SUGGESTED entry in the active profile's own shortlist (see the class kdoc).
+            val reasons = state.reasons
+            if (!reasons.isNullOrEmpty()) {
+                item(key = "because-you-liked") {
+                    Text(
+                        text = "Because you liked " + reasons.joinToString(", "),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Accent,
+                        modifier = Modifier.padding(horizontal = Dimens.Gutter, vertical = 4.dp),
+                    )
                 }
             }
 

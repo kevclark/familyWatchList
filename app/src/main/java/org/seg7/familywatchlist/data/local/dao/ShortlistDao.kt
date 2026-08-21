@@ -20,6 +20,22 @@ interface ShortlistDao {
     @Query("SELECT * FROM shortlist_entries WHERE weekStart = :weekStart AND scopeKey = :scopeKey")
     suspend fun getForScope(weekStart: LocalDate, scopeKey: String): List<ShortlistEntryEntity>
 
+    /**
+     * PLAN.md §5 screen 4's "Because you liked …" reason line: the current week's still-SUGGESTED
+     * entry for one specific title under one scope (a profileId.toString(), never "FAMILY" —
+     * details is a per-profile screen), or null when this title isn't (or is no longer) part of
+     * that scope's shortlist. Used by [org.seg7.familywatchlist.data.repository.RecommendationRepository.reasonsForShortlistEntry].
+     */
+    @Query(
+        "SELECT * FROM shortlist_entries WHERE weekStart = :weekStart AND scopeKey = :scopeKey AND tmdbId = :tmdbId AND mediaType = :mediaType AND state = 'SUGGESTED' LIMIT 1"
+    )
+    suspend fun getSuggestedEntry(
+        weekStart: LocalDate,
+        scopeKey: String,
+        tmdbId: Int,
+        mediaType: org.seg7.familywatchlist.data.local.entity.MediaType,
+    ): ShortlistEntryEntity?
+
     @Query(
         "UPDATE shortlist_entries SET state = :state WHERE weekStart = :weekStart AND scopeKey = :scopeKey AND tmdbId = :tmdbId AND mediaType = :mediaType"
     )

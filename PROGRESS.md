@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-20 (M3b — configurable suggestion count — by `feature-builder`).
+Last updated: 2026-08-21 (M3c — Family Night chips + "Because you liked…" reason line — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -734,30 +734,63 @@ guaranteed permanent fix for the wider pattern (`ProfileViewModelTest`, unrelate
 by this pass, showed the same category of flake at least once during this investigation) — worth
 a dedicated pass if it recurs.
 
-## M3c — Family Night chips + "Because you liked…" reason line
+## M3c — Family Night chips + "Because you liked…" reason line ✅
 
 Kev's request, 2026-08-21: build the two pieces M3 deliberately deferred, as a standalone
 review before M4 rather than folded silently into the polish pass. **No new backend work
 needed** — both already exist and are tested from M3/M3b, this is UI wiring only:
 
-- [ ] **Family Night chip row** (Home): multi-select chips for "who's watching tonight?".
+- [x] **Family Night chip row** (Home): multi-select chips for "who's watching tonight?".
       When 2+ profiles are selected, call `RecommendationRepository.refreshFamilyShortlist`
       with `persist = false` (already built for exactly this ad-hoc case — see its kdoc) and
       show the blended results in a row on Home. Only relevant with 2+ profiles on the
       account at all — same visibility gating already established for the family-blend
-      slider (PLAN.md §4a slider 4)
-- [ ] **"Because you liked…" reason line** (title details, PLAN.md §5 screen 4): when a title
+      slider (PLAN.md §4a slider 4). `HomeViewModel` gained `profileRepository` (new
+      constructor param), a debounced (`FAMILY_NIGHT_DEBOUNCE_MS = 400`, same order of
+      magnitude as `TunePicksViewModel`'s slider debounce) trigger collecting the selected
+      profile IDs, and reads the already-stored `UserPreferencesRepository.familyBlendSlider`
+      preference — no second mechanism invented. `HomeScreen.kt`'s new `FamilyNightChipRow`
+      reuses `AvatarBadge`'s existing `selected` styling (the same accent-border language the
+      profile picker already uses) rather than inventing a new selection idiom; the "Family
+      Night" results carousel uses the exact same `PosterCarousel`/`PosterCard` components as
+      every other Home row
+- [x] **"Because you liked…" reason line** (title details, PLAN.md §5 screen 4): when a title
       details screen is reached for a title that has a current `SUGGESTED` shortlist entry
       for the active profile's scope, look it up, parse its `reasons` JSON (already persisted
       by `RecommendationRepository.reasonsFor` — top 3 attribute names, e.g.
       `["John Lasseter","Animation","Comedy"]`) and render "Because you liked …". Only shown
       when such an entry exists — not for titles reached via Search/My List/History directly,
-      matching the plan's "when reached from a shortlist" wording exactly
-- [ ] Tests: chip-row selection → correct ad-hoc family blend call; reason-line lookup
-      present/absent correctly depending on shortlist-entry existence
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification / screenshots: both features working on-device, for Kev's review
-      ahead of M4
+      matching the plan's "when reached from a shortlist" wording exactly. Implemented as a
+      live lookup on screen-open (`RecommendationRepository.reasonsForShortlistEntry`, backed
+      by new `ShortlistDao.getSuggestedEntry`) rather than a route parameter threaded from a
+      shortlist-card tap — equivalent in practice (a title is only ever reachable from a
+      shortlist card while it's genuinely still on that shortlist) and correct regardless of
+      navigation path, with no extra plumbing through every `onOpenTitle` call site. Rendered
+      as its own line in [Accent] directly under the genres line on `TitleDetailScreen`
+- [x] Tests: chip-row selection → correct ad-hoc family blend call
+      (`HomeViewModelTest`, new test proves the *exact* selected profile-ID set reaches
+      `RecommendationRepository` — by giving only one candidate profile the UP rating that
+      drives a specific `/recommendations` candidate and showing it only ever surfaces once
+      that profile is genuinely part of the selection — and that the FAMILY scope stays empty
+      in Room throughout, proving `persist = false`); reason-line lookup present/absent
+      correctly depending on shortlist-entry existence, and that it renders the real parsed
+      attribute names (new `TitleDetailViewModelTest`, 4 tests: no entry at all, a real
+      SUGGESTED entry's attribute names round-tripping through the JSON parse, a DISMISSED
+      entry for the same title staying silent, and a different profile's own-scope entry not
+      leaking across profiles)
+- [x] `./gradlew test assembleDebug` green — 294 tests, 45 classes, 0 failures;
+      `assembleDebug` clean
+- [x] Live verification / screenshots: both features working on-device against 3 real
+      pre-existing profiles (Kev/Sam/Ellie) and live TMDB data (emulator, `-gpu swangle`,
+      renderer confirmed via `dumpsys SurfaceFlinger` first) — see the build report for the
+      full screenshot set (`docs/m3c-*.png`): the chip row rendering all 3 profiles, Kev+Sam
+      selected (accent border) with a real "Family Night" carousel appearing underneath
+      (Project Hail Mary / Hoppers / Toy Story 5 / …), on-device `sqlite3` confirming
+      `shortlist_entries` held only Kev's own persisted scope throughout (no `FAMILY` row ever
+      written by the ad-hoc call), the "Because you liked John Lasseter, Animation, Comedy"
+      line on Toy Story 2's details screen (a real `SUGGESTED` entry from Kev's own
+      shortlist), and its correct *absence* on Batman Begins' details screen reached via
+      Search
 
 ## M4 — Polish
 
