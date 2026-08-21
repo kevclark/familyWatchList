@@ -3,7 +3,7 @@
 Living checklist mirroring PLAN.md §7. Update it as work lands so a cold session can resume.
 Every milestone ends with `./gradlew test assembleDebug` green.
 
-Last updated: 2026-08-21 (M3g — age-cap safety fix + cold-start intro screen — by `feature-builder`).
+Last updated: 2026-08-21 (M3h — close the uncertain-certification gap for capped profiles' Popular row/cold-start hero — by `feature-builder`).
 
 **✅ RESOLVED 2026-08-19 (`toolchain-setup`):** emulator SIGSEGV on hero/gradient-scrim
 rendering. Root-caused from a core dump to an out-of-bounds write in the emulator's deprecated
@@ -1019,26 +1019,56 @@ applies everywhere regardless of the intro-screen question. Full spec in PLAN.md
       1`) and the emulator shut down cleanly to leave the device back at the clean-slate state
       this session found it in.
 
-## M3h — Close the uncertain-certification gap for capped profiles
+## M3h — Close the uncertain-certification gap for capped profiles ✅
 
 M3g's own build flagged this and explicitly asked for sign-off rather than silently deciding
 — Kev confirmed the fix, 2026-08-21. Full spec in PLAN.md §4, "Residual gap found by M3g".
 
-- [ ] For a profile with a non-null `ageRatingCap`, the Popular row / cold-start hero require
+- [x] For a profile with a non-null `ageRatingCap`, the Popular row / cold-start hero require
       *confirmed* certification data at-or-under the cap — a title with no cached
-      certification is excluded, not passed through
-- [ ] Uncapped profiles (`ageRatingCap == null`) unaffected — no behaviour change for them
-- [ ] The warm recommender's existing "unknown ≠ unsafe" precedent is untouched everywhere
-      else — this is a targeted flip for this one path only, not a global policy change
-- [ ] No new network calls — this only narrows which already-fetched candidates qualify,
-      doesn't force certification fetches
-- [ ] Tests: a capped profile's Popular/cold-start results exclude an uncertain-certification
-      title (not just an over-cap one); an uncapped profile's results are unaffected by the
-      same uncertain-certification title; a confirmed at-or-under-cap title still survives
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: reproduce M3g's exact finding (Reacher, cert 15, uncached at the
-      time) and confirm it's now excluded from a capped profile's Popular row rather than
-      slipping through
+      certification is excluded, not passed through. New private
+      `HomeViewModel.survivesAgeCap(cap)` (`TitleEntity` extension) added at the one call site
+      in `refresh()` — `movies.filter { it.survivesAgeCap(ageCap) }` /
+      `tv.filter { it.survivesAgeCap(ageCap) }`, replacing the old
+      `filterNot { FamilyBlend.isOverCap(...) }`. Logic: `cap == null || (certification != null
+      && !FamilyBlend.isOverCap(certification, cap))`
+- [x] Uncapped profiles (`ageRatingCap == null`) unaffected — no behaviour change for them
+      (`survivesAgeCap` short-circuits `true` on the first `cap == null` check, before touching
+      certification at all)
+- [x] The warm recommender's existing "unknown ≠ unsafe" precedent is untouched everywhere
+      else — `FamilyBlend.isOverCap` itself was **not modified**; this is a targeted wrapper at
+      the one Home call site only. `RecommendationRepository`'s scoring path and
+      `SearchRepository`'s filtering (both M3g call sites) are unchanged
+- [x] No new network calls — this only narrows which already-fetched candidates qualify,
+      doesn't force certification fetches (confirmed: no new repository/API calls added,
+      `survivesAgeCap` is a pure in-memory check on already-fetched `TitleEntity` rows)
+- [x] Tests (`HomeViewModelTest`): capped-profile test updated to prove uncertain-cert is now
+      excluded (not just over-cap) while an at-cap title still survives — regression check
+      against M3g's own correctness; new dedicated test proves an *uncapped* profile's results
+      are completely unaffected by the same uncertain-certification title. `FamilyBlendTest`/
+      `SearchRepositoryTest` unchanged and still green (`isOverCap`'s own behaviour and its
+      other call sites untouched)
+- [x] `./gradlew test assembleDebug` green — 368 tests, 51 classes, 0 failures; assembleDebug
+      clean
+- [x] Live verification (emulator, `-gpu swangle`, renderer confirmed via
+      `dumpsys SurfaceFlinger | grep GLES:` — ANGLE/SwiftShader Vulkan — before trusting the
+      session) against the real "Kevu" profile. Reacher's certification ("15") has since been
+      cached from an earlier session (confirmed via `sqlite3`), so it no longer demonstrates
+      "uncertain" specifically — used **"The Last House"** (tmdbId 1284041, `certification`
+      genuinely NULL/uncached, ord=1 in the live `discover_movie` candidate pool, popularity
+      196.95 — the single most popular candidate after Spider-Man: No Way Home) as the
+      uncached-certification proof instead. Uncapped: real Home UI showed Reacher, The
+      Mentalist, and Lioness in "For You", and Spider-Man: No Way Home / **The Last House** /
+      Project Hail Mary in "Popular films on your services". Capped Kevu's `ageRatingCap` to
+      "12" via `sqlite3` + real app restart (force-stop, relaunch, real `HomeViewModel.refresh()`
+      firing through the real UI, not a direct DB read) — every one of those rows, including The
+      Last House, vanished entirely: Reacher/Lioness are confirmed over-cap ("15" > "12"), and
+      every remaining candidate (The Mentalist, The Last House, Project Hail Mary, Silo, Family
+      Guy, etc.) had no cached certification at all, so with the fix landed **none** of the
+      currently-cached candidate pool has a confirmed at-or-under-12 certification — a real,
+      live instance of the spec's anticipated "showing nothing is a fine outcome" case, not a
+      contrived one. Cap reverted to `NULL` afterward and the emulator shut down cleanly.
+      Screenshots: `docs/m3h-live-01..06-*.png`.
 
 ## M4 — Polish
 
