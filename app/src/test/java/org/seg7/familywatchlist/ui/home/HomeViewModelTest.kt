@@ -20,10 +20,13 @@ import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProviderEntity
+import org.seg7.familywatchlist.data.local.entity.RatingEntity
+import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -58,6 +61,7 @@ class HomeViewModelTest {
     private lateinit var userPreferencesRepository: UserPreferencesRepository
     private lateinit var recommendationRepository: RecommendationRepository
     private lateinit var titleRepository: TitleRepository
+    private lateinit var profileRepository: ProfileRepository
 
     private val profileId = 7L
 
@@ -75,6 +79,7 @@ class HomeViewModelTest {
             PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("home_vm_prefs_${System.nanoTime()}") }),
         )
         titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        profileRepository = ProfileRepository(db.profileDao(), clock)
         recommendationRepository = RecommendationRepository(
             watchEventDao = db.watchEventDao(),
             ratingDao = db.ratingDao(),
@@ -83,7 +88,7 @@ class HomeViewModelTest {
             titleRepository = titleRepository,
             discoverRepository = discoverRepository,
             providerRepository = providerRepository,
-            profileRepository = ProfileRepository(db.profileDao(), clock),
+            profileRepository = profileRepository,
             profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
             shortlistDao = db.shortlistDao(),
             clock = clock,
@@ -115,6 +120,7 @@ class HomeViewModelTest {
             userPreferencesRepository,
             recommendationRepository,
             titleRepository,
+            profileRepository,
             profileId,
         )
 
@@ -230,5 +236,70 @@ class HomeViewModelTest {
         val tvRequest = server.takeRequest()
         assertTrue(movieRequest.target.contains("watch_region=US"))
         assertTrue(tvRequest.target.contains("watch_region=US"))
+    }
+
+    /**
+     * M3c: the who's-watching chip row's selection is what actually reaches
+     * [RecommendationRepository.refreshFamilyShortlist] — proven by giving only profile B the UP
+     * rating that drives a `/recommendations` hit for a specific candidate (999), then showing
+     * that candidate only ever surfaces in [HomeUiState.familyNightTitles] once B is genuinely
+     * part of the current selection, never for a same-size selection that excludes B. `persist =
+     * false` is proven by the FAMILY scope staying empty in Room throughout — a mistaken
+     * `persist = true` call would show up there.
+     */
+    @Test
+    fun `selecting 2+ profiles triggers the ad-hoc family blend with exactly those profile IDs, and never persists`() = runTest {
+        val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
+        val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
+        val c = profileRepository.addProfile("C", "avatar", null).getOrThrow()
+        db.ratingDao().upsert(RatingEntity(b, 1, MediaType.MOVIE, RatingValue.UP, clock.current))
+        server.enqueue(
+            MockResponse(
+                body = """
+                    {"page":1,"results":[{"id":999,"title":"Family Pick","poster_path":"/p.jpg","release_date":"2026-08-01","vote_average":8.0,"vote_count":500,"popularity":50.0}],"total_pages":1,"total_results":1}
+                """.trimIndent()
+            )
+        )
+        server.enqueue(
+            MockResponse(
+                body = """
+                    {"id":999,"title":"Family Pick","release_date":"2026-08-01","runtime":100,"vote_average":8.0,"vote_count":500,"popularity":50.0,
+                     "genres":[{"id":35,"name":"Comedy"}],"credits":{"cast":[],"crew":[]},"keywords":{"keywords":[]},"videos":{"results":[]},
+                     "watch/providers":{"results":{}},
+                     "release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"PG","type":3,"release_date":"2026-08-01T00:00:00.000Z"}]}]}}
+                """.trimIndent()
+            )
+        )
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val vm = viewModel(watchlistRepository)
+        vm.uiState.first { it.familyNightProfiles.size == 3 }
+
+        // Fewer than 2 selected: the < 2 gate is a hard code-level branch (never even reaches
+        // RecommendationRepository), so this holds regardless of how much time has passed.
+        vm.toggleFamilyNightProfile(a)
+        assertEquals(setOf(a), vm.uiState.first { it.familyNightSelectedIds == setOf(a) }.familyNightSelectedIds)
+        assertEquals(0, server.requestCount)
+
+        // A + C (neither carries the UP rating that drives the recommendation candidate, and
+        // nothing is subscribed) then swap C for B — all before ever awaiting anything, so the
+        // debounce coalesces every toggle here into a single compute of whatever the selection
+        // is once we finally await it: {A, B}. Waiting on the *titles* actually appearing (not
+        // just the selection updating) forces a real wait for refreshFamilyShortlist's full
+        // round trip through B's UP rating -> /recommendations -> detail fetch -> scoring.
+        vm.toggleFamilyNightProfile(c)
+        vm.toggleFamilyNightProfile(c)
+        vm.toggleFamilyNightProfile(b)
+        val finalState = vm.uiState.first { it.familyNightTitles.isNotEmpty() }
+
+        assertEquals(setOf(a, b), finalState.familyNightSelectedIds)
+        assertEquals(listOf(999), finalState.familyNightTitles.map { it.tmdbId })
+        // Exactly one /recommendations + one detail fetch — proving the transient A+C selection
+        // never itself triggered a network round trip (it would have consumed one of these two
+        // enqueued responses, leaving too few for the real {A, B} compute to succeed at all).
+        assertEquals(2, server.requestCount)
+
+        val weekStart = recommendationRepository.currentWeekStart()
+        assertEquals(emptyList<Any>(), db.shortlistDao().getForScope(weekStart, FAMILY_SCOPE_KEY))
     }
 }

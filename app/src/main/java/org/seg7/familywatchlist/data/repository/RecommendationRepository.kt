@@ -12,6 +12,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.seg7.familywatchlist.common.AppClock
 import org.seg7.familywatchlist.common.today
 import org.seg7.familywatchlist.data.local.dao.RatingDao
@@ -188,6 +191,26 @@ class RecommendationRepository(
 
     /** A stable, order-independent key for an ad-hoc who's-watching subset — never persisted, only used to exclude that subset's own this-session dismissals if the UI ever adds that. */
     private fun adHocScopeKey(profileIds: List<Long>): String = "AD_HOC:" + profileIds.sorted().joinToString(",")
+
+    /**
+     * PLAN.md §5 screen 4: "Because you liked …" reason line — present only when [tmdbId]/
+     * [mediaType] has a current, still-SUGGESTED entry in [profileId]'s *own* persisted shortlist
+     * (scopeKey = profileId.toString(); the FAMILY scope is deliberately never consulted here —
+     * details is a per-profile screen, and the who's-watching chip row's ad-hoc blends are never
+     * persisted in the first place, so they could never be looked up this way even if we wanted
+     * to). Returns null (render nothing) when there's no such entry — reached via Search/My
+     * List/History, or a title that was suggested earlier but has since been dismissed, watched,
+     * or simply didn't make this week's recompute.
+     */
+    suspend fun reasonsForShortlistEntry(profileId: Long, tmdbId: Int, mediaType: MediaType): List<String>? {
+        val entry = shortlistDao.getSuggestedEntry(currentWeekStart(), profileId.toString(), tmdbId, mediaType) ?: return null
+        return parseReasons(entry.reasons)
+    }
+
+    /** The exact inverse of [reasonsFor]'s `Json.encodeToString(JsonArray.serializer(), ...)` output. */
+    private fun parseReasons(json: String): List<String> =
+        runCatching { Json.parseToJsonElement(json).jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull } }
+            .getOrDefault(emptyList())
 
     private suspend fun persistShortlist(
         assembled: List<ShortlistSlot>,

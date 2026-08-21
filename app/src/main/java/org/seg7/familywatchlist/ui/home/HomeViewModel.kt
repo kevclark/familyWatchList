@@ -2,17 +2,23 @@ package org.seg7.familywatchlist.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
@@ -45,10 +51,20 @@ import org.seg7.familywatchlist.data.repository.WatchlistRepository
  * before for cold-start profiles or while the very first shortlist is still computing — a
  * documented, deliberate fallback rather than showing nothing.
  *
- * *Family Night* (the family-scope row + who's-watching chips) is not built in this pass —
- * [RecommendationRepository.refreshFamilyShortlist] exists and is tested, but Home doesn't call
- * it yet. Flagged in this milestone's report as a scope decision, not an oversight.
+ * ## Family Night (M3c)
+ * The who's-watching chip row: [familyNightProfiles] lists every profile on the account (chip row
+ * only ever rendered by [org.seg7.familywatchlist.ui.home.HomeScreen] once there are 2+ — same
+ * gating PLAN.md §4a slider 4 established, reused as-is rather than reinvented); tapping a chip
+ * toggles it in/out of [_familyNightSelection]. Fewer than 2 selected means the row has nothing
+ * meaningful to blend, so [familyNightTrigger]'s handler leaves [_familyNightTitles] empty without
+ * touching the network or [RecommendationRepository] at all. 2+ selected debounces (mirroring
+ * [org.seg7.familywatchlist.ui.tune.TunePicksViewModel]'s slider-recompute pattern — don't refire
+ * on every rapid tap) into [RecommendationRepository.refreshFamilyShortlist] with `persist =
+ * false` — the ad-hoc, non-persisted path that method's kdoc documents as built specifically for
+ * this chip row — using the shared family-blend-slider preference already stored from M3
+ * ([UserPreferencesRepository.familyBlendSlider]), not a second mechanism.
  */
+@OptIn(FlowPreview::class)
 class HomeViewModel(
     private val discoverRepository: DiscoverRepository,
     private val providerRepository: ProviderRepository,
@@ -56,11 +72,18 @@ class HomeViewModel(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val recommendationRepository: RecommendationRepository,
     private val titleRepository: TitleRepository,
+    private val profileRepository: ProfileRepository,
     private val activeProfileId: Long,
 ) : ViewModel() {
 
     private val _discover = MutableStateFlow(DiscoverState())
     private val _coldStart = MutableStateFlow(true)
+
+    private val familyNightProfiles: StateFlow<List<ProfileEntity>> =
+        profileRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _familyNightSelection = MutableStateFlow<Set<Long>>(emptySet())
+    private val _familyNightTitles = MutableStateFlow<List<TitleEntity>>(emptyList())
+    private val familyNightTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     // PLAN.md §7 M2f: live region Flow, not a one-shot read — a region change made in Settings
     // re-resolves every My List card's availability immediately if Home is already open.
@@ -73,7 +96,28 @@ class HomeViewModel(
         recommendationRepository.observeShortlist(recommendationRepository.currentWeekStart(), activeProfileId.toString())
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val uiState: StateFlow<HomeUiState> = combine(myList, _discover, forYouShortlist, _coldStart) { list, discover, shortlist, coldStart ->
+    private data class HomeCore(
+        val myList: List<WatchlistItemAvailability>,
+        val discover: DiscoverState,
+        val shortlist: List<ShortlistEntryEntity>,
+        val coldStart: Boolean,
+    )
+
+    private data class FamilyNightState(
+        val profiles: List<ProfileEntity>,
+        val selectedIds: Set<Long>,
+        val titles: List<TitleEntity>,
+    )
+
+    val uiState: StateFlow<HomeUiState> = combine(
+        combine(myList, _discover, forYouShortlist, _coldStart) { list, discover, shortlist, coldStart ->
+            HomeCore(list, discover, shortlist, coldStart)
+        },
+        combine(familyNightProfiles, _familyNightSelection, _familyNightTitles) { profiles, selectedIds, titles ->
+            FamilyNightState(profiles, selectedIds, titles)
+        },
+    ) { core, family ->
+        val (list, discover, shortlist, coldStart) = core
         // Shortlist entries carry only (tmdbId, mediaType, score) — resolve to cached TitleEntity
         // rows for rendering. Offline-first: every shortlisted candidate was already detail-fetched
         // while scoring, so this is a plain cache read, no network.
@@ -89,6 +133,9 @@ class HomeViewModel(
             popularTv = discover.tv,
             forYouTitles = forYouTitles,
             isColdStartForYou = coldStart,
+            familyNightProfiles = family.profiles,
+            familyNightSelectedIds = family.selectedIds,
+            familyNightTitles = family.titles,
             // PLAN.md §4's 2026-08-19 design note: the top-scored personalised pick, not raw
             // popularity — falling back to the same "popular on your services" pick only when
             // there's genuinely no personalised data yet (cold start / shortlist still empty).
@@ -101,6 +148,40 @@ class HomeViewModel(
 
     init {
         refresh()
+        viewModelScope.launch {
+            familyNightTrigger.debounce(FAMILY_NIGHT_DEBOUNCE_MS).collect {
+                val selected = _familyNightSelection.value
+                // PLAN.md §5 screen 3 / §4a slider 4's UI-home decision: a blend only makes sense
+                // for 2+ people. Below that, leave the row's data empty rather than calling
+                // RecommendationRepository at all — HomeScreen hides the row itself on this same
+                // condition, but this is the load-bearing gate (not just a UI nicety).
+                if (selected.size < 2) {
+                    _familyNightTitles.value = emptyList()
+                    return@collect
+                }
+                runCatching {
+                    val region = userPreferencesRepository.region.first()
+                    val slider = FamilyBlendSlider(userPreferencesRepository.familyBlendSlider.first())
+                    val entries = recommendationRepository.refreshFamilyShortlist(
+                        profileIds = selected.toList(),
+                        region = region,
+                        familyBlendSlider = slider,
+                        persist = false,
+                    )
+                    val byKey = titleRepository.getTitles(entries.map { it.tmdbId to it.mediaType }).associateBy { it.tmdbId to it.mediaType }
+                    entries.sortedByDescending { it.score }.mapNotNull { byKey[it.tmdbId to it.mediaType] }
+                }.onSuccess { _familyNightTitles.value = it }
+                    .onFailure { _familyNightTitles.value = emptyList() }
+            }
+        }
+    }
+
+    /** Toggles one profile in/out of the who's-watching selection and (re)triggers the debounced ad-hoc family blend. */
+    fun toggleFamilyNightProfile(profileId: Long) {
+        _familyNightSelection.value = _familyNightSelection.value.let { current ->
+            if (profileId in current) current - profileId else current + profileId
+        }
+        familyNightTrigger.tryEmit(Unit)
     }
 
     /**
@@ -170,6 +251,11 @@ class HomeViewModel(
         val error: String? = null,
         val hasSubscribedServices: Boolean = false,
     )
+
+    companion object {
+        /** Same order of magnitude as [org.seg7.familywatchlist.ui.tune.TunePicksViewModel.RECOMPUTE_DEBOUNCE_MS] — don't refire on every rapid chip tap. */
+        const val FAMILY_NIGHT_DEBOUNCE_MS = 400L
+    }
 }
 
 data class HomeUiState(
@@ -180,10 +266,17 @@ data class HomeUiState(
     val forYouTitles: List<TitleEntity> = emptyList(),
     /** True until the profile crosses PLAN.md §4's 5-event cold-start threshold. */
     val isColdStartForYou: Boolean = true,
+    /** Every profile on the account — the who's-watching chip row's source list. */
+    val familyNightProfiles: List<ProfileEntity> = emptyList(),
+    val familyNightSelectedIds: Set<Long> = emptySet(),
+    /** The ad-hoc, non-persisted blend for [familyNightSelectedIds] — only ever non-empty once 2+ are selected. */
+    val familyNightTitles: List<TitleEntity> = emptyList(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val hasSubscribedServices: Boolean = false,
 ) {
+    /** PLAN.md §4a slider 4's UI-home decision, reused verbatim: the chip row itself is only relevant with 2+ profiles on the account at all. */
+    val familyNightChipsVisible: Boolean get() = familyNightProfiles.size >= 2
     /** True when there is genuinely nothing to render — drives the first-run empty state. */
     val isEmpty: Boolean
         get() = hero == null && myList.isEmpty() && popularMovies.isEmpty() && popularTv.isEmpty() && forYouTitles.isEmpty()

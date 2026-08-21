@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -91,6 +94,7 @@ fun HomeScreen(
                     container.userPreferencesRepository,
                     container.recommendationRepository,
                     container.titleRepository,
+                    container.profileRepository,
                     activeProfile.id,
                 )
             }
@@ -143,6 +147,35 @@ fun HomeScreen(
 
             item(key = "for-you") {
                 ForYouRow(state = state, onOpenTitle = onOpenTitle, onOpenSearch = onOpenSearch)
+            }
+
+            // PLAN.md §5 screen 3 / §4a slider 4: the who's-watching chip row + blended Family
+            // Night carousel — only relevant at all with 2+ profiles on the account (same gating
+            // the family-blend slider already established), and the results row itself only once
+            // 2+ chips are actually selected.
+            if (state.familyNightChipsVisible) {
+                item(key = "family-night-chips") {
+                    FamilyNightChipRow(
+                        profiles = state.familyNightProfiles,
+                        selectedIds = state.familyNightSelectedIds,
+                        onToggle = viewModel::toggleFamilyNightProfile,
+                    )
+                }
+            }
+            if (state.familyNightSelectedIds.size >= 2 && state.familyNightTitles.isNotEmpty()) {
+                item(key = "family-night-row") {
+                    PosterCarousel(
+                        title = "Family Night",
+                        items = state.familyNightTitles,
+                        key = { "family-${it.mediaType}-${it.tmdbId}" },
+                    ) { title ->
+                        PosterCard(
+                            title = title.title,
+                            posterPath = title.posterPath,
+                            onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+                        )
+                    }
+                }
             }
 
             item(key = "popular-movies") {
@@ -414,6 +447,50 @@ private fun ForYouRow(state: HomeUiState, onOpenTitle: (Int, MediaType) -> Unit,
             posterPath = title.posterPath,
             onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
         )
+    }
+}
+
+/**
+ * PLAN.md §5 screen 3: "Family night (with who's-watching chips)". Reuses [AvatarBadge]'s
+ * existing `selected` styling (an [Accent] border) — the same visual language the profile picker
+ * already uses for "which one is active", so a selected chip here reads consistently rather than
+ * inventing a second selection idiom.
+ */
+@Composable
+private fun FamilyNightChipRow(
+    profiles: List<ProfileEntity>,
+    selectedIds: Set<Long>,
+    onToggle: (Long) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(title = "Who's watching tonight?")
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = Dimens.Gutter),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            items(profiles, key = { it.id }) { profile ->
+                val selected = profile.id in selectedIds
+                Column(
+                    modifier = Modifier.width(64.dp).clickableNoRipple { onToggle(profile.id) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    AvatarBadge(
+                        option = avatarKeyToOption(profile.avatarKey),
+                        size = 48.dp,
+                        selected = selected,
+                        name = profile.name,
+                    )
+                    Text(
+                        text = profile.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) Accent else ChalkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }
 

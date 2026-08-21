@@ -18,6 +18,7 @@ import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.RatingRepository
+import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistAddResult
@@ -32,6 +33,12 @@ data class TitleDetailUiState(
     val isListed: Boolean = false,
     /** The *active* profile's thumbs on this title; null means no opinion recorded. */
     val myRating: RatingValue? = null,
+    /**
+     * PLAN.md §5 screen 4: "Because you liked …" reason line. Up to 3 attribute names, or null
+     * when this title has no current SUGGESTED shortlist entry for the active profile's own scope
+     * — see [RecommendationRepository.reasonsForShortlistEntry]'s kdoc for exactly when that is.
+     */
+    val reasons: List<String>? = null,
     val isRefreshing: Boolean = false,
     val errorMessage: String? = null,
 )
@@ -55,6 +62,7 @@ class TitleDetailViewModel(
     private val titleRepository: TitleRepository,
     private val watchlistRepository: WatchlistRepository,
     private val ratingRepository: RatingRepository,
+    private val recommendationRepository: RecommendationRepository,
     private val tmdbId: Int,
     private val mediaType: MediaType,
     private val activeProfileId: Long,
@@ -66,6 +74,11 @@ class TitleDetailViewModel(
     private val _events = MutableSharedFlow<TitleDetailUiEvent>()
     val events = _events.asSharedFlow()
 
+    // A plain one-shot read, not a live Room Flow: the shortlist itself only ever changes via an
+    // explicit refresh (Home's pull-to-refresh, a slider recompute), never while this screen sits
+    // open, so there's no live source worth observing here.
+    private val _reasons = MutableStateFlow<List<String>?>(null)
+
     val uiState: StateFlow<TitleDetailUiState> = combine(
         titleRepository.observeTitle(tmdbId, mediaType),
         titleRepository.observeAttributes(tmdbId, mediaType),
@@ -75,8 +88,9 @@ class TitleDetailViewModel(
             ratingRepository.observeForTitle(tmdbId, mediaType),
             _refreshing,
             _error,
-        ) { ratings, refreshing, error -> Triple(ratings, refreshing, error) },
-    ) { title, attributes, availability, isListed, (ratings, refreshing, error) ->
+            _reasons,
+        ) { ratings, refreshing, error, reasons -> DetailMeta(ratings, refreshing, error, reasons) },
+    ) { title, attributes, availability, isListed, meta ->
         TitleDetailUiState(
             title = title,
             genres = attributes.named(AttrType.GENRE),
@@ -84,15 +98,26 @@ class TitleDetailViewModel(
             crew = attributes.named(AttrType.CREW),
             availability = availability,
             isListed = isListed,
-            myRating = ratings[activeProfileId],
-            isRefreshing = refreshing,
-            errorMessage = error,
+            myRating = meta.ratings[activeProfileId],
+            reasons = meta.reasons,
+            isRefreshing = meta.refreshing,
+            errorMessage = meta.error,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TitleDetailUiState(isRefreshing = true))
 
     init {
         refresh()
+        viewModelScope.launch {
+            _reasons.value = recommendationRepository.reasonsForShortlistEntry(activeProfileId, tmdbId, mediaType)
+        }
     }
+
+    private data class DetailMeta(
+        val ratings: Map<Long, RatingValue>,
+        val refreshing: Boolean,
+        val error: String?,
+        val reasons: List<String>?,
+    )
 
     fun refresh() {
         viewModelScope.launch {
