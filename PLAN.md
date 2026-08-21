@@ -231,6 +231,31 @@ like Kev/Sam/Ellie, with its own real Home (hero, For You, the lot).
 **Cold start:** < 5 watch events for a profile → popular-on-your-services (age-filtered)
 labelled "Popular on your services" instead of "For you".
 
+**Age-cap safety gap, found and confirmed 2026-08-21, fix is non-negotiable regardless of
+anything else in this section:** the "(age-filtered)" promise above was never actually
+implemented. `DiscoverRepository.discoverMovies`/`discoverTv` — which power both the Popular
+row and the cold-start hero fallback — apply **zero** age-rating filtering; the only place
+age-cap exclusion exists is inside `RecommendationRepository`'s warm-profile scoring path,
+which a cold-start profile never reaches. Concretely: a child's profile could currently be
+shown an 18-rated title as its "recommendation." **Fix**: reuse the existing cert-rank
+check already built for the real recommender (`RecommendationRepository`/`FamilyBlend` —
+don't write a second implementation of "is this title over this profile's cap") and apply it
+everywhere a title is surfaced for a specific profile scope. Audit, don't assume just these
+two call sites are affected — check Search, the ad-hoc Family Night blend (M3c), and the
+watchlist add-gate (M2d) for the same gap while this is being fixed, and close any found using
+the same shared check.
+
+**Cold-start Home treatment (Kev, 2026-08-21).** The hero previously fell back to
+`discover.movies.firstOrNull()` for a cold-start profile — a title masquerading as "your
+pick" when it's just popularity, with no visual distinction from a real personalised hero
+(only a small row label underneath told them apart). Replaced: for a cold-start profile,
+**the hero area itself becomes an introductory/"getting started" panel** — no movie backdrop,
+no implied recommendation, explanatory copy (something like "Log a few things you've watched
+or add to your list, and we'll start finding what's next") with a CTA into Search. The
+"Popular on your services" row **stays** below it — Kev confirmed genuinely useful browsing
+content is worth keeping for a new profile, it just needed the age-cap fix above and to never
+be presented as if it were personalised.
+
 **Refresh & notification:** WorkManager weekly (**configurable day/time, default Friday
 06:00** — see "Configurable schedule" below; was a hardcoded Monday 06:00 through M3e,
 unmetered-preferred) regenerates shortlists + refreshes provider TTLs, then posts a local
