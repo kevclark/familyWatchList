@@ -120,6 +120,7 @@ class AppContainer(context: Context) {
             providerRepository = providerRepository,
             profileRepository = profileRepository,
             profileSlidersRepository = profileSlidersRepository,
+            familyProfileRepository = familyProfileRepository,
             shortlistDao = database.shortlistDao(),
             clock = clock,
         )

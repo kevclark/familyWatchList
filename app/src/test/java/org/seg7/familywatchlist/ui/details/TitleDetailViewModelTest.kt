@@ -22,6 +22,7 @@ import org.seg7.familywatchlist.data.local.entity.ShortlistState
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -84,6 +85,7 @@ class TitleDetailViewModelTest {
             providerRepository = providerRepository,
             profileRepository = ProfileRepository(db.profileDao(), clock),
             profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
+            familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock),
             shortlistDao = db.shortlistDao(),
             clock = clock,
         )
