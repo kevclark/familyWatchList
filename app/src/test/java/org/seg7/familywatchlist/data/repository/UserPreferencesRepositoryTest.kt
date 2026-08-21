@@ -2,9 +2,11 @@ package org.seg7.familywatchlist.data.repository
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.doublePreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
+import java.time.DayOfWeek
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -199,5 +201,62 @@ class UserPreferencesRepositoryTest {
 
         repo.setNotificationsEnabled(true)
         assertTrue(repo.notificationsEnabled.first())
+    }
+
+    /** PLAN.md §4 "Configurable schedule" (M3f): Friday 06:00, replacing the old Monday 06:00 hardcoded literal. */
+    @Test
+    fun `refresh schedule defaults to Friday 06 00`() = runTest {
+        val repo = newRepo("prefs_refresh_schedule_defaults")
+
+        assertEquals(DayOfWeek.FRIDAY, repo.refreshDayOfWeek.first())
+        assertEquals(6, repo.refreshHour.first())
+    }
+
+    @Test
+    fun `setRefreshSchedule round-trips a non-default day and hour`() = runTest {
+        val repo = newRepo("prefs_refresh_schedule_roundtrip")
+
+        repo.setRefreshSchedule(DayOfWeek.TUESDAY, 9)
+
+        assertEquals(DayOfWeek.TUESDAY, repo.refreshDayOfWeek.first())
+        assertEquals(9, repo.refreshHour.first())
+    }
+
+    @Test
+    fun `setRefreshSchedule round-trips for every day of the week`() = runTest {
+        val repo = newRepo("prefs_refresh_schedule_every_day")
+
+        for (day in DayOfWeek.entries) {
+            repo.setRefreshSchedule(day, 6)
+            assertEquals(day, repo.refreshDayOfWeek.first())
+        }
+    }
+
+    @Test
+    fun `setRefreshSchedule rejects an out-of-range hour`() = runTest {
+        val repo = newRepo("prefs_refresh_schedule_reject")
+
+        try {
+            repo.setRefreshSchedule(DayOfWeek.FRIDAY, 24)
+            assertTrue("expected IllegalArgumentException", false)
+        } catch (expected: IllegalArgumentException) {
+            // expected
+        }
+    }
+
+    @Test
+    fun `refreshDayOfWeek falls back to the default on a corrupted stored value`() = runTest {
+        val (repo, dataStore) = newRepoAndStore("prefs_refresh_day_corrupt")
+        dataStore.updateData { it.toMutablePreferences().apply { this[stringPreferencesKey("refresh_day_of_week")] = "not-a-day" } }
+
+        assertEquals(DayOfWeek.FRIDAY, repo.refreshDayOfWeek.first())
+    }
+
+    @Test
+    fun `refreshHour falls back to the default on an out-of-range stored value`() = runTest {
+        val (repo, dataStore) = newRepoAndStore("prefs_refresh_hour_corrupt")
+        dataStore.updateData { it.toMutablePreferences().apply { this[intPreferencesKey("refresh_hour")] = 99 } }
+
+        assertEquals(6, repo.refreshHour.first())
     }
 }

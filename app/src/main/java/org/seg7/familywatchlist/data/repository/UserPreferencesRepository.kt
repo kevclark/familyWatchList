@@ -5,8 +5,10 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import java.time.DayOfWeek
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.seg7.familywatchlist.data.remote.TmdbApi
@@ -118,6 +120,50 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
     }
 
     /**
+     * PLAN.md §4 "Configurable schedule" (M3f): the weekly refresh's day-of-week, default
+     * [DEFAULT_REFRESH_DAY_OF_WEEK] (Friday). Was a hardcoded `DayOfWeek.MONDAY` literal in
+     * [org.seg7.familywatchlist.work.RecommendationScheduler] through M3e — this is the first
+     * time it's a real preference. Stored as the enum's name, same defensive fallback-on-garbage
+     * posture as [accentColor]: an unrecognised or missing value falls back to the default rather
+     * than crashing.
+     *
+     * Writing this alone does **not** move the underlying WorkManager job — see
+     * [org.seg7.familywatchlist.work.RecommendationScheduler.rescheduleForSettingsChange]'s kdoc
+     * for why a distinct reschedule call is required from wherever this is written, and
+     * [setRefreshSchedule]'s kdoc for why that call doesn't live here.
+     */
+    val refreshDayOfWeek: Flow<DayOfWeek> =
+        dataStore.data.map { prefs ->
+            prefs[REFRESH_DAY_OF_WEEK]?.let { raw -> runCatching { DayOfWeek.valueOf(raw) }.getOrNull() }
+                ?: DEFAULT_REFRESH_DAY_OF_WEEK
+        }
+
+    /**
+     * PLAN.md §4 "Configurable schedule" (M3f): the weekly refresh's hour-of-day (0-23, always
+     * `:00` — no minute granularity, matching the existing convention), default
+     * [DEFAULT_REFRESH_HOUR]. An out-of-range or missing stored value falls back to the default.
+     */
+    val refreshHour: Flow<Int> =
+        dataStore.data.map { prefs -> prefs[REFRESH_HOUR]?.takeIf { it in 0..23 } ?: DEFAULT_REFRESH_HOUR }
+
+    /**
+     * Persists the new weekly-refresh day/hour. Deliberately just a DataStore write, like every
+     * other setter in this file — it has no [android.content.Context], so it can't itself call
+     * [org.seg7.familywatchlist.work.RecommendationScheduler.rescheduleForSettingsChange] (which
+     * needs one to reach `WorkManager.getInstance`). The caller — [ui.settings.SettingsScreen]'s
+     * schedule row — is responsible for calling both this and `rescheduleForSettingsChange` when
+     * the user picks a new day/hour; skipping the latter would leave the new preference stored
+     * but silently inert while the old WorkManager schedule keeps running underneath it.
+     */
+    suspend fun setRefreshSchedule(dayOfWeek: DayOfWeek, hour: Int) {
+        require(hour in 0..23) { "refresh hour must be in 0..23, was $hour" }
+        dataStore.edit { prefs ->
+            prefs[REFRESH_DAY_OF_WEEK] = dayOfWeek.name
+            prefs[REFRESH_HOUR] = hour
+        }
+    }
+
+    /**
      * PLAN.md §4a slider 4 ("Everyone's happy" <-> "Average taste wins"): the family mean/min
      * blend, stored as a **shared, app-level** preference rather than per-profile.
      *
@@ -197,6 +243,10 @@ class UserPreferencesRepository(private val dataStore: DataStore<Preferences>) {
         val NOTIFICATION_PERMISSION_REQUESTED: Preferences.Key<Boolean> =
             booleanPreferencesKey("notification_permission_requested")
         val NOTIFICATIONS_ENABLED: Preferences.Key<Boolean> = booleanPreferencesKey("notifications_enabled")
+        val REFRESH_DAY_OF_WEEK: Preferences.Key<String> = stringPreferencesKey("refresh_day_of_week")
+        val REFRESH_HOUR: Preferences.Key<Int> = intPreferencesKey("refresh_hour")
         const val DEFAULT_REGION: String = TmdbApi.REGION_GB
+        val DEFAULT_REFRESH_DAY_OF_WEEK: DayOfWeek = DayOfWeek.FRIDAY
+        const val DEFAULT_REFRESH_HOUR: Int = 6
     }
 }

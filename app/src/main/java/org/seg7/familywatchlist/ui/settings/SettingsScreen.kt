@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,18 +46,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.time.DayOfWeek
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.repository.AccentColor
 import org.seg7.familywatchlist.data.repository.RegionOption
+import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.di.AppContainer
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
@@ -69,6 +76,7 @@ import org.seg7.familywatchlist.ui.theme.InkHairline
 import org.seg7.familywatchlist.ui.theme.InkRaised
 import org.seg7.familywatchlist.ui.theme.displayName
 import org.seg7.familywatchlist.ui.theme.toColor
+import org.seg7.familywatchlist.work.RecommendationScheduler
 
 /**
  * PLAN.md §5 screen 8. Services toggles, JSON backup/restore and full profile management are
@@ -161,6 +169,14 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
             modifier = Modifier.padding(start = Dimens.Gutter, top = 28.dp, bottom = 10.dp),
         )
         NotificationSettingsSection(modifier = Modifier.padding(horizontal = Dimens.Gutter))
+
+        Text(
+            text = "SCHEDULE",
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+            modifier = Modifier.padding(start = Dimens.Gutter, top = 28.dp, bottom = 10.dp),
+        )
+        ScheduleSettingsSection(modifier = Modifier.padding(horizontal = Dimens.Gutter))
 
         Text(
             text = "REGION",
@@ -327,6 +343,123 @@ private fun NotificationToggleRow(title: String, subtitle: String, checked: Bool
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(),
         )
+    }
+}
+
+/**
+ * PLAN.md §4 "Configurable schedule" (M3f). Two simple dropdown rows — day-of-week and
+ * hour-of-day, no minute granularity per the plan's explicit "don't over-build a full
+ * time-of-day picker" call. Picking either one both persists the preference
+ * ([UserPreferencesRepository.setRefreshSchedule]) *and* triggers
+ * [RecommendationScheduler.rescheduleForSettingsChange] — the critical-correctness half of M3f:
+ * writing the preference alone would leave the previously-scheduled `KEEP`-enqueued WorkManager
+ * job running untouched (see that function's kdoc). Both happen from the same `launch` block so
+ * the stored preference and the actually-scheduled job never drift apart.
+ */
+@Composable
+private fun ScheduleSettingsSection(modifier: Modifier = Modifier) {
+    val container = LocalAppContainer.current
+    val appContext = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    val day by container.userPreferencesRepository.refreshDayOfWeek
+        .collectAsStateWithLifecycle(initialValue = UserPreferencesRepository.DEFAULT_REFRESH_DAY_OF_WEEK)
+    val hour by container.userPreferencesRepository.refreshHour
+        .collectAsStateWithLifecycle(initialValue = UserPreferencesRepository.DEFAULT_REFRESH_HOUR)
+
+    fun apply(newDay: DayOfWeek, newHour: Int) {
+        scope.launch {
+            container.userPreferencesRepository.setRefreshSchedule(newDay, newHour)
+            RecommendationScheduler.rescheduleForSettingsChange(appContext, newDay, newHour)
+        }
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ScheduleDayRow(selected = day, onSelect = { apply(it, hour) })
+        ScheduleHourRow(selected = hour, onSelect = { apply(day, it) })
+    }
+}
+
+@Composable
+private fun ScheduleDayRow(selected: DayOfWeek, onSelect: (DayOfWeek) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(InkRaised)
+                .clickableNoRipple { expanded = true }
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(text = "Refresh day", style = MaterialTheme.typography.titleSmall, color = Chalk)
+                Text(
+                    text = selected.getDisplayName(TextStyle.FULL, Locale.getDefault()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ChalkMuted,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = ChalkFaint,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DayOfWeek.entries.forEach { candidate ->
+                DropdownMenuItem(
+                    text = { Text(candidate.getDisplayName(TextStyle.FULL, Locale.getDefault())) },
+                    onClick = {
+                        onSelect(candidate)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScheduleHourRow(selected: Int, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(InkRaised)
+                .clickableNoRipple { expanded = true }
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(text = "Refresh time", style = MaterialTheme.typography.titleSmall, color = Chalk)
+                Text(
+                    text = "%02d:00".format(selected),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ChalkMuted,
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = ChalkFaint,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            (0..23).forEach { candidate ->
+                DropdownMenuItem(
+                    text = { Text("%02d:00".format(candidate)) },
+                    onClick = {
+                        onSelect(candidate)
+                        expanded = false
+                    },
+                )
+            }
+        }
     }
 }
 
