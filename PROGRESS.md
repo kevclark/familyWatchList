@@ -940,6 +940,35 @@ made configurable this session). Full spec in PLAN.md §4 "Configurable schedule
       inspection tools/dumpsys, or equivalent) that the actually-scheduled next run reflects
       the new day/time, not the old one
 
+## M3g — Age-cap safety fix + cold-start intro screen
+
+Found live, 2026-08-21: while explaining why a zero-history profile's Home shows a title at
+all, discovered the original spec's "(age-filtered)" promise for cold-start/Popular rows was
+never implemented — `DiscoverRepository.discoverMovies`/`discoverTv` apply zero age-rating
+filtering, and this is the only path a cold-start profile ever reaches. Real safety gap, not
+polish. Kev's actual fix, confirmed: replace the cold-start hero with an introductory panel
+(not a fake "pick"), keep the Popular row for browsing (confirmed useful, his call), age-fix
+applies everywhere regardless of the intro-screen question. Full spec in PLAN.md §4.
+
+- [ ] **Non-negotiable, ship regardless of anything else here**: age-cap filtering applied to
+      `DiscoverRepository`'s results (or wherever consumes them) — reuse the existing cert-
+      rank check from `RecommendationRepository`/`FamilyBlend`, don't duplicate it
+- [ ] Audit other title-surfacing paths for the same gap: Search, the ad-hoc Family Night
+      blend (M3c), the watchlist add-gate (M2d) — fix any found using the same shared check,
+      document what was and wasn't affected
+- [ ] Cold-start hero replaced with an introductory panel — no movie backdrop, no implied
+      recommendation, explanatory copy + CTA into Search
+- [ ] "Popular on your services" row stays below it for a cold-start profile (Kev confirmed —
+      keep the row, not intro-screen-only), now correctly age-filtered
+- [ ] Tests: age-cap filtering applied correctly (a title over cap is excluded, one at/under
+      cap survives, one with no certification data survives per the existing "unknown ≠
+      unsafe" precedent already established elsewhere), cold-start hero renders the intro
+      panel not a title, Popular row still populates and is filtered
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: a capped profile's Popular row and cold-start hero never show
+      anything over their cap; the intro panel actually renders for a genuine zero-history
+      profile
+
 ## M4 — Polish
 
 - [ ] Trailers via TMDB `/videos` → YouTube intent
