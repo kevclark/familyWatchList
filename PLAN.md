@@ -237,6 +237,20 @@ regenerates shortlists + refreshes provider TTLs, then posts a local notificatio
 runtime permission is requested during onboarding (Android 13+); declining just means
 silent refresh. Manual pull-to-refresh on Home does the same on demand.
 
+**Per-profile notification control (Kev, 2026-08-21, queued as M3e — built after M3d lands,
+same files would otherwise conflict):** currently one fixed notification fires for the whole
+weekly job, no granularity, no in-app off switch beyond the one-time OS permission prompt.
+Kev wants: (1) an in-app master on/off toggle in Settings, layered on top of the OS
+permission (both must allow it for a notification to actually fire — disabling either one
+silences it); (2) per-profile selection of which profiles' completed refreshes actually
+notify — e.g. "notify for my own picks and Family's, but not Sam's or Ellie's." Ties directly
+into M3d's `refreshAll` becoming a per-profile loop (including the Family profile) — this is
+the natural place to check each profile's notification preference as it finishes refreshing.
+Default: **on** for every profile, preserving today's existing behaviour until someone
+explicitly opts out — not an opt-in cold start for a feature that already exists. Exact
+mechanism (one notification per enabled profile vs. a single batched notification listing
+whoever finished) is an implementation call — document whichever is chosen.
+
 This is all deterministic Kotlin — unit-testable with fixture data, no runtime LLM/API cost.
 
 ### 4a. Tunable sliders (Kev, 2026-08-20 — all four confirmed for v1, not a trim-down set)

@@ -832,6 +832,29 @@ one-off combinations different from the saved Family profile.
       confirm Home shows a real persisted blended shortlist, log a watch under it and confirm
       every member got tagged
 
+## M3e — Per-profile notification control (queued, launch after M3d)
+
+Kev's request, 2026-08-21, confirmed already-built-in before scoping (`ShortlistNotifier`/
+`RecommendationWorker` exist from M3) — deliberately queued rather than launched alongside
+M3d since both would touch `RecommendationWorker`/`refreshAll`/Settings concurrently. Full
+spec in PLAN.md §4 "Per-profile notification control".
+
+- [ ] Settings: master notifications on/off toggle, layered on top of (not replacing) the
+      existing `POST_NOTIFICATIONS` OS permission check — both must allow it to fire
+- [ ] Settings: per-profile checkboxes (every individual + the Family profile, once M3d
+      exists) for which profiles' completed refreshes actually notify
+- [ ] Default **on** for every profile — preserves current behaviour, not an opt-in reset
+- [ ] `RecommendationWorker`/`refreshAll`'s per-profile loop (M3d) checks each profile's
+      notification preference as it finishes refreshing
+- [ ] Notification mechanism (one per enabled profile vs. a single batched notification) —
+      implementation call, document whichever is chosen
+- [ ] Tests: preference default/round-trip, notification fires/doesn't fire per the
+      master-toggle × per-profile-toggle combination, correctly scoped to whichever
+      profile(s) actually finished refreshing
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: disable notifications for one profile, confirm it doesn't fire while
+      others still do; disable the master toggle, confirm nothing fires at all
+
 ## M4 — Polish
 
 - [ ] Trailers via TMDB `/videos` → YouTube intent
