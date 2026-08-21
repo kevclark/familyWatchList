@@ -14,6 +14,7 @@ import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -37,7 +38,13 @@ class AppContainer(context: Context) {
     val clock: AppClock = SystemAppClock()
 
     val database: AppDatabase = Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.NAME)
-        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
+        .addMigrations(
+            AppDatabase.MIGRATION_1_2,
+            AppDatabase.MIGRATION_2_3,
+            AppDatabase.MIGRATION_3_4,
+            AppDatabase.MIGRATION_4_5,
+            AppDatabase.MIGRATION_5_6,
+        )
         .build()
 
     val tmdbApi: TmdbApi = TmdbClient.create(
@@ -47,6 +54,12 @@ class AppContainer(context: Context) {
 
     val profileRepository: ProfileRepository by lazy {
         ProfileRepository(database.profileDao(), clock)
+    }
+
+    // PLAN.md §4 "The Family profile" (M3d): the persistent, curated-membership alternative to
+    // the ad-hoc who's-watching chip row (M3c).
+    val familyProfileRepository: FamilyProfileRepository by lazy {
+        FamilyProfileRepository(database.familyProfileDao(), database.profileDao(), clock)
     }
 
     val titleRepository: TitleRepository by lazy {

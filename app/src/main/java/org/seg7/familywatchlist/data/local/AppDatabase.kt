@@ -7,6 +7,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 import org.seg7.familywatchlist.data.local.dao.DiscoverCacheDao
+import org.seg7.familywatchlist.data.local.dao.FamilyProfileDao
 import org.seg7.familywatchlist.data.local.dao.ProfileDao
 import org.seg7.familywatchlist.data.local.dao.ProfileSlidersDao
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
@@ -18,6 +19,8 @@ import org.seg7.familywatchlist.data.local.dao.TitleDao
 import org.seg7.familywatchlist.data.local.dao.WatchEventDao
 import org.seg7.familywatchlist.data.local.dao.WatchlistDao
 import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
+import org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity
+import org.seg7.familywatchlist.data.local.entity.FamilyProfileMemberEntity
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.ProfileSlidersEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
@@ -48,8 +51,10 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         ShortlistEntryEntity::class,
         DiscoverCacheEntity::class,
         ProfileSlidersEntity::class,
+        FamilyProfileEntity::class,
+        FamilyProfileMemberEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -65,6 +70,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun shortlistDao(): ShortlistDao
     abstract fun discoverCacheDao(): DiscoverCacheDao
     abstract fun profileSlidersDao(): ProfileSlidersDao
+    abstract fun familyProfileDao(): FamilyProfileDao
 
     companion object {
         const val NAME = "family_watchlist.db"
@@ -128,6 +134,35 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 connection.execSQL(
                     "ALTER TABLE profile_sliders ADD COLUMN eligibleCandidateCount INTEGER NOT NULL DEFAULT 30"
+                )
+            }
+        }
+
+        /**
+         * v5 -> v6 (PLAN.md §4/§2, M3d): the first-class, persistent Family profile — a singleton
+         * `family_profile` row (see [FamilyProfileEntity]'s kdoc for why its PK is fixed, not
+         * `autoGenerate`) plus its curated membership join table. `family_profile_members` is this
+         * codebase's first table with a real `@ForeignKey` — `ON DELETE CASCADE` back to
+         * `profiles(id)`, so deleting a profile that happens to be a family member cleans up its
+         * membership row automatically (PLAN.md §2: "cascades on member deletion"). No seed data:
+         * an app with no Family profile yet simply has no row in either table, same "nothing to
+         * backfill" posture as every other additive migration in this file.
+         */
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `family_profile` (`id` INTEGER NOT NULL, " +
+                        "`name` TEXT NOT NULL, `avatarKey` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`))"
+                )
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `family_profile_members` (`memberProfileId` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`memberProfileId`), FOREIGN KEY(`memberProfileId`) REFERENCES `profiles`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_family_profile_members_memberProfileId` " +
+                        "ON `family_profile_members` (`memberProfileId`)"
                 )
             }
         }
