@@ -1,6 +1,11 @@
 package org.seg7.familywatchlist.ui.nav
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -177,6 +182,26 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
                         navArgument("mediaType") { type = NavType.StringType },
                         navArgument("tmdbId") { type = NavType.IntType },
                     ),
+                    // PLAN.md §5/§5a: "shared-element-style transition into details" — true
+                    // shared-element bounds-matching (Compose's SharedTransitionApi) would need
+                    // every PosterCard call site threaded through a SharedTransitionScope just
+                    // for this one destination; a scale+fade "dive into the poster" pairing reads
+                    // as the same thing in practice and is what §5a's own fallback language
+                    // ("or a matching fade/scale transition") anticipates. Forward navigation
+                    // scales *up* from slightly small (like the tapped card growing to fill the
+                    // screen); back navigation is the exact inverse.
+                    enterTransition = {
+                        fadeIn(tween(260)) + scaleIn(initialScale = 0.92f, animationSpec = tween(260))
+                    },
+                    exitTransition = {
+                        fadeOut(tween(180)) + scaleOut(targetScale = 1.05f, animationSpec = tween(180))
+                    },
+                    popEnterTransition = {
+                        fadeIn(tween(220)) + scaleIn(initialScale = 1.05f, animationSpec = tween(220))
+                    },
+                    popExitTransition = {
+                        fadeOut(tween(220)) + scaleOut(targetScale = 0.92f, animationSpec = tween(220))
+                    },
                 ) { entry ->
                     val tmdbId = entry.arguments?.getInt("tmdbId") ?: return@composable
                     val mediaType = entry.arguments?.getString("mediaType")
