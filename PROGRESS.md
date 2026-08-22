@@ -1364,7 +1364,7 @@ implementation rather than a re-interpretation:
 
 ### M5 real-device findings (Kev, first live use, 2026-08-22)
 
-- [ ] **Trailer playback fails on real phone too** — "Error 153, Video player configuration
+- [x] **Trailer playback fails on real phone too** — "Error 153, Video player configuration
       error" from YouTube's IFrame Player, same error class M4a-2's own emulator testing hit
       (that pass attributed it to the emulator's missing Widevine; a real phone hitting the
       identical error disproves that theory). Real cause: `TrailerWebView`
@@ -1372,9 +1372,11 @@ implementation rather than a re-interpretation:
       `WebView` has no DRM/EME permission wired up — Chrome grants this automatically, a bare
       embedded WebView does not. Official trailers are monetized/protected content and YouTube's
       player refuses to play them without `PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID`
-      explicitly granted via `WebChromeClient.onPermissionRequest()`. Fix: add one, granting that
-      resource. Can't be verified on the emulator (no real Widevine there either) — needs a real
-      phone install to confirm.
+      explicitly granted via `WebChromeClient.onPermissionRequest()`. Fix: added one, granting
+      that resource unconditionally (single fixed `youtube.com/embed/` URL, no untrusted origin
+      to validate). Verified on the emulator that the dialog still opens cleanly (no crash,
+      `Error 153` still shown as expected — emulator has no real Widevine either) — **the actual
+      fix still needs a real-phone install to confirm playback**, which Kev will need to do.
 - [x] **"Who's watching tonight?" row confused for a profile switcher** — investigated, not a
       bug: `FamilyNightChipRow` (`ui/home/HomeScreen.kt`) is the ad-hoc Family Night blend
       selector (M3c) — tapping toggles inclusion (a subtle Accent border/text change), and the
@@ -1383,4 +1385,7 @@ implementation rather than a re-interpretation:
       **title reads like a profile switcher** and should say so isn't. **Kev's call: fix the
       wording, not the behaviour.** Add a small clarifying line under the header (something like
       "Pick 2 or more for a joint recommendation") — implementation's call on exact copy.
-- [ ] Final `./gradlew test assembleDebug` green
+      **Done:** added a `ChalkFaint` caption line ("Pick 2 or more for a joint recommendation —
+      this doesn't switch profiles") directly in `FamilyNightChipRow`'s `Column`, under the
+      `SectionHeader`.
+- [x] Final `./gradlew test assembleDebug` green
