@@ -1215,6 +1215,25 @@ expected the way M3j needed.
       confirm-dialog on Home's For You/Popular/Family Night poster cards, per-profile isolation
       proven in `RecommendationRepositoryTest`, immediate-removal proven in `HomeViewModelTest`
 
+**M4a-2 — in-app trailer playback (Kev, 2026-08-22, follow-up).** Firing an external YouTube
+intent means constant app-switching while browsing suggestions — one of Kev's biggest usability
+turn-offs. TMDB trailers are YouTube-hosted (no direct file URL, so no raw ExoPlayer/VLC-style
+playback is possible without scraping — off the table), but YouTube's own IFrame Player embeds
+legitimately in a `WebView`, which is the fix:
+- [ ] Replace `TitleDetailScreen.kt`'s `Context.openTrailer()` (currently fires
+      `vnd.youtube:`/`https://www.youtube.com/watch?v=` intents, ~line 447) with an in-app modal
+      (bottom sheet or full-screen dialog) containing a Compose `AndroidView` wrapping a `WebView`
+      that loads `https://www.youtube.com/embed/{trailerKey}?autoplay=1&playsinline=1`
+- [ ] `WebView` needs JS enabled and likely `mediaPlaybackRequiresUserGesture = false` for
+      autoplay to actually fire on load (tapping Trailer is itself the user gesture, but that
+      doesn't automatically satisfy the WebView's own in-page autoplay gate)
+- [ ] System/predictive back while the trailer modal is open closes the modal, not the whole
+      details screen underneath it
+- [ ] No change to trailer selection/availability logic (`youTubeTrailerKey()`,
+      `TmdbMappersTest`) — this only changes what happens when the button is tapped
+- [ ] `./gradlew test assembleDebug` green + live verification: tapping Trailer opens the
+      player in-app (no app switch), video actually plays, closing it returns to details
+
 **M4b — settings, data, and repo hygiene:**
 - [ ] Settings audit: services toggles, profile management, About — confirm what earlier
       milestones (M3i's "Manage profiles" row, M2a's services picker) already cover vs. genuinely
