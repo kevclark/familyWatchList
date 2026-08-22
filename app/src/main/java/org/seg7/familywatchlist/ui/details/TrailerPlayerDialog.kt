@@ -2,6 +2,8 @@ package org.seg7.familywatchlist.ui.details
 
 import android.annotation.SuppressLint
 import android.view.ViewGroup
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -84,6 +86,15 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
  * tapping the Trailer button satisfies Android's *activity-launch* gesture requirement, but the
  * WebView has its own, separate in-page autoplay gate that a same-session Activity-level tap
  * doesn't automatically satisfy once control has passed into the embedded page.
+ *
+ * A [WebChromeClient] granting [PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID] is required too:
+ * official trailers are monetized/DRM-protected content, and a bare `WebView` has no EME/Widevine
+ * permission wired up the way Chrome grants it automatically — without this, YouTube's IFrame
+ * Player fails with its own "Error 153, Video player configuration error" (confirmed on a real
+ * device; the emulator has no Widevine hardware at all, so it can't be used to verify playback
+ * either way). The grant is unconditional (no `request.origin` check) because this `WebView` only
+ * ever loads a single fixed `youtube.com/embed/...` URL we construct ourselves — there's no
+ * arbitrary/untrusted content that could request this permission.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -104,6 +115,11 @@ private fun TrailerWebView(youTubeKey: String) {
                 // "Video player configuration error", not a network or key problem.
                 settings.domStorageEnabled = true
                 setBackgroundColor(android.graphics.Color.BLACK)
+                webChromeClient = object : WebChromeClient() {
+                    override fun onPermissionRequest(request: PermissionRequest) {
+                        request.grant(arrayOf(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID))
+                    }
+                }
                 loadUrl("https://www.youtube.com/embed/$youTubeKey?autoplay=1&playsinline=1")
             }
         },
