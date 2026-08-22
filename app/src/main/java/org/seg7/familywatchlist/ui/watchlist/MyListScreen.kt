@@ -48,9 +48,13 @@ import org.seg7.familywatchlist.ui.theme.Ink
  * PLAN.md §2/§5: the Want-to-Watch list is **one shared family list, tagged with who added each
  * title**, and "Home's 'My List' row filters to the active profile with a 'whole family' toggle."
  *
- * Home's carousel shows the whole shared list (the compact case); this screen is where the
- * added-by tag and that filter live, because a poster thumbnail has nowhere to put "added by
- * Sam" without becoming the text-heavy layout §5a rules out.
+ * PLAN.md §4b (M3j): Home's carousel ([org.seg7.familywatchlist.ui.home.HomeViewModel.myList])
+ * now filters to the active profile's own additions unconditionally, no toggle — symmetric for
+ * Family and every real profile alike, now that Family can own watchlist entries too. This
+ * screen keeps the "Everyone"/"Added by me" pills as a manual override over that same filter
+ * (Kev didn't ask to remove them) and is still where the added-by tag lives, because a poster
+ * thumbnail has nowhere to put "added by Sam" without becoming the text-heavy layout §5a rules
+ * out.
  */
 @Composable
 fun MyListScreen(

@@ -6,12 +6,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.dao.WatchEventItem
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.RatingValue
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.WatchEventRepository
@@ -51,23 +54,51 @@ data class HistoryUiState(
  * Filtering is applied in memory over the tag map. The rows already need that map to render
  * "who watched" chips, so filtering it costs nothing extra and — unlike a parameterised query —
  * doesn't re-hit the database every time the chip row changes.
+ *
+ * PLAN.md §4b (M3j): the Family profile is now a selectable filter option too, alongside every
+ * real profile — it can genuinely own logged events as of this milestone (dual-tagged onto every
+ * watch logged while Family is active, see `LogWatchSheet`'s auto-tag). [FamilyProfileRepository]
+ * is consulted only to build a synthetic [ProfileEntity] (id = [FAMILY_PROFILE_SENTINEL_ID]) to
+ * append to the chip row — `family_profile` isn't a real row in the `profiles` table, so there's
+ * nothing [ProfileRepository.observeAll] would ever surface for it on its own. Deliberately not
+ * folded into `watchedBy`'s per-row avatar chips below: those already show every real curated
+ * member (dual-tagging keeps that convenience), so a redundant "Family" avatar there would just
+ * be clutter, not new information — this option only changes what the *filter* can select.
  */
 class HistoryViewModel(
     private val watchEventRepository: WatchEventRepository,
     profileRepository: ProfileRepository,
     ratingRepository: RatingRepository,
+    familyProfileRepository: FamilyProfileRepository,
 ) : ViewModel() {
 
     private val _filterProfileId = MutableStateFlow<Long?>(null)
+
+    private val familyFilterOption = familyProfileRepository.observe().map { family ->
+        family?.let {
+            ProfileEntity(
+                id = FAMILY_PROFILE_SENTINEL_ID,
+                name = it.profile.name,
+                avatarKey = it.profile.avatarKey,
+                ageRatingCap = null,
+                createdAt = it.profile.createdAt,
+            )
+        }
+    }
 
     val uiState: StateFlow<HistoryUiState> = combine(
         watchEventRepository.observeAllItems(),
         watchEventRepository.observeTagsByEvent(),
         profileRepository.observeAll(),
         ratingRepository.observeAll(),
-        _filterProfileId,
-    ) { events, tagsByEvent, profiles, ratings, filterProfileId ->
-        val profilesById = profiles.associateBy { it.id }
+        combine(_filterProfileId, familyFilterOption) { filterProfileId, family -> filterProfileId to family },
+    ) { events, tagsByEvent, realProfiles, ratings, (filterProfileId, family) ->
+        // PLAN.md §4b (M3j): the filter chip row offers Family alongside every real profile —
+        // watchedBy resolution below deliberately keeps using realProfiles-only, never this
+        // extended list, so Family's own dual-tag never adds a redundant "Family" avatar next to
+        // every real member's on a row (see this class's kdoc).
+        val filterableProfiles = if (family != null) realProfiles + family else realProfiles
+        val profilesById = realProfiles.associateBy { it.id }
         // PLAN.md §5b M3i item 2: every rating in the DB, regrouped by the (tmdbId, mediaType)
         // key each history row already carries via its event — so "this row's title" resolves
         // straight to "who rated it what" without a per-row DB round trip.
@@ -87,7 +118,7 @@ class HistoryViewModel(
             }
         HistoryUiState(
             rows = rows,
-            profiles = profiles,
+            profiles = filterableProfiles,
             filterProfileId = filterProfileId,
             // "Nothing logged yet" and "nothing matches this filter" are different messages,
             // so emptiness is reported against the *unfiltered* list.

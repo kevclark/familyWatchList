@@ -151,6 +151,26 @@ class MyListViewModelTest {
         assertEquals(2, db.watchlistDao().observeByState(WatchlistState.ACTIVE).first().size)
     }
 
+    /**
+     * PLAN.md §4b (M3j): Family is now symmetric with any individual profile for "added by me" —
+     * it can genuinely own watchlist entries. `mineOnly` filtering already works purely off
+     * [activeProfileId] as a `Long` comparison, so this proves it holds for the Family sentinel
+     * with no code change needed to [MyListViewModel] itself.
+     */
+    @Test
+    fun `'added by me' filters correctly when Family is the active profile`() = runTest {
+        watchlistRepository.add(38700, MediaType.MOVIE, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID)
+        clock.advanceBy(1_000)
+        watchlistRepository.add(12345, MediaType.MOVIE, kevId)
+        val vm = viewModel(activeProfileId = org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID)
+        vm.uiState.first { it.rows.size == 2 }
+
+        vm.setMineOnly(true)
+
+        val mine = vm.uiState.first { it.mineOnly }
+        assertEquals(listOf("Paddington"), mine.rows.map { it.item.title })
+    }
+
     @Test
     fun `newest addition comes first`() = runTest {
         watchlistRepository.add(38700, MediaType.MOVIE, kevId)

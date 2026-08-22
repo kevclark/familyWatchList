@@ -14,9 +14,11 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.WatchEventRepository
@@ -43,6 +45,7 @@ class HistoryViewModelTest {
     private lateinit var watchEventRepository: WatchEventRepository
     private lateinit var profileRepository: ProfileRepository
     private lateinit var ratingRepository: RatingRepository
+    private lateinit var familyProfileRepository: FamilyProfileRepository
     private lateinit var viewModel: HistoryViewModel
 
     private var kevId = 0L
@@ -55,6 +58,7 @@ class HistoryViewModelTest {
         watchEventRepository = WatchEventRepository(db.watchEventDao(), db.watchlistDao())
         profileRepository = ProfileRepository(db.profileDao(), clock)
         ratingRepository = RatingRepository(db.ratingDao(), clock)
+        familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
 
         kevId = profileRepository.addProfile("Kev", "INITIAL|7C5C4A|", null).getOrThrow()
         samId = profileRepository.addProfile("Sam", "INITIAL|4A6357|", null).getOrThrow()
@@ -70,7 +74,7 @@ class HistoryViewModelTest {
             )
         }
 
-        viewModel = HistoryViewModel(watchEventRepository, profileRepository, ratingRepository)
+        viewModel = HistoryViewModel(watchEventRepository, profileRepository, ratingRepository, familyProfileRepository)
     }
 
     @After
@@ -195,5 +199,43 @@ class HistoryViewModelTest {
         assertTrue(state.isEmpty)
         // Orphan tags would silently skew PLAN.md §4's per-profile affinity corpus.
         assertTrue(watchEventRepository.getProfileIds(eventId).isEmpty())
+    }
+
+    /**
+     * PLAN.md §4b (M3j): with no Family profile persisted yet, the filter chip row must offer
+     * only real profiles — same as before this milestone.
+     */
+    @Test
+    fun `no Family filter option is offered before a Family profile exists`() = runTest {
+        log(38700, LocalDate.of(2026, 8, 1), listOf(kevId))
+
+        val state = viewModel.uiState.first { it.rows.isNotEmpty() }
+
+        assertEquals(setOf(kevId, samId), state.profiles.map { it.id }.toSet())
+    }
+
+    /**
+     * PLAN.md §4b (M3j): once a Family profile exists, it's a selectable filter option
+     * (id = [FAMILY_PROFILE_SENTINEL_ID]) alongside every real profile — and selecting it filters
+     * to events Family itself was tagged on (the M3j dual-tag), same mechanism as any real
+     * profile's filter.
+     */
+    @Test
+    fun `Family becomes a selectable filter option once it exists, and filters to its own tagged events`() = runTest {
+        familyProfileRepository.save("Family", "avatar", listOf(kevId, samId)).getOrThrow()
+        log(38700, LocalDate.of(2026, 8, 1), listOf(kevId, samId, FAMILY_PROFILE_SENTINEL_ID))
+        log(12345, LocalDate.of(2026, 8, 2), listOf(kevId)) // not tagged to Family
+
+        val withOption = viewModel.uiState.first { it.profiles.any { p -> p.id == FAMILY_PROFILE_SENTINEL_ID } }
+        assertEquals(setOf(kevId, samId, FAMILY_PROFILE_SENTINEL_ID), withOption.profiles.map { it.id }.toSet())
+
+        viewModel.setFilter(FAMILY_PROFILE_SENTINEL_ID)
+        val familyOnly = viewModel.uiState.first { it.filterProfileId == FAMILY_PROFILE_SENTINEL_ID }
+        assertEquals(listOf("Paddington"), familyOnly.rows.map { it.event.title })
+
+        // The synthetic Family filter option must never leak into a row's own "watched by" avatar
+        // list — that already shows every real member via the dual-tag, so a redundant "Family"
+        // avatar there would just be clutter (see HistoryViewModel's kdoc).
+        assertEquals(setOf("Kev", "Sam"), familyOnly.rows.single().watchedBy.map { it.name }.toSet())
     }
 }

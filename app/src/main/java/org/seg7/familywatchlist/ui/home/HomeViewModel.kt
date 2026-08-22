@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.entity.MediaType
@@ -140,8 +141,18 @@ class HomeViewModel(
 
     // PLAN.md §7 M2f: live region Flow, not a one-shot read — a region change made in Settings
     // re-resolves every My List card's availability immediately if Home is already open.
+    //
+    // PLAN.md §4b (M3j): filtered to the active profile's own additions — unconditionally, no
+    // toggle here (that's the full My List screen's job via `MyListViewModel.mineOnly`). This
+    // used to show the *entire* shared list regardless of who was active (M2d's original design,
+    // when Family couldn't own anything of its own so "whose items" wasn't a meaningful
+    // question for it); now that Family can own watchlist entries symmetrically with any real
+    // profile, `addedByProfileId == activeProfile.id` is exactly the same comparison for Family
+    // as for anyone else — this is the actual fix for Kev's observation that Home kept showing
+    // Kevu's items while Family was the active profile.
     val myList: StateFlow<List<WatchlistItemAvailability>> =
         watchlistRepository.observeActiveItemsWithAvailability(userPreferencesRepository.region)
+            .map { items -> items.filter { it.item.addedByProfileId == activeProfile.id } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Live, offline-first read of the active profile's (or Family's) persisted shortlist — [refresh] is what regenerates it. */

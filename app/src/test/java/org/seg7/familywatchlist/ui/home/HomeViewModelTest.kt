@@ -162,6 +162,45 @@ class HomeViewModelTest {
         assertEquals(WatchlistState.REMOVED, watchlistRepository.get(38700, MediaType.MOVIE)?.state)
     }
 
+    /**
+     * PLAN.md §4b (M3j): Home's My List carousel now filters to the active profile's own
+     * additions unconditionally — the actual fix for Kev's observation that Home kept showing
+     * Kevu's items while Family was the active profile. Proven for a real individual profile
+     * first: another profile's addition must never appear.
+     */
+    @Test
+    fun `My List carousel only shows the active profile's own additions`() = runTest {
+        val otherProfileId = profileId + 1
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        watchlistRepository.add(38700, MediaType.MOVIE, profileId)
+        watchlistRepository.add(12345, MediaType.MOVIE, otherProfileId)
+
+        val state = viewModel(watchlistRepository).myList.first { it.isNotEmpty() }
+
+        assertEquals(listOf(38700), state.map { it.item.tmdbId })
+    }
+
+    /**
+     * PLAN.md §4b (M3j): Family is symmetric with any individual profile here — an item Family
+     * itself added (now possible, per PLAN.md §4b's watchlist-add unblock) shows on Home's My
+     * List carousel while Family is active, and a real member's own separate addition does not.
+     */
+    @Test
+    fun `My List carousel filters correctly for Family, including its own additions`() = runTest {
+        val member = profileRepository.addProfile("Member", "avatar", null).getOrThrow()
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        watchlistRepository.add(38700, MediaType.MOVIE, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID)
+        watchlistRepository.add(12345, MediaType.MOVIE, member)
+
+        val family = ActiveProfile.Family(
+            FamilyProfileEntity(name = "Family", avatarKey = "a", createdAt = 0),
+            memberProfileIds = listOf(member),
+        )
+        val state = viewModel(watchlistRepository, family).myList.first { it.isNotEmpty() }
+
+        assertEquals(listOf(38700), state.map { it.item.tmdbId })
+    }
+
     /** PLAN.md §4: cold-start profiles (< 5 events) never get a personalised "For You" — the row falls back to popular-on-your-services state. */
     @Test
     fun `a cold-start profile is flagged and has no For You titles`() = runTest {
