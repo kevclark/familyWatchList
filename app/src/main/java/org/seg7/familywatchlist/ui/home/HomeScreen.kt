@@ -615,6 +615,12 @@ private fun FamilyNightChipRow(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title = "Who's watching tonight?")
+        Text(
+            text = "Pick 2 or more for a joint recommendation — this doesn't switch profiles",
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+            modifier = Modifier.padding(horizontal = Dimens.Gutter, vertical = 2.dp),
+        )
         LazyRow(
             contentPadding = PaddingValues(horizontal = Dimens.Gutter),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
