@@ -61,6 +61,7 @@ import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlinx.coroutines.launch
+import org.seg7.familywatchlist.BuildConfig
 import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.remote.TmdbApi
@@ -261,6 +262,15 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
             Text(
                 text = "Streaming availability is best-effort, especially for UK catch-up " +
                     "services — always double-check on the service itself.",
+                style = MaterialTheme.typography.bodySmall,
+                color = ChalkFaint,
+            )
+            // Kev, 2026-08-22 (continuous delivery / alpha phase): a visible version string so
+            // he can tell a fresh install actually changed something, without needing to compare
+            // build timestamps. versionName is Android's own build-time field (build.gradle.kts),
+            // already SemVer-shaped ("0.1.0-alpha.1") — no separate app-level version concept.
+            Text(
+                text = "Version ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.bodySmall,
                 color = ChalkFaint,
                 modifier = Modifier.padding(bottom = 32.dp),
