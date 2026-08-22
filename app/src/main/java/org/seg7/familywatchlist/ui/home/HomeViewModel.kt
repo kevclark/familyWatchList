@@ -85,34 +85,21 @@ import org.seg7.familywatchlist.ui.ActiveProfile
  * this chip row — using the shared family-blend-slider preference already stored from M3
  * ([UserPreferencesRepository.familyBlendSlider]), not a second mechanism.
  *
- * ## The Family profile (PLAN.md §4, M3d)
+ * ## The Family profile (PLAN.md §4b, M3j -- supersedes M3d/M3i below this heading)
  * When [activeProfile] is [ActiveProfile.Family] -- the *persistent* counterpart to the ad-hoc
- * chip row above, selected from the profile picker exactly like a person -- Home's hero/For You
- * source from the Family profile's own **persisted** shortlist instead: [refresh] calls
- * [RecommendationRepository.refreshFamilyShortlist] with `persist = true` and the *live* curated
- * membership (re-read from [familyProfileRepository], not the possibly-stale
- * [ActiveProfile.Family.memberProfileIds] snapshot -- see [refresh]'s own comment), and
- * [forYouShortlist] observes [FAMILY_SCOPE_KEY] rather than a per-profile scope key.
+ * chip row above, selected from the profile picker exactly like a person -- Home now treats it
+ * exactly like any individual profile: [refresh] calls the same plain
+ * [RecommendationRepository.isColdStart]/[RecommendationRepository.refreshProfileShortlist] pair
+ * with `activeProfile.id` (the sentinel for Family), sourced from Family's own logged watch
+ * events/ratings (which it can now own directly, per PLAN.md §4b), not a blend of its curated
+ * members' vectors. [shortlistScopeKey] still resolves to [FAMILY_SCOPE_KEY] for Family --
+ * [RecommendationRepository.refreshProfileShortlist] itself now writes there for the sentinel id
+ * (see its kdoc), so [forYouShortlist] keeps reading the scope it always has.
  *
- * ## Family cold-start (PLAN.md §5b M3i, the live-review batch's item 10)
- * Originally [_coldStart] was pinned `false` whenever [activeProfile] is Family, on the theory
- * that the Family profile is never itself the subject of a watch event, so it has no cold-start
- * concept of its own. Confirmed live during Kev's 2026-08-22 review to be a real gap in practice,
- * not just a theoretical one: with every curated member individually cold-start (few/no logged
- * events each), Family still ran the real scoring path and presented a low-confidence,
- * mostly-popularity-ranked shortlist with the same visual confidence as a genuinely personalised
- * one -- [org.seg7.familywatchlist.data.recommend.FamilyBlend]'s per-member cold-start handling
- * (a cold member contributes an empty/near-zero vector) softens the blend's *math*, but does
- * nothing about how the *result* is presented. Fixed: Family is cold-start when *every* one of
- * its curated members is individually below [RecommendationRepository.isColdStart]'s 5-event
- * threshold (reusing that exact per-profile check, called once per member, never reimplemented).
- * If even one member is warm, Family stays on the real blended path exactly as before -- this
- * only ever triggers when the blend would otherwise be built from entirely empty data. An empty
- * membership list (no [FamilyProfileEntity][org.seg7.familywatchlist.data.local.entity
- * .FamilyProfileEntity] persisted yet) is treated as *not* cold-start -- vacuously "every member
- * is cold" would be true over zero members, but there's nothing to show a cold-start intro for in
- * that case, and it preserves this branch's original behaviour when there's no real family data
- * to reason about at all.
+ * Cold-start is likewise the plain per-profile check now -- M3i's "cold only if every curated
+ * member is individually cold" special case ([familyIsColdStart], since removed) is gone, because
+ * Family can own its own watch events as of M3j, so its own event count is exactly the right
+ * signal, the same as any real profile's.
  */
 @OptIn(FlowPreview::class)
 class HomeViewModel(
@@ -301,36 +288,17 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             runCatching {
-                when (activeProfile) {
-                    is ActiveProfile.Family -> {
-                        // Membership is re-read live from familyProfileRepository rather than
-                        // reused from activeProfile.memberProfileIds: Compose's viewModel(key=...)
-                        // keeps this ViewModel instance alive across recompositions keyed only on
-                        // activeProfile.id (the sentinel, which never changes), so a membership
-                        // edit made in Settings while Home is already open would otherwise be
-                        // invisible to a subsequent pull-to-refresh until Home itself is torn down.
-                        val memberIds = familyProfileRepository.get()?.memberIds.orEmpty()
-                        val cold = familyIsColdStart(memberIds, recommendationRepository::isColdStart)
-                        _coldStart.value = cold
-                        if (!cold && memberIds.isNotEmpty()) {
-                            val region = userPreferencesRepository.region.first()
-                            val slider = FamilyBlendSlider(userPreferencesRepository.familyBlendSlider.first())
-                            recommendationRepository.refreshFamilyShortlist(
-                                profileIds = memberIds,
-                                region = region,
-                                familyBlendSlider = slider,
-                                persist = true,
-                            )
-                        }
-                    }
-                    is ActiveProfile.Individual -> {
-                        val cold = recommendationRepository.isColdStart(activeProfile.id)
-                        _coldStart.value = cold
-                        if (!cold) {
-                            val region = userPreferencesRepository.region.first()
-                            recommendationRepository.refreshProfileShortlist(activeProfile.id, region)
-                        }
-                    }
+                // PLAN.md §4b (M3j): Family is cold-start/refreshed exactly like any individual
+                // profile now — the plain per-profile isColdStart/refreshProfileShortlist check,
+                // called with activeProfile.id (the sentinel for Family). This replaces M3i's
+                // "cold only if every curated member is individually cold" special case
+                // ([familyIsColdStart], now removed) — Family can own its own watch events as of
+                // M3j, so its own event count is exactly what should decide this, same as anyone.
+                val cold = recommendationRepository.isColdStart(activeProfile.id)
+                _coldStart.value = cold
+                if (!cold) {
+                    val region = userPreferencesRepository.region.first()
+                    recommendationRepository.refreshProfileShortlist(activeProfile.id, region)
                 }
                 // forYouShortlist is a live Flow off Room (observeShortlist) — the write above
                 // is picked up automatically, no manual re-read needed here.
@@ -383,25 +351,6 @@ class HomeViewModel(
         const val FAMILY_NIGHT_DEBOUNCE_MS = 400L
     }
 }
-
-/**
- * PLAN.md §5b M3i item 10: Family is cold-start when *every* one of [memberIds] is individually
- * below [RecommendationRepository.isColdStart]'s 5-event threshold — [isColdStart] is that exact
- * per-profile check, injected as a function reference (`recommendationRepository::isColdStart`
- * in [HomeViewModel.refresh]) so this pure boolean combination is directly unit-testable without
- * standing up a real [RecommendationRepository]/Room database — see [HomeViewModelTest]/the
- * dedicated `familyIsColdStartTest` cases for why: driving this end-to-end through the reactive
- * `uiState` StateFlow (as the rest of this file's tests do) needs the Family branch's several
- * real Room round-trips to outrace the (near-instant, no-network-when-unsubscribed) discover
- * branch before a `uiState.first { ... }` predicate can observe the *real* computed value rather
- * than [HomeViewModel]'s pessimistic initial default — reliable for a positive "flips to false"
- * assertion, not for proving a "stays true" one where the default already matches.
- *
- * An empty [memberIds] (no [org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity]
- * persisted yet) is deliberately *not* cold-start — see [HomeViewModel]'s class kdoc.
- */
-internal suspend fun familyIsColdStart(memberIds: List<Long>, isColdStart: suspend (Long) -> Boolean): Boolean =
-    memberIds.isNotEmpty() && memberIds.all { isColdStart(it) }
 
 data class HomeUiState(
     val hero: TitleEntity? = null,

@@ -428,18 +428,23 @@ class HomeViewModelTest {
     }
 
     /**
-     * PLAN.md §4 (M3d): when [org.seg7.familywatchlist.ui.ActiveProfile] is
+     * PLAN.md §4b (M3j, supersedes M3d): when [org.seg7.familywatchlist.ui.ActiveProfile] is
      * [org.seg7.familywatchlist.ui.ActiveProfile.Family], Home's For You/hero must read the
      * *persisted* [FAMILY_SCOPE_KEY] shortlist — not a per-profile scope key keyed off the
-     * sentinel id (which would be "-1", matching nothing real). No `familyProfileRepository.save`
+     * sentinel id's raw string form (which would be "-1", matching nothing real;
+     * [RecommendationRepository]'s `scopeKeyFor` resolves the sentinel to [FAMILY_SCOPE_KEY]).
+     * As of M3j, Family's cold-start is the plain per-profile check against its *own* watch
+     * events — no member blend involved any more — so this fixture seeds 5 events tagged directly
+     * to [FAMILY_PROFILE_SENTINEL_ID] to get past that gate. No `familyProfileRepository.save`
      * call here deliberately: with no Family profile actually persisted,
-     * `HomeViewModel.refresh()`'s Family branch finds `familyProfileRepository.get() == null` and
-     * skips `refreshFamilyShortlist` entirely (see its kdoc), so these directly-seeded rows are
-     * never clobbered — isolating the *read* side of the wiring from the write side, which M3d's
-     * `RecommendationRepositoryTest` additions cover separately.
+     * `RecommendationRepository.refreshProfileShortlist`'s existence check finds
+     * `familyProfileRepository.get() == null` and returns early without persisting anything, so
+     * these directly-seeded shortlist rows are never clobbered — isolating the *read* side of the
+     * wiring from the write side, which `RecommendationRepositoryTest`'s M3j additions cover
+     * separately.
      */
     @Test
-    fun `Family active reads the persisted FAMILY scope shortlist, and is never flagged cold-start`() = runTest {
+    fun `Family active reads the persisted FAMILY scope shortlist once it has 5+ of its own events`() = runTest {
         val weekStart = recommendationRepository.currentWeekStart()
         db.titleDao().upsert(
             TitleEntity(
@@ -456,6 +461,15 @@ class HomeViewModelTest {
                 ),
             )
         )
+        // PLAN.md §4b (M3j): Family's own cold-start now depends on its own watch event count.
+        repeat(5) { i ->
+            db.watchEventDao().logWatch(
+                org.seg7.familywatchlist.data.local.entity.WatchEventEntity(
+                    tmdbId = 800 + i, mediaType = MediaType.MOVIE, watchedAt = java.time.LocalDate.now(), note = null,
+                ),
+                listOf(org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID),
+            )
+        }
         val family = ActiveProfile.Family(
             FamilyProfileEntity(name = "Family", avatarKey = "a", createdAt = 0),
             memberProfileIds = listOf(1L, 2L),
@@ -464,26 +478,20 @@ class HomeViewModelTest {
         val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
         val state = viewModel(watchlistRepository, family).uiState.first { it.forYouTitles.isNotEmpty() }
 
-        assertFalse("PLAN.md §4: Family has no cold-start concept of its own", state.isColdStartForYou)
+        assertFalse("Family has 5+ of its own events, so it must not be cold-start", state.isColdStartForYou)
         assertEquals(listOf(777), state.forYouTitles.map { it.tmdbId })
         assertEquals(777, state.hero?.tmdbId)
     }
 
     /**
-     * PLAN.md §5b M3i item 10's other half, exercised live end-to-end (not just the pure
-     * [familyIsColdStart] unit tests in `HomeViewModelFamilyColdStartTest`): if even one curated
-     * member is warm, Family must stay on the real blended path exactly as before — never flagged
-     * cold-start just because some *other* member happens to be new. B here crosses the 5-event
-     * threshold; A stays at 0.
-     *
-     * Synchronises on `!it.isColdStartForYou` (a real transition away from [HomeViewModel]'s
-     * pessimistic `true` default) rather than `!it.isLoading` (which the discover half flips
-     * quickly regardless of whether the Family branch's several real Room round-trips have
-     * resolved yet) — see [familyIsColdStart]'s kdoc for why the "stays cold" direction isn't
-     * safe to prove this same way, and is covered by the pure-function tests instead.
+     * PLAN.md §4b (M3j): Family's cold-start no longer derives from its members at all — replaces
+     * the old M3i "cold only if every curated member is individually cold" design
+     * ([familyIsColdStart], removed). Proven directly: a member (B) is warm (5+ of its own
+     * events), but none of those events are tagged to Family's own sentinel id, so Family itself
+     * must still read as cold-start.
      */
     @Test
-    fun `Family stays warm when at least one curated member is warm`() = runTest {
+    fun `Family cold-start depends on its own event count, not its members'`() = runTest {
         val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
         val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
         familyProfileRepository.save(name = "Family", avatarKey = "a", memberProfileIds = listOf(a, b))
@@ -501,9 +509,12 @@ class HomeViewModelTest {
         )
 
         val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
-        val state = viewModel(watchlistRepository, family).uiState.first { !it.isColdStartForYou }
+        val state = viewModel(watchlistRepository, family).uiState.first { !it.isLoading }
 
-        assertFalse("B is warm, so Family must stay on the real blended path", state.isColdStartForYou)
+        assertTrue(
+            "Family itself has zero events of its own; a warm member must not make Family warm any more",
+            state.isColdStartForYou,
+        )
     }
 
     /**

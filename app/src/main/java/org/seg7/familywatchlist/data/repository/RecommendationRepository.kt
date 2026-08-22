@@ -106,12 +106,37 @@ class RecommendationRepository(
     private fun weekStartFor(date: LocalDate): LocalDate = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 
     /**
+     * PLAN.md §4b (M3j): the shortlist scope key for [profileId]'s own *persisted* shortlist —
+     * [FAMILY_SCOPE_KEY] for the Family sentinel (matching what
+     * [org.seg7.familywatchlist.ui.home.HomeViewModel] and [reasonsForShortlistEntry] both read),
+     * `profileId.toString()` for a real profile. `FAMILY_PROFILE_SENTINEL_ID.toString()` (`"-1"`)
+     * is deliberately never used as a scope key — every existing Family-scope reader already
+     * expects [FAMILY_SCOPE_KEY], and this keeps [refreshProfileShortlist] writing to the exact
+     * scope they read from without having to change any of those call sites.
+     */
+    private fun scopeKeyFor(profileId: Long): String =
+        if (profileId == FAMILY_PROFILE_SENTINEL_ID) FAMILY_SCOPE_KEY else profileId.toString()
+
+    /**
      * PLAN.md §4/§4a: (re)computes and persists one profile's personalised shortlist for the
      * current week, using that profile's own slider settings. Cold-start profiles are left
      * alone — [org.seg7.familywatchlist.ui.home.HomeViewModel] sources the existing
      * "Popular on your services" row for them instead (PLAN.md §5a, already built in M2c);
      * writing an empty/misleading personalised shortlist here would be worse than writing
      * nothing.
+     *
+     * PLAN.md §4b (M3j): also the Family profile's own path now, called with
+     * [FAMILY_PROFILE_SENTINEL_ID] from [refreshAll] — Family has no row in the `profiles` table,
+     * so "does this profile exist at all" and "what's its age cap" can't come from
+     * [ProfileRepository.getById] the way a real profile's do. Both are resolved through a shared
+     * branch rather than forking this function's whole body: existence via
+     * [familyProfileRepository]/[profileRepository] depending on which id space [profileId] is in,
+     * and the cap via [resolveAgeRatingCap] (which already special-cases the sentinel to the
+     * strictest-member cap — the one and only piece of Family's identity that stays derived).
+     * Everything else — vector, candidate pool, scoring, slider settings, persistence — reads and
+     * writes keyed purely on [profileId] (a plain `Long`, sentinel or real, [ProfileSlidersEntity]
+     * and [ShortlistEntryEntity] both have no `@ForeignKey` to `profiles`) and needs no branching
+     * at all, which is what keeps this a single shared function rather than two near-duplicates.
      *
      * PLAN.md §4a slider 5 ("Suggestion count", design corrected 2026-08-20): [scored]'s size —
      * the real candidate count remaining after dedup/watched/listed/dismissed/age-cap filtering,
@@ -120,22 +145,29 @@ class RecommendationRepository(
      * for its slider without a live fetch. The *effective* target passed to [ShortlistAssembler]
      * is `min(requested, eligible)`: a thin week never overwrites what the user actually asked
      * for ([ProfileSlidersRepository.getSuggestionCount] is left untouched), so the shortlist
-     * automatically grows back to the full request once the pool recovers. Family-scope refreshes
-     * ([refreshFamilyShortlist]) always use [ShortlistConfig.SPEC_DEFAULT]'s fixed 30, deliberately
-     * never threading a profile's personal request (or this per-profile eligible count) in.
+     * automatically grows back to the full request once the pool recovers. The ad-hoc who's-
+     * watching chip row ([refreshFamilyShortlist] with `persist = false`) always uses
+     * [ShortlistConfig.SPEC_DEFAULT]'s fixed 30, deliberately never threading a profile's personal
+     * request (or this per-profile eligible count) in — unrelated to this function's Family path.
      */
     suspend fun refreshProfileShortlist(profileId: Long, region: String): List<ShortlistEntryEntity> {
         if (isColdStart(profileId)) return emptyList()
-        val profile = profileRepository.getById(profileId) ?: return emptyList()
+        val exists = if (profileId == FAMILY_PROFILE_SENTINEL_ID) {
+            familyProfileRepository.get() != null
+        } else {
+            profileRepository.getById(profileId) != null
+        }
+        if (!exists) return emptyList()
+        val ageRatingCap = resolveAgeRatingCap(profileId)
         val sliders = profileSlidersRepository.get(profileId)
         val today = clock.today()
         val weekStart = weekStartFor(today)
-        val scopeKey = profileId.toString()
+        val scopeKey = scopeKeyFor(profileId)
 
         val vector = buildProfileVector(profileId, sliders.halfLifeDays, today)
         val pool = gatherCandidatePool(listOf(profileId), region)
         val eligible = excludeDismissed(pool, weekStart, scopeKey)
-        val scored = scoreCandidates(eligible, vector, sliders.toScoringWeights(), today.year, profile.ageRatingCap, region)
+        val scored = scoreCandidates(eligible, vector, sliders.toScoringWeights(), today.year, ageRatingCap, region)
 
         profileSlidersRepository.setEligibleCandidateCount(profileId, scored.size)
         val requestedCount = profileSlidersRepository.getSuggestionCount(profileId)
@@ -148,18 +180,23 @@ class RecommendationRepository(
 
     /**
      * The weekly WorkManager job's entry point: refreshes every individual profile's own
-     * shortlist, plus the Family profile's — *if one exists* — using its real curated
-     * membership.
+     * shortlist, plus the Family profile's — *if one exists*.
      *
-     * **Resolved by Kev, 2026-08-21** (PLAN.md §4's M3d open question on this exact behaviour):
-     * "there should be one [shortlist] for every profile anyway, which would include the Family
-     * profile" — i.e. Family is refreshed the same way any other profile is, on its own real
-     * membership, not as a separate "blend everyone" fallback mechanism kept running alongside
-     * it. Concretely: **no unconditional "blend everyone" call any more.** If no Family profile
-     * has been created yet, there is simply nothing family-scoped to refresh that week — no
-     * fallback substitute for it (the old pre-M3d default, which unconditionally blended every
-     * profile on the account under [FAMILY_SCOPE_KEY] regardless of whether a curated Family
-     * profile existed, is gone).
+     * **PLAN.md §4b (M3j), supersedes M3d's design below:** Family's persisted shortlist is no
+     * longer a blend of its curated members' vectors — it runs through the exact same
+     * [refreshProfileShortlist] pipeline every individual profile uses, called with
+     * [FAMILY_PROFILE_SENTINEL_ID], built from Family's *own* logged watch events/ratings (which
+     * it can now own directly — see [org.seg7.familywatchlist.ui.details.TitleDetailViewModel]
+     * and [org.seg7.familywatchlist.ui.logwatch.LogWatchSheet]'s M3j changes). There is no longer
+     * a separate "blend everyone under [FAMILY_SCOPE_KEY]" call here at all — Family is just
+     * another entry in the same loop as every real profile, gated only on whether a Family
+     * profile has been created yet (same "nothing to refresh if it doesn't exist yet" posture
+     * M3d already established, just no longer implemented as a special call).
+     *
+     * **Resolved by Kev, 2026-08-21** (PLAN.md §4's original M3d open question): "there should be
+     * one [shortlist] for every profile anyway, which would include the Family profile" — this is
+     * now true in the most literal sense possible: Family runs through [refreshProfileShortlist]
+     * itself, not a lookalike sibling function.
      *
      * **PLAN.md §4 "Per-profile notification control" (M3e):** each profile's (and Family's, if
      * it exists) refresh is wrapped independently — one profile throwing (network error, TMDB
@@ -169,7 +206,13 @@ class RecommendationRepository(
      * [ProfileRefreshResult] list is exactly the set of profiles that genuinely finished this
      * run — [org.seg7.familywatchlist.work.RecommendationWorker] uses it, together with the
      * master/per-profile notification toggles, to decide who the weekly notification mentions;
-     * a profile that failed never appears here regardless of its own toggle.
+     * a profile that failed (or, for Family, a still-cold-start Family that
+     * [refreshProfileShortlist] itself skipped) never appears here regardless of its own toggle.
+     *
+     * [familyBlendSlider] is no longer read by this function at all — it only ever fed the old
+     * blend call, which is gone. It stays as a parameter (default [FamilyBlendSlider.DEFAULT])
+     * only because [org.seg7.familywatchlist.work.RecommendationWorker] still passes one through;
+     * removing the parameter is a separate, non-M3j cleanup.
      */
     suspend fun refreshAll(
         region: String,
@@ -182,8 +225,8 @@ class RecommendationRepository(
                 .onSuccess { completed += ProfileRefreshResult(profile.id, profile.name) }
         }
         val family = familyProfileRepository.get()
-        if (family != null && family.hasEnoughMembers) {
-            runCatching { refreshFamilyShortlist(family.memberIds, region, familyBlendSlider, persist = true) }
+        if (family != null) {
+            runCatching { refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID, region) }
                 .onSuccess { completed += ProfileRefreshResult(FAMILY_PROFILE_SENTINEL_ID, family.profile.name) }
         }
         return completed
@@ -242,15 +285,15 @@ class RecommendationRepository(
     /**
      * PLAN.md §5 screen 4: "Because you liked …" reason line — present only when [tmdbId]/
      * [mediaType] has a current, still-SUGGESTED entry in [profileId]'s *own* persisted shortlist
-     * (scopeKey = profileId.toString(); the FAMILY scope is deliberately never consulted here —
-     * details is a per-profile screen, and the who's-watching chip row's ad-hoc blends are never
-     * persisted in the first place, so they could never be looked up this way even if we wanted
-     * to). Returns null (render nothing) when there's no such entry — reached via Search/My
-     * List/History, or a title that was suggested earlier but has since been dismissed, watched,
-     * or simply didn't make this week's recompute.
+     * ([scopeKeyFor]: `profileId.toString()` for a real profile, [FAMILY_SCOPE_KEY] for the
+     * Family sentinel now that Family has its own persisted shortlist, PLAN.md §4b/M3j — the
+     * who's-watching chip row's ad-hoc blends are still never persisted in the first place, so
+     * they could never be looked up this way regardless). Returns null (render nothing) when
+     * there's no such entry — reached via Search/My List/History, or a title that was suggested
+     * earlier but has since been dismissed, watched, or simply didn't make this week's recompute.
      */
     suspend fun reasonsForShortlistEntry(profileId: Long, tmdbId: Int, mediaType: MediaType): List<String>? {
-        val entry = shortlistDao.getSuggestedEntry(currentWeekStart(), profileId.toString(), tmdbId, mediaType) ?: return null
+        val entry = shortlistDao.getSuggestedEntry(currentWeekStart(), scopeKeyFor(profileId), tmdbId, mediaType) ?: return null
         return parseReasons(entry.reasons)
     }
 
