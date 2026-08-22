@@ -1361,4 +1361,26 @@ implementation rather than a re-interpretation:
 - [ ] `docs/PREVIEW.md` verified end-to-end from the laptop (scrcpy) — wireless install path
       still blocked by the PVE routing/firewall gap above; USB from the laptop is the confirmed
       working path for now. `docs/PREVIEW.md` needs a note on this until PVE's side is fixed.
+
+### M5 real-device findings (Kev, first live use, 2026-08-22)
+
+- [ ] **Trailer playback fails on real phone too** — "Error 153, Video player configuration
+      error" from YouTube's IFrame Player, same error class M4a-2's own emulator testing hit
+      (that pass attributed it to the emulator's missing Widevine; a real phone hitting the
+      identical error disproves that theory). Real cause: `TrailerWebView`
+      (`ui/details/TrailerPlayerDialog.kt`) never sets a `WebChromeClient`, so a plain Android
+      `WebView` has no DRM/EME permission wired up — Chrome grants this automatically, a bare
+      embedded WebView does not. Official trailers are monetized/protected content and YouTube's
+      player refuses to play them without `PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID`
+      explicitly granted via `WebChromeClient.onPermissionRequest()`. Fix: add one, granting that
+      resource. Can't be verified on the emulator (no real Widevine there either) — needs a real
+      phone install to confirm.
+- [x] **"Who's watching tonight?" row confused for a profile switcher** — investigated, not a
+      bug: `FamilyNightChipRow` (`ui/home/HomeScreen.kt`) is the ad-hoc Family Night blend
+      selector (M3c) — tapping toggles inclusion (a subtle Accent border/text change), and the
+      blended row only appears once 2+ people are selected, so a single tap alone produces no
+      visible new content. Kev confirmed the *mechanic* makes sense once explained, but the
+      **title reads like a profile switcher** and should say so isn't. **Kev's call: fix the
+      wording, not the behaviour.** Add a small clarifying line under the header (something like
+      "Pick 2 or more for a joint recommendation") — implementation's call on exact copy.
 - [ ] Final `./gradlew test assembleDebug` green
