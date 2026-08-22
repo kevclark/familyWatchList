@@ -1259,17 +1259,28 @@ legitimately in a `WebView`, which is the fix:
       per project instructions)
 
 **M4b — settings, data, and repo hygiene:**
-- [ ] Settings audit: services toggles, profile management, About — confirm what earlier
-      milestones (M3i's "Manage profiles" row, M2a's services picker) already cover vs. genuinely
-      missing pieces before building anything new
-- [ ] JSON backup/restore via Storage Access Framework (user data only, no TMDB cache)
-- [ ] Attribution pass: TMDB notice verbatim + JustWatch on every availability UI
-- [ ] README.md for the repo: what/why, screenshots, build & preview instructions,
+- [x] Settings audit: services toggles, profile management, About — confirmed "Manage profiles"
+      (M3i), "Streaming services" (M2a's picker, reused), and per-profile notification/schedule
+      rows all already work correctly; only genuine gaps were JSON backup/restore (nothing
+      existed) and the TMDB logo image (notice text existed, the actual logo asset never did) —
+      both built below rather than anything pre-existing being rebuilt
+- [x] JSON backup/restore via Storage Access Framework (user data only, no TMDB cache) —
+      `BackupRepository` + `BackupPayload` (versioned JSON, v1), SAF export/restore rows in
+      Settings → "Backup & restore"; round-trip + malformed-file + wrong-version + corrupt-
+      reference tests all green (`BackupRepositoryTest`)
+- [x] Attribution pass: TMDB notice verbatim + JustWatch on every availability UI — audit found
+      two gaps (MyListScreen, SearchScreen both missing the JustWatch credit despite showing
+      availability-derived UI) and one bigger one (no TMDB logo image anywhere, only the notice
+      text) — all three fixed; live-verified on-device that My List and Search now show the
+      JustWatch line and Settings shows "Manage profiles"/"Streaming services" correctly
+      (`docs/m4b-*.png`); TMDB logo + Backup & restore section not yet live-verified on-device —
+      picked back up in a later pass
+- [x] README.md for the repo: what/why, screenshots, build & preview instructions,
       TMDB/JustWatch attribution
 
 - [x] Compose UI test for the log-watch flow — landed early in M2b
       (`LogWatchFlowUiTest`, JVM/Robolectric so it runs in `./gradlew test`)
-- [ ] `./gradlew test assembleDebug` green (both checkpoints)
+- [x] `./gradlew test assembleDebug` green (all four M4b checkpoints, verified individually)
 
 ## M5 — Ship
 
