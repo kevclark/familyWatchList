@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.FilterPill
@@ -164,6 +166,16 @@ fun SearchScreen(
                     trackColor = InkRaised,
                 )
             }
+            // PLAN.md §3 attribution + §5a "Search & watchlist availability gating": every result
+            // this screen can possibly show is already filtered to "available on a subscribed GB
+            // service", so the credit belongs here unconditionally, not only once results exist —
+            // same "always visible, not buried at the bottom of a fillMaxSize grid" placement as
+            // MyListScreen's equivalent line.
+            Text(
+                text = stringResource(R.string.justwatch_attribution),
+                style = MaterialTheme.typography.labelSmall,
+                color = ChalkFaint,
+            )
         }
 
         Box(modifier = Modifier.fillMaxSize()) {

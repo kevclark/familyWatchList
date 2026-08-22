@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.Image
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import org.seg7.familywatchlist.R
@@ -91,6 +93,13 @@ fun AttributionStep(
                 text = "DATA & ATTRIBUTION",
                 style = MaterialTheme.typography.labelSmall,
                 color = ChalkFaint,
+            )
+            // PLAN.md §3: "TMDB logo + the exact notice ... in Settings → About and on
+            // onboarding" — the logo half of that requirement, alongside the notice text below.
+            Image(
+                painter = painterResource(R.drawable.ic_tmdb_logo),
+                contentDescription = "The Movie Database (TMDB)",
+                modifier = Modifier.padding(bottom = 2.dp),
             )
             Text(
                 text = stringResource(R.string.tmdb_attribution),

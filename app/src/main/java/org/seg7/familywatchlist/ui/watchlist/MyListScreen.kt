@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.ui.LocalAppContainer
@@ -118,6 +120,19 @@ fun MyListScreen(
                 onClick = { viewModel.setMineOnly(true) },
             )
         }
+
+        // PLAN.md §3 attribution: dimming above is availability-derived (`row.isAvailable`,
+        // JustWatch-sourced via ProviderAvailability), so this screen counts as "wherever
+        // availability badges render" even though it shows dimming rather than provider glyphs —
+        // a single line here rather than per-card, same pattern as HomeScreen's `HomeFooter`,
+        // placed above the (fillMaxSize, non-scrolling-past) grid so it's always visible rather
+        // than requiring a scroll to the bottom of a `LazyVerticalGrid` that fills the screen.
+        Text(
+            text = stringResource(R.string.justwatch_attribution),
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+            modifier = Modifier.padding(horizontal = Dimens.Gutter, vertical = 4.dp),
+        )
 
         if (state.visibleItems.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
