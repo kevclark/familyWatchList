@@ -186,6 +186,18 @@ scp kev@agent101:/tmp/shot.png .              # from the laptop
 
 Phone and agent101 must be on the **same Wi-Fi/LAN**.
 
+> **Known gap, 2026-08-22: this currently does NOT work from agent101.** agent101 sits on an
+> isolated Proxmox VM subnet (`10.10.10.0/24`) with no working route to Kev's home Wi-Fi
+> (`192.168.0.0/24`), confirmed via a failed `ping` even after correcting for the actual IP.
+> PVE (`10.10.10.1` / `192.168.0.190`) is dual-homed and has its own route to the home LAN, but
+> traffic from agent101 still doesn't reach the phone — points at IP forwarding or a Proxmox
+> firewall rule on PVE itself, not something fixable from agent101's side. Not yet fixed.
+> **Working alternative until this is resolved:** build the debug APK on agent101
+> (`./gradlew assembleDebug`), `scp` `app/build/outputs/apk/debug/app-debug.apk` to the laptop
+> (already on the home LAN), then install via **USB** `adb` from the laptop directly — this is
+> what actually got the app onto Kev's phone for the first time. Needs a real USB *data* cable,
+> not a charge-only one (confirmed via `lsusb` showing nothing until the cable was swapped).
+
 ### On the phone (once per pairing)
 
 1. Settings → About phone → tap **Build number** 7× to unlock Developer options.

@@ -1348,6 +1348,17 @@ implementation rather than a re-interpretation:
 
 ## M5 — Ship
 
-- [ ] Installed on Kev's phone via wireless ADB (`docs/PREVIEW.md` §3)
-- [ ] `docs/PREVIEW.md` verified end-to-end from the laptop (scrcpy)
+- [x] Installed on Kev's phone — 2026-08-22, **via USB from the laptop, not wireless ADB from
+      agent101 as `docs/PREVIEW.md` §3 originally assumed.** Found live: agent101 sits on an
+      isolated Proxmox VM subnet (`10.10.10.0/24`) with no route to Kev's home Wi-Fi
+      (`192.168.0.0/24`) — PVE (`10.10.10.1`/`192.168.0.190`) is dual-homed and has a route to
+      the home LAN, but agent101's traffic still didn't reach the phone, pointing at IP
+      forwarding or a Proxmox firewall rule blocking it on PVE itself (not something fixable
+      from agent101 — needs checking directly on PVE, deferred, not blocking). Worked around by
+      building the debug APK on agent101, `scp`-ing it to the laptop (already on the home LAN),
+      and installing via USB `adb` from there instead — first real install off-emulator,
+      confirmed running.
+- [ ] `docs/PREVIEW.md` verified end-to-end from the laptop (scrcpy) — wireless install path
+      still blocked by the PVE routing/firewall gap above; USB from the laptop is the confirmed
+      working path for now. `docs/PREVIEW.md` needs a note on this until PVE's side is fixed.
 - [ ] Final `./gradlew test assembleDebug` green
