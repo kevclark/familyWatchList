@@ -25,8 +25,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -107,6 +112,15 @@ fun HomeScreen(
 
     val servicesSuffix = if (state.hasSubscribedServices) " on your services" else ""
 
+    // PLAN.md §5 screen 3: "long-press → dismiss ('not interested')". One shared confirm dialog
+    // for every recommendation-flavoured carousel below, rather than duplicating an AlertDialog
+    // per row — [DismissTarget] carries just enough to render the confirm copy and fire the
+    // actual dismiss.
+    var dismissTarget by remember { mutableStateOf<DismissTarget?>(null) }
+    val onLongPressDismiss: (TitleEntity) -> Unit = { title ->
+        dismissTarget = DismissTarget(title.tmdbId, title.mediaType, title.title)
+    }
+
     Box(modifier = modifier.fillMaxSize().background(Ink)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -166,7 +180,12 @@ fun HomeScreen(
             }
 
             item(key = "for-you") {
-                ForYouRow(state = state, onOpenTitle = onOpenTitle, onOpenSearch = onOpenSearch)
+                ForYouRow(
+                    state = state,
+                    onOpenTitle = onOpenTitle,
+                    onOpenSearch = onOpenSearch,
+                    onLongPressDismiss = onLongPressDismiss,
+                )
             }
 
             // PLAN.md §5 screen 3 / §4a slider 4: the who's-watching chip row + blended Family
@@ -193,6 +212,7 @@ fun HomeScreen(
                             title = title.title,
                             posterPath = title.posterPath,
                             onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+                            onLongPress = { onLongPressDismiss(title) },
                         )
                     }
                 }
@@ -208,6 +228,7 @@ fun HomeScreen(
                         title = title.title,
                         posterPath = title.posterPath,
                         onClick = { onOpenTitle(title.tmdbId, MediaType.MOVIE) },
+                        onLongPress = { onLongPressDismiss(title) },
                     )
                 }
             }
@@ -222,6 +243,7 @@ fun HomeScreen(
                         title = title.title,
                         posterPath = title.posterPath,
                         onClick = { onOpenTitle(title.tmdbId, MediaType.TV) },
+                        onLongPress = { onLongPressDismiss(title) },
                     )
                 }
             }
@@ -291,7 +313,32 @@ fun HomeScreen(
             }
         }
     }
+
+    // PLAN.md §5 screen 3's dismiss confirm — see [onLongPressDismiss] above. Same
+    // AlertDialog(containerColor = InkRaised, ...) visual language HistoryScreen's delete
+    // confirm already established, not a new dialog style.
+    dismissTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { dismissTarget = null },
+            containerColor = InkRaised,
+            titleContentColor = Chalk,
+            textContentColor = ChalkMuted,
+            title = { Text("Not interested?") },
+            text = { Text("“${target.title}” won't be suggested to you again until you tell us otherwise.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.dismissTitle(target.tmdbId, target.mediaType)
+                    dismissTarget = null
+                }) { Text("Dismiss", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissTarget = null }) { Text("Cancel", color = ChalkMuted) }
+            },
+        )
+    }
 }
+
+private data class DismissTarget(val tmdbId: Int, val mediaType: MediaType, val title: String)
 
 /**
  * The full-bleed hero. Backdrop art, a bottom scrim dissolving it into the page, and the title
@@ -485,7 +532,12 @@ private fun HomeHeroEmpty(
  *    "nothing here yet, go search" prompt the pre-M3 placeholder used, rather than an empty row.
  */
 @Composable
-private fun ForYouRow(state: HomeUiState, onOpenTitle: (Int, MediaType) -> Unit, onOpenSearch: () -> Unit) {
+private fun ForYouRow(
+    state: HomeUiState,
+    onOpenTitle: (Int, MediaType) -> Unit,
+    onOpenSearch: () -> Unit,
+    onLongPressDismiss: (TitleEntity) -> Unit,
+) {
     if (state.isColdStartForYou) {
         val combined = (state.popularMovies + state.popularTv)
             .sortedByDescending { it.popularity ?: 0.0 }
@@ -500,6 +552,7 @@ private fun ForYouRow(state: HomeUiState, onOpenTitle: (Int, MediaType) -> Unit,
                 title = title.title,
                 posterPath = title.posterPath,
                 onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+                onLongPress = { onLongPressDismiss(title) },
             )
         }
         return
@@ -543,6 +596,7 @@ private fun ForYouRow(state: HomeUiState, onOpenTitle: (Int, MediaType) -> Unit,
             title = title.title,
             posterPath = title.posterPath,
             onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+            onLongPress = { onLongPressDismiss(title) },
         )
     }
 }

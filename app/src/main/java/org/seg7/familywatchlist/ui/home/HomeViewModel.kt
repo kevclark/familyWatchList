@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
+import org.seg7.familywatchlist.data.local.entity.ShortlistState
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
@@ -155,10 +156,33 @@ class HomeViewModel(
             .map { items -> items.filter { it.item.addedByProfileId == activeProfile.id } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Live, offline-first read of the active profile's (or Family's) persisted shortlist — [refresh] is what regenerates it. */
+    /**
+     * Live, offline-first read of the active profile's (or Family's) persisted shortlist —
+     * [refresh] is what regenerates it. Filtered to SUGGESTED: [observeShortlist]'s underlying
+     * query returns every state for this scope/week, including DISMISSED rows [dismissTitle]
+     * writes — without this filter, a just-dismissed title (which already has a shortlist row,
+     * the common "For You" case) would keep rendering here until the next full recompute even
+     * though the Room write itself lands immediately. Also excludes WATCHED, for the same
+     * "this row shows live suggestions, not the full historical row" reason.
+     */
     private val forYouShortlist: StateFlow<List<ShortlistEntryEntity>> =
         recommendationRepository.observeShortlist(recommendationRepository.currentWeekStart(), shortlistScopeKey)
+            .map { entries -> entries.filter { it.state == ShortlistState.SUGGESTED } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * PLAN.md §5 screen 3's dismiss gesture, in-memory half. [forYouShortlist] above already
+     * reflects a dismissal of a title that *was* on the shortlist the moment
+     * [RecommendationRepository.dismissTitle]'s Room write lands (it's a live Flow off the same
+     * table). Popular/Family-Night cards have no such row to begin with (see
+     * [RecommendationRepository.dismissTitle]'s kdoc) — their source flows
+     * ([_discover]/[_familyNightTitles]) are plain in-memory snapshots with nothing to observe,
+     * so without this set a dismissed Popular/Family-Night card would linger on screen until the
+     * next manual/weekly refresh. This set is never persisted itself and is cleared on process
+     * death — [RecommendationRepository.dismissTitle]'s Room write is the actual persistence;
+     * this only makes *this* screen instance feel instant.
+     */
+    private val _dismissedKeys = MutableStateFlow<Set<Pair<Int, MediaType>>>(emptySet())
 
     private data class HomeCore(
         val myList: List<WatchlistItemAvailability>,
@@ -181,7 +205,8 @@ class HomeViewModel(
         combine(familyNightProfiles, _familyNightSelection, _familyNightTitles) { profiles, selectedIds, titles ->
             FamilyNightState(profiles, selectedIds, titles)
         },
-    ) { core, family ->
+        _dismissedKeys,
+    ) { core, family, dismissed ->
         val (list, discover, shortlist, coldStart, ageRatingCap) = core
         // Shortlist entries carry only (tmdbId, mediaType, score) — resolve to cached TitleEntity
         // rows for rendering. Offline-first: every shortlisted candidate was already detail-fetched
@@ -192,21 +217,30 @@ class HomeViewModel(
             val byKey = titleRepository.getTitles(shortlist.map { it.tmdbId to it.mediaType }).associateBy { it.tmdbId to it.mediaType }
             shortlist.sortedByDescending { it.score }.mapNotNull { byKey[it.tmdbId to it.mediaType] }
         }
+        // PLAN.md §5 screen 3: instant removal of a just-dismissed card from every
+        // recommendation-flavoured row — see [_dismissedKeys]'s kdoc for why this in-memory
+        // filter is needed alongside RecommendationRepository.dismissTitle's Room write.
+        fun List<TitleEntity>.withoutDismissed() = filterNot { (it.tmdbId to it.mediaType) in dismissed }
+        val visibleForYouTitles = forYouTitles.withoutDismissed()
+        val visiblePopularMovies = discover.movies.withoutDismissed()
+        val visiblePopularTv = discover.tv.withoutDismissed()
         HomeUiState(
             myList = list,
-            popularMovies = discover.movies,
-            popularTv = discover.tv,
-            forYouTitles = forYouTitles,
+            popularMovies = visiblePopularMovies,
+            popularTv = visiblePopularTv,
+            forYouTitles = visibleForYouTitles,
             isColdStartForYou = coldStart,
             familyNightProfiles = family.profiles,
             familyNightSelectedIds = family.selectedIds,
-            familyNightTitles = family.titles,
+            familyNightTitles = family.titles.withoutDismissed(),
             // PLAN.md §4's 2026-08-19 design note, revised by M3g's "Cold-start Home treatment":
             // the top-scored personalised pick, not raw popularity — falling back to the popular
             // pick only while a *warm* profile's first shortlist is still computing. A cold-start
             // profile gets null here, never a popularity-pick masquerading as "your pick" —
-            // HomeScreen renders the intro panel instead when isColdStartForYou is true.
-            hero = if (coldStart) null else forYouTitles.firstOrNull() ?: discover.movies.firstOrNull() ?: discover.tv.firstOrNull(),
+            // HomeScreen renders the intro panel instead when isColdStartForYou is true. Sourced
+            // from the already-dismissed-filtered lists so a just-dismissed hero pick can't
+            // linger as the hero after its card has vanished from For You/Popular.
+            hero = if (coldStart) null else visibleForYouTitles.firstOrNull() ?: visiblePopularMovies.firstOrNull() ?: visiblePopularTv.firstOrNull(),
             isLoading = discover.isLoading,
             errorMessage = discover.error,
             hasSubscribedServices = discover.hasSubscribedServices,
@@ -327,6 +361,20 @@ class HomeViewModel(
      */
     fun removeFromWatchlist(tmdbId: Int, mediaType: MediaType) {
         viewModelScope.launch { watchlistRepository.remove(tmdbId, mediaType) }
+    }
+
+    /**
+     * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')". Updates [_dismissedKeys]
+     * synchronously so the card disappears from every recommendation row this frame — see its
+     * kdoc — then persists via [RecommendationRepository.dismissTitle] against *this* profile's
+     * scope ([activeProfile.id], which resolves to the Family sentinel when Family is active),
+     * so a dismissal never leaks to a different profile's shortlist.
+     */
+    fun dismissTitle(tmdbId: Int, mediaType: MediaType) {
+        _dismissedKeys.value = _dismissedKeys.value + (tmdbId to mediaType)
+        viewModelScope.launch {
+            runCatching { recommendationRepository.dismissTitle(activeProfile.id, tmdbId, mediaType) }
+        }
     }
 
     /**
