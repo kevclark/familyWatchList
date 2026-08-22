@@ -1517,3 +1517,31 @@ offering a title as *both* FLATRATE and RENT/BUY (Amazon Video routinely does) c
 have one row persisted; the second `Upsert` silently clobbered the first. Fixed by adding `kind`
 to the primary key (DB v7 -> v8, `MIGRATION_7_8`, drop+recreate — this table is a pure 7-day TTL
 cache with nothing worth preserving across the migration). Covered by a DAO regression test.
+
+### Two more real-device findings (Kev, 2026-08-22, later that night)
+
+**1. The `fetchedAt` reset fix didn't actually run on Kev's phone.** Confirmed still broken
+after reinstall. Root cause: the fix was added to the body of the already-shipped
+`MIGRATION_7_8` without bumping `AppDatabase`'s `version` past `8`. Room only executes a
+migration once per genuine version transition a specific device passes through — Kev's phone
+already migrated 7→8 during the earlier M6 install tonight, so a new build that still declares
+`version = 8` triggers no migration at all on his device, regardless of what the migration's
+Kotlin body now contains. The fix was real but literally never executed on his phone.
+- [ ] Revert the `UPDATE titles SET fetchedAt = 0` line out of `MIGRATION_7_8` (leave that
+      migration exactly as it shipped — don't keep editing already-executed migrations)
+- [ ] Add a genuine new `MIGRATION_8_9` doing that same `UPDATE`, bump `AppDatabase.version` to
+      `9`, register it in `AppContainer.kt`'s `.addMigrations(...)` list
+- [ ] Update/add a migration test proving `MIGRATION_8_9` specifically (not `7_8`) resets
+      `fetchedAt`
+- [ ] `./gradlew test assembleDebug` green
+
+**2. Trailer plays, but the video is much smaller than the player window in portrait.**
+`TrailerPlayerDialog.kt`'s HTML wrapper sets `iframe{width:100%;height:100%}` but never gives
+`html`/`body` an explicit height — `height:100%` on the iframe resolves against an undefined
+ancestor height (browsers default `body` height to its content, not the viewport), so it
+renders small instead of filling the Compose-sized WebView container.
+- [ ] Add `html, body { height:100%; width:100%; margin:0; padding:0 }` to the wrapper's
+      `<style>` (keep the existing `background:#000` and `iframe{border:0}`)
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: trailer video genuinely fills the 16:9 player area in portrait, not
+      just "opens without crashing"
