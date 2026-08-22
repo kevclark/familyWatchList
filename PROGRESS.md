@@ -1200,9 +1200,20 @@ decisions in either half — everything below is already fully specified, so no 
 expected the way M3j needed.
 
 **M4a — screen/interaction polish:**
-- [ ] Trailers via TMDB `/videos` → YouTube intent
-- [ ] Coil crossfade placeholders, shared-element-style transition, predictive back
-- [ ] Dismiss ("not interested") long-press flow
+- [x] Trailers via TMDB `/videos` → YouTube intent — already fully wired (append_to_response
+      at fetch time, ▶ Trailer button, YouTube intent); added the missing dedicated unit test
+      for the official-trailer > any-trailer > official-teaser > any-teaser > null selection
+      priority (`TmdbMappersTest`)
+- [x] Coil crossfade placeholders, shared-element-style transition, predictive back —
+      crossfade already app-wide via `SingletonImageLoader.Factory` (audited, no per-call
+      duplication); added `android:enableOnBackInvokedCallback="true"` for predictive back
+      (no intercepting `BackHandler` existed); added a scale+fade "dive into the poster"
+      transition on Home→details nav (PLAN.md §5a's own documented fallback for when true
+      shared-element bounds-matching isn't already wired)
+- [x] Dismiss ("not interested") long-press flow — `RecommendationRepository.dismissTitle`
+      (the write side; `excludeDismissed` read side already existed), long-press +
+      confirm-dialog on Home's For You/Popular/Family Night poster cards, per-profile isolation
+      proven in `RecommendationRepositoryTest`, immediate-removal proven in `HomeViewModelTest`
 
 **M4b — settings, data, and repo hygiene:**
 - [ ] Settings audit: services toggles, profile management, About — confirm what earlier
