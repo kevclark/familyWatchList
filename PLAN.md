@@ -735,6 +735,14 @@ Everything user-space under `~/android-dev/` unless noted:
 | M4 | Polish | Trailers, transitions/placeholders, dismiss flow, settings, backup/restore, attribution pass, decent repo README.md (what/why, screenshots, build & preview instructions, TMDB/JustWatch attribution) |
 | M5 | Ship | Install on Kev's phone via wireless ADB; `docs/PREVIEW.md` verified from laptop |
 
+**M5 addition, Kev's request (2026-08-22):** out of interest, not a functional requirement —
+a retrospective stats summary of what it took to build this: roughly how many prompts/turns
+across the whole project got it to shipped, and total dev time summed across every background
+agent that contributed (each async agent's completion notification carries a `duration_ms` and
+`subagent_tokens` figure — that's the source data; there's no other running total kept
+anywhere, so this needs to be assembled at M5 time from session history, not estimated from
+memory).
+
 Orchestrator keeps `PROGRESS.md` (checkbox per milestone item) so any session can resume cold.
 
 **Testing bar:** recommender and caching logic get real JVM unit tests (deterministic
