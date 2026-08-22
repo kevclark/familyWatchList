@@ -228,6 +228,64 @@ like Kev/Sam/Ellie, with its own real Home (hero, For You, the lot).
 - Deleting a member profile removes them from the Family profile's membership (cascade), not
   the Family profile itself.
 
+### 4b. Family profile promoted to fully independent (Kev, 2026-08-22 — supersedes the blend
+design directly above; queued as M3j)
+
+Kev's live-review pass (§5b) surfaced that the blend design above doesn't hold together once
+you actually use the app alongside M3i's profile-scoped fixes (per-viewer age-cap dimming,
+etc.): "not making sense now that we've added so much profile scoping across the board to
+leave this home screen as the overall view." His call, confirmed: **the Family profile becomes
+a fully independent profile, symmetric with every individual one in every respect except its
+age cap, which stays derived** (strictest among curated members — the one and only inherited
+thing). Concretely, this reverses several pieces of the 2026-08-21 design above:
+
+- **Watchlist add and rating are unblocked for Family.** `SearchViewModel.toggleWatchlist`,
+  `TitleDetailViewModel.toggleWatchlist`, and `TitleDetailViewModel.rate` currently refuse
+  outright ("Switch to a person profile...") whenever `activeProfileId ==
+  FAMILY_PROFILE_SENTINEL_ID` — remove all three blocks. `WatchlistEntryEntity.addedByProfileId`
+  and `RatingEntity`'s profileId can now legitimately be the sentinel; neither entity (nor
+  `WatchEventProfileEntity`) has a `@ForeignKey` to `profiles`, so this needs no schema change —
+  confirmed by reading all three entity definitions before writing this.
+- **Family gets its own independent recommendation history and scoring**, not a blend of
+  members. Its persisted weekly shortlist should run through the exact same
+  `refreshProfileShortlist(profileId, region)` pipeline every individual profile uses, called
+  with `FAMILY_PROFILE_SENTINEL_ID` — built from Family's *own* logged `WatchEvent`/`Rating`
+  rows, not `FamilyBlend.blendVectors` over members' vectors. Two adjustments
+  `refreshProfileShortlist` needs to work for a sentinel id with no real `profiles` row: resolve
+  its display name via `familyProfileRepository.get()?.profile?.name` instead of
+  `profileRepository.getById`, and resolve its age cap via the already-existing
+  `resolveAgeRatingCap(profileId)` (which already special-cases the sentinel to the
+  strictest-member cap) instead of a fetched `ProfileEntity.ageRatingCap`.
+  **Explicitly unaffected by this:** the **ad-hoc "who's watching tonight?" chip row**
+  (`refreshFamilyShortlist` called with `persist = false`) is a genuinely different feature —
+  a transient blend over *whatever subset* is picked that moment, not the persistent Family
+  identity — and keeps using `FamilyBlend.blendVectors` exactly as built. Only the
+  `persist = true` / `FAMILY_SCOPE_KEY` path (the weekly job's Family-scope refresh) moves to
+  the independent-history pipeline; `refreshAll()`'s loop calls
+  `refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID, region)` for Family alongside every real
+  profile instead of the separate blend call it makes today.
+- **Cold start for Family now uses the same generic per-profile check as everyone else** —
+  `isColdStart(FAMILY_PROFILE_SENTINEL_ID)` (< 5 of Family's *own* watch events), now that
+  Family can actually own events. This **replaces** M3i's just-shipped `familyIsColdStart`
+  ("cold only if every curated member is individually cold") — that function and its dedicated
+  test can go; the plain per-profile threshold now applies uniformly.
+- **Logging a watch while Family is active tags Family itself, in addition to** (not instead
+  of) **auto-tagging every curated member** (Kev's explicit call, 2026-08-22) — so
+  `initialSelectedProfileIds` for Family becomes `{FAMILY_PROFILE_SENTINEL_ID} ∪ members`
+  rather than just `members`. This both gives Family its own `WatchEventProfile` row (feeding
+  its now-independent affinity vector above) and keeps the existing "log once, tag everyone"
+  convenience for the real people underneath it.
+- **My List and History now work symmetrically for Family.** Home's My List carousel and the
+  full My List screen can now filter to `addedByProfileId == FAMILY_PROFILE_SENTINEL_ID` for
+  Family exactly like any individual's own additions — this was the actual original ask (Home
+  showing "Kevu's items" while Family was the active profile) and only becomes coherent once
+  Family can own watchlist entries at all, per above. History's profile filter should offer
+  Family as a selectable option for the same reason, now that it can genuinely own logged
+  events.
+- **Still unchanged:** membership (picked at creation, editable later, cascades on member
+  deletion), selection via the `FAMILY_PROFILE_SENTINEL_ID` sentinel, and the derived
+  (never independently settable) age cap.
+
 **Cold start:** < 5 watch events for a profile → popular-on-your-services (age-filtered)
 labelled "Popular on your services" instead of "For you".
 
