@@ -2,7 +2,6 @@ package org.seg7.familywatchlist.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -50,8 +49,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -61,8 +58,6 @@ import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlinx.coroutines.launch
-import org.seg7.familywatchlist.BuildConfig
-import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.repository.AccentColor
@@ -93,11 +88,19 @@ import org.seg7.familywatchlist.work.RecommendationScheduler
  *    `onboardingComplete` (PLAN.md §5a known defect #2) — so the user lands on the services
  *    step with a close button, not at the top of a flow they can't escape.
  *
- * The TMDB/JustWatch notices are here verbatim per §3's "Settings → About and on onboarding".
+ * The TMDB/JustWatch notices, version and M7's "Built with Claude" stats live one level down on
+ * [AboutScreen] (reached via the "About" row below), same navigable-screen pattern as
+ * [org.seg7.familywatchlist.ui.tune.TunePicksScreen] — §3's "Settings → About" is still satisfied,
+ * just relocated off this screen's own scroll.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    activeProfileId: Long,
+    onOpenTunePicks: () -> Unit,
+    onOpenAbout: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val container = LocalAppContainer.current
     val scope = rememberCoroutineScope()
     val activeAccent by container.userPreferencesRepository.accentColor
@@ -240,40 +243,15 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
             modifier = Modifier.padding(start = Dimens.Gutter, top = 28.dp, bottom = 10.dp),
         )
         Column(
-            modifier = Modifier.padding(horizontal = Dimens.Gutter, vertical = 0.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(horizontal = Dimens.Gutter, vertical = 0.dp).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // PLAN.md §3: "TMDB logo + the exact notice ... in Settings → About and on
-            // onboarding" — same asset/wording as `ui/onboarding/AttributionStep.kt`.
-            Image(
-                painter = painterResource(R.drawable.ic_tmdb_logo),
-                contentDescription = "The Movie Database (TMDB)",
-            )
-            Text(
-                text = stringResource(R.string.tmdb_attribution),
-                style = MaterialTheme.typography.bodySmall,
-                color = ChalkFaint,
-            )
-            Text(
-                text = stringResource(R.string.justwatch_attribution),
-                style = MaterialTheme.typography.bodySmall,
-                color = ChalkFaint,
-            )
-            Text(
-                text = "Streaming availability is best-effort, especially for UK catch-up " +
-                    "services — always double-check on the service itself.",
-                style = MaterialTheme.typography.bodySmall,
-                color = ChalkFaint,
-            )
-            // Kev, 2026-08-22 (continuous delivery / alpha phase): a visible version string so
-            // he can tell a fresh install actually changed something, without needing to compare
-            // build timestamps. versionName is Android's own build-time field (build.gradle.kts),
-            // already SemVer-shaped ("0.1.0-alpha.1") — no separate app-level version concept.
-            Text(
-                text = "Version ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.bodySmall,
-                color = ChalkFaint,
-                modifier = Modifier.padding(bottom = 32.dp),
+            // M7: TMDB/JustWatch attribution, version and the "Built with Claude" build stats
+            // now live on their own screen — see AboutScreen's kdoc.
+            SettingsRow(
+                title = "About",
+                subtitle = "TMDB & JustWatch attribution, version, how this app was built",
+                onClick = onOpenAbout,
             )
         }
     }

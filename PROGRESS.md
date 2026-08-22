@@ -1622,21 +1622,21 @@ joined against each background agent's own recorded model, for accuracy — use 
     recovery check after a machine reboot.
 
 **Screen structure (implementation's call on exact layout/wording, but cover all of this):**
-- [ ] Consolidate into a real dedicated "About" screen (like `TunePicksScreen`'s pattern — a
+- [x] Consolidate into a real dedicated "About" screen (like `TunePicksScreen`'s pattern — a
       navigable screen, not another inline Settings section) reached via a new "About" row in
       Settings. Move the existing TMDB logo/attribution, JustWatch attribution, and disclaimer
       text there from Settings' current inline `ABOUT` section (still satisfies PLAN.md §3's
       "TMDB logo + notice ... in Settings → About" requirement — just relocated, not removed).
       Move the `Version ${BuildConfig.VERSION_NAME}` row there too.
-- [ ] A "Built with Claude" (or similar — your call on framing/wording, keep it factual and
+- [x] A "Built with Claude" (or similar — your call on framing/wording, keep it factual and
       matter-of-fact rather than promotional) section showing: total prompts, total dev time,
       and a per-model breakdown (model name, task count, hours, and — "ideally" per Kev, include
       if it fits cleanly, don't force it if it clutters — tokens/tool-calls per model)
-- [ ] Snapshot date shown directly in the UI
-- [ ] Tests: proportionate for a static-data display screen — a state/rendering test confirming
+- [x] Snapshot date shown directly in the UI
+- [x] Tests: proportionate for a static-data display screen — a state/rendering test confirming
       the numbers/model rows actually render is enough, no need to test the literal figures
       beyond "the constants get displayed"
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: navigate Settings → About, confirm everything renders correctly
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification: navigate Settings → About, confirm everything renders correctly
       (existing TMDB/JustWatch attribution still present and correct after the move, version
       shown, AI-transparency stats shown)
