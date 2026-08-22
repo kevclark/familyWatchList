@@ -815,6 +815,16 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
   emulator right now — the real phone at M5 is the acid test for this feature. Worth
   revisiting only if a future roadmap item adds more playback-dependent features that would
   benefit from headless verification.
+  **Superseded, 2026-08-22 (M5 real-phone testing): the Widevine theory was wrong.** Kev's real
+  phone (genuine Widevine hardware) hit the identical "Error 153" — the actual cause is
+  YouTube's `Referer` header enforcement for embedded players (strict since late 2025), unrelated
+  to DRM. `TrailerWebView` loads the embed URL directly via `loadUrl` with no parent page, so no
+  referrer exists for YouTube to verify. Real fix queued in PROGRESS.md's M5 real-device
+  findings: wrap the embed in a local HTML page with a genuine `<iframe>` + `https://` base
+  origin via `loadDataWithBaseURL`, not a direct top-level `loadUrl`. Sources: [YouTube error
+  153 in Android WebView – Iframely](https://iframely.com/help/501993-you-tube-error-153-in-android-web-view),
+  [Error 153 fix — Simon Willison's TILs](https://til.simonwillison.net/youtube/fixing-153-embed),
+  [Fix YouTube Error 150/153 in WebViews](https://corsproxy.io/blog/fix-youtube-error-150-153-webview/).
 - **TMDB AI/ML clause (terms §1.C/§2.A)** — reviewed 2026-08-16: it targets training/validating
   ML or AI systems and harvesting datasets for that purpose. Our recommender is a
   deterministic hand-written scoring function (fixed weights, no training, no runtime AI) and
