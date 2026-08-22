@@ -52,6 +52,7 @@ import org.seg7.familywatchlist.ui.history.HistoryScreen
 import org.seg7.familywatchlist.ui.home.HomeScreen
 import org.seg7.familywatchlist.ui.logwatch.LogWatchSheet
 import org.seg7.familywatchlist.ui.search.SearchScreen
+import org.seg7.familywatchlist.ui.settings.AboutScreen
 import org.seg7.familywatchlist.ui.settings.SettingsScreen
 import org.seg7.familywatchlist.ui.tune.TunePicksScreen
 import org.seg7.familywatchlist.ui.watchlist.MyListScreen
@@ -80,6 +81,7 @@ private val BOTTOM_TABS = listOf(
 
 private const val ROUTE_TITLE = "title/{mediaType}/{tmdbId}"
 private const val ROUTE_TUNE_PICKS = "tune-picks"
+private const val ROUTE_ABOUT = "about"
 
 private fun titleRoute(tmdbId: Int, mediaType: MediaType) = "title/${mediaType.name}/$tmdbId"
 
@@ -124,7 +126,7 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
         val currentRoute = backStackEntry?.destination?.route
         // Details is full-bleed hero art — a bottom bar sitting on top of it would cut the
         // image and undo §5a's edge-to-edge intent, so the bar hides on that route only.
-        val showBottomBar = currentRoute != ROUTE_TITLE && currentRoute != ROUTE_TUNE_PICKS
+        val showBottomBar = currentRoute != ROUTE_TITLE && currentRoute != ROUTE_TUNE_PICKS && currentRoute != ROUTE_ABOUT
 
         Column(modifier = Modifier.fillMaxSize()) {
             NavHost(
@@ -170,10 +172,14 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
                     SettingsScreen(
                         activeProfileId = activeProfile.id,
                         onOpenTunePicks = { navController.navigate(ROUTE_TUNE_PICKS) },
+                        onOpenAbout = { navController.navigate(ROUTE_ABOUT) },
                     )
                 }
                 composable(ROUTE_TUNE_PICKS) {
                     TunePicksScreen(activeProfileId = activeProfile.id, onBack = { navController.popBackStack() })
+                }
+                composable(ROUTE_ABOUT) {
+                    AboutScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable(
