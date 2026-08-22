@@ -1141,37 +1141,37 @@ Supersedes M3d's blend design for the Family profile's *persistent* shortlist �
 §4b for full reasoning. Family becomes symmetric with every individual profile in every
 respect except its age cap, which stays derived (strictest among curated members).
 
-- [ ] Unblock watchlist add for Family: remove the `FAMILY_PROFILE_SENTINEL_ID` guard in
+- [x] Unblock watchlist add for Family: remove the `FAMILY_PROFILE_SENTINEL_ID` guard in
       `SearchViewModel.toggleWatchlist` and `TitleDetailViewModel.toggleWatchlist`
-- [ ] Unblock rating for Family: remove the guard in `TitleDetailViewModel.rate`
-- [ ] Family's persisted weekly shortlist runs through `refreshProfileShortlist` (its own
+- [x] Unblock rating for Family: remove the guard in `TitleDetailViewModel.rate`
+- [x] Family's persisted weekly shortlist runs through `refreshProfileShortlist` (its own
       history, not `FamilyBlend.blendVectors`) — resolve its name via
       `familyProfileRepository.get()?.profile?.name` and its cap via the existing
       `resolveAgeRatingCap(profileId)`, since it has no real `profiles` row
-- [ ] `refreshAll()` calls `refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID, region)` for
+- [x] `refreshAll()` calls `refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID, region)` for
       Family instead of the separate persisted blend call
-- [ ] Confirm the ad-hoc "who's watching tonight?" chip row (`refreshFamilyShortlist` with
+- [x] Confirm the ad-hoc "who's watching tonight?" chip row (`refreshFamilyShortlist` with
       `persist = false`) is untouched — still `FamilyBlend.blendVectors` over whatever subset
       is picked, unrelated to the Family profile's own identity
-- [ ] Family cold-start reverts to the plain `isColdStart(FAMILY_PROFILE_SENTINEL_ID)` check
+- [x] Family cold-start reverts to the plain `isColdStart(FAMILY_PROFILE_SENTINEL_ID)` check
       (< 5 of Family's own events) — remove M3i's `familyIsColdStart` (all-members-cold) function
       and its dedicated test, now redundant
-- [ ] Logging a watch while Family is active tags Family itself *in addition to* auto-tagging
+- [x] Logging a watch while Family is active tags Family itself *in addition to* auto-tagging
       every curated member — `initialSelectedProfileIds` becomes
       `{FAMILY_PROFILE_SENTINEL_ID} ∪ members`, not just `members`
-- [ ] Home's My List carousel and the full My List screen filter to
+- [x] Home's My List carousel and the full My List screen filter to
       `addedByProfileId == FAMILY_PROFILE_SENTINEL_ID` for Family, symmetric with individuals
       (this is the actual fix for Kev's original observation: Home showed Kevu's items while
       Family was active)
-- [ ] History's profile filter includes Family as a selectable option, now that it can own
+- [x] History's profile filter includes Family as a selectable option, now that it can own
       logged events
-- [ ] Regression tests: every individual profile's add/rate/log/list/cold-start/recommendation
+- [x] Regression tests: every individual profile's add/rate/log/list/cold-start/recommendation
       behaviour is provably unchanged by this milestone
-- [ ] New tests: Family can add/rate/log under its own identity; Family's shortlist reflects
+- [x] New tests: Family can add/rate/log under its own identity; Family's shortlist reflects
       only its own history (not members'); Family cold-start uses its own event count; My List
       filters correctly for Family; the ad-hoc chip-row blend still works unchanged
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification on a real device (the same live-check pattern M3i used) — especially
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification on a real device (the same live-check pattern M3i used) — especially
       Home's My List actually changing when switching between Family and an individual profile
 
 ## M4 — Polish
