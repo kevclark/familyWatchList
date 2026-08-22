@@ -1310,7 +1310,7 @@ implementation rather than a re-interpretation:
 - Accent `#8B5CF6` (Obsidian) matches the app's own default accent exactly — no new colour
   introduced
 
-- [ ] Build as a real Android adaptive icon: `res/mipmap-anydpi-v26/ic_launcher.xml` (+
+- [x] Build as a real Android adaptive icon: `res/mipmap-anydpi-v26/ic_launcher.xml` (+
       `ic_launcher_round.xml`) referencing a background layer + foreground layer, each a
       `VectorDrawable` (minSdk is 26 — adaptive icons are natively supported on every device
       this app runs on, no legacy flat-PNG fallback needed for compatibility). Reproduce the
@@ -1318,11 +1318,29 @@ implementation rather than a re-interpretation:
       approximation — implementation's call on exactly how to split the composition across the
       two layers (the scene is one continuous image, not natural background/subject layers),
       document the choice.
-- [ ] Wire into `AndroidManifest.xml` (`android:icon`/`android:roundIcon` already point at
-      `@mipmap/ic_launcher` — confirm, don't assume)
-- [ ] Live verification: install on the emulator, screenshot the actual home-screen/launcher
-      icon (not just the in-app preview) and compare against the concept artifact
-- [ ] `./gradlew test assembleDebug` green
+      Split used: `drawable/ic_launcher_background.xml` = ground radial gradient + violet
+      floor-wash (no hard edges); `drawable/ic_launcher_foreground.xml` = bloom ellipse +
+      screen plane + sofa silhouette cut as solid `#0B0B0D` negative space on top, drawn at
+      literal spec coordinates so the sofa-back bleeds past the safe zone and is cropped by
+      the adaptive mask, per spec. Bloom ellipse (rx52/ry44) implemented via a circular
+      radial gradient (r44) inside a non-uniformly scaled `<group>`, since VectorDrawable
+      radial gradients are circular-only. Percentage radii ("radius 96%", "r72%") interpreted
+      as a percentage of the relevant shape's own bounding dimension, not a stricter SVG
+      bounding-box convention — flagged for Kev below. Neck-rect x/width weren't given
+      numeric values in the extracted spec (only head circles + sofa-back rect are numeric);
+      implemented as width = 1.4x head radius, centered on head cx, down to y=70 — also
+      flagged below.
+- [x] Wire into `AndroidManifest.xml` (`android:icon`/`android:roundIcon` already pointed at
+      `@mipmap/ic_launcher` — confirmed, no change needed)
+- [x] Live verification: installed on the emulator (`-gpu swangle`, GLES renderer confirmed
+      via ANGLE/Vulkan/SwiftShader), screenshotted the actual launcher icon via the Settings
+      "App info" page (shows the real masked adaptive icon at a larger size than the home
+      screen dock) and the home-screen dock itself. Screenshots saved at
+      `docs/m4c-launcher-icon.png` and `docs/m4c-launcher-icon-homescreen.png`. Reads
+      correctly as the spec: dark near-black ground, warm-lit screen glow top-of-frame,
+      three silhouetted heads + sofa-back at the bottom edge, circular mask crops the
+      sofa-back bleed as intended.
+- [x] `./gradlew test assembleDebug` green
 - **Deliberately out of scope for now, not decided by Kev:** the themed/monochrome icon variant
   (Android 13+ Material You) — the concept artifact suggested pairing Sofa with "Floor" for
   that, but Kev only confirmed Sofa as the primary launcher icon, not a themed-icon pairing.

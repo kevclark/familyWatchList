@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  "Sofa" adaptive icon — background layer (PROGRESS.md M4c spec).
+  Holds the two layers of the scene that sit behind everything else: the near-black
+  ground radial gradient and the warm violet floor-wash lifted from the bottom.
+  Layer-split rationale: the source composition is one continuous scene, not natural
+  background/subject layers. This file carries the parts that read as "backdrop" (no
+  hard edges, nothing that needs to sit crisply in front of the sofa silhouette); the
+  bloom, screen plane and sofa cut-out all live in ic_launcher_foreground.xml so they
+  layer on top of this in the correct order.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Ground: radial gradient, center 26%/14%, radius 96% of canvas, #191922 -> #0B0B0D -->
+    <path android:pathData="M0,0 H108 V108 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="28.08"
+                android:centerY="15.12"
+                android:gradientRadius="103.68"
+                android:tileMode="clamp">
+                <item android:offset="0" android:color="#FF191922" />
+                <item android:offset="1" android:color="#FF0B0B0D" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!--
+      Warm violet floor-wash: linear gradient over the bottom ~63% of the canvas
+      (y=40 to y=108), #8B5CF6 0% opacity -> 16% opacity.
+    -->
+    <path android:pathData="M0,40 H108 V108 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="40"
+                android:endX="0"
+                android:endY="108"
+                android:tileMode="clamp">
+                <item android:offset="0" android:color="#008B5CF6" />
+                <item android:offset="1" android:color="#298B5CF6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+</vector>

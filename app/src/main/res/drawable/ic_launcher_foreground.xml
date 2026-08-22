@@ -1,14 +1,112 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Simple popcorn-gold play glyph inside the adaptive-icon safe zone. -->
+<!--
+  "Sofa" adaptive icon — foreground layer (PROGRESS.md M4c spec).
+  Layer-split rationale: this file carries everything that reads as "in front of" the
+  backdrop in ic_launcher_background.xml — the bloom glow, the lit screen plane, and the
+  sofa/heads silhouette cut as negative space (filled in the ground colour #0B0B0D) on
+  top of them. The silhouette deliberately bleeds past the 72dp safe zone (viewBox
+  18..90) on both sides per spec, so it is drawn at its literal spec coordinates rather
+  than inset/scaled to fit inside the safe circle — the adaptive-icon mask crops it, which
+  is the intended look.
+
+  Two implementation notes on translating the SVG-style spec into VectorDrawable:
+  - VectorDrawable radial gradients are circular only (single gradientRadius, no
+    independent rx/ry). The bloom is specified as an ellipse (rx 52, ry 44), so it is
+    drawn as a circle of radius 44 inside a <group> that applies a non-uniform
+    scaleX = rx/ry = 52/44 around the ellipse's own center (54,45) — this reproduces the
+    52x44 ellipse exactly without approximating the gradient math.
+  - Percentage radii in the spec ("radius 96%", "r72%") aren't tied to an explicit SVG
+    gradientUnits/bounding-box convention in the extracted spec, so they're interpreted
+    literally as a percentage of the relevant shape's own bounding dimension (canvas edge
+    for the background ground gradient in ic_launcher_background.xml; the screen plane's
+    width, 52dp, here) rather than re-derived from assumptions about the original SVG.
+    Flagged in the M4c report for Kev to confirm if a stricter reading is intended.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Bloom: radial gradient ellipse (cx54 cy45, rx52 ry44), #8B5CF6 55% -> 18% -> 0% opacity -->
+    <group
+        android:pivotX="54"
+        android:pivotY="45"
+        android:scaleX="1.181818"
+        android:scaleY="1">
+        <path android:pathData="M10,45 A44,44 0 1,0 98,45 A44,44 0 1,0 10,45 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="54"
+                    android:centerY="45"
+                    android:gradientRadius="44"
+                    android:tileMode="clamp">
+                    <item android:offset="0" android:color="#8C8B5CF6" />
+                    <item android:offset="0.5" android:color="#2E8B5CF6" />
+                    <item android:offset="1" android:color="#008B5CF6" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
+
+    <!--
+      Screen plane: rounded rect (x28 y30 w52 h29 rx3), radial gradient center 50%/38%
+      r72% (of the rect's own width, 52dp -> gradientRadius 37.44), warm core #FFF3E4 ->
+      mid #D9C4FF -> edge #8B5CF6.
+    -->
+    <path android:pathData="M31,30 H77 A3,3 0 0 1 80,33 V56 A3,3 0 0 1 77,59 H31 A3,3 0 0 1 28,56 V33 A3,3 0 0 1 31,30 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="41.02"
+                android:gradientRadius="37.44"
+                android:tileMode="clamp">
+                <item android:offset="0" android:color="#FFFFF3E4" />
+                <item android:offset="0.5" android:color="#FFD9C4FF" />
+                <item android:offset="1" android:color="#FF8B5CF6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!--
+      Sofa silhouette, filled solid ground colour #0B0B0D (cut as negative space against
+      the lit backdrop above): three heads + necks, one continuous sofa-back rect.
+      Neck rect x/width are not given explicit numeric values in the extracted spec (only
+      the head circles' geometry and the sofa-back rect are numeric) — implemented here as
+      a rect of width = 1.4x the head's radius, centered on the head's cx, running from
+      the head's cy down to y=70 so it bridges cleanly into the sofa-back top edge (y=67).
+      Flagged for Kev to confirm against the original concept artifact if exactness matters.
+    -->
+    <!-- Head 1: cx38 cy60.5 r6.8 -->
     <path
-        android:fillColor="#FFC24B"
-        android:pathData="M54,28c-14.4,0 -26,11.6 -26,26s11.6,26 26,26s26,-11.6 26,-26S68.4,28 54,28zM54,74c-11,0 -20,-9 -20,-20s9,-20 20,-20s20,9 20,20S65,74 54,74z" />
+        android:fillColor="#0B0B0D"
+        android:pathData="M31.2,60.5 A6.8,6.8 0 1,0 44.8,60.5 A6.8,6.8 0 1,0 31.2,60.5 Z" />
     <path
-        android:fillColor="#FFC24B"
-        android:pathData="M48,43l18,11l-18,11z" />
+        android:fillColor="#0B0B0D"
+        android:pathData="M33.24,60.5 L42.76,60.5 L42.76,70 L33.24,70 Z" />
+
+    <!-- Head 2: cx54 cy63.0 r5.0 -->
+    <path
+        android:fillColor="#0B0B0D"
+        android:pathData="M49,63 A5,5 0 1,0 59,63 A5,5 0 1,0 49,63 Z" />
+    <path
+        android:fillColor="#0B0B0D"
+        android:pathData="M50.5,63 L57.5,63 L57.5,70 L50.5,70 Z" />
+
+    <!-- Head 3: cx69 cy59.0 r7.4 -->
+    <path
+        android:fillColor="#0B0B0D"
+        android:pathData="M61.6,59 A7.4,7.4 0 1,0 76.4,59 A7.4,7.4 0 1,0 61.6,59 Z" />
+    <path
+        android:fillColor="#0B0B0D"
+        android:pathData="M63.82,59 L74.18,59 L74.18,70 L63.82,70 Z" />
+
+    <!-- Continuous sofa-back: rect x10 y67 w88 h41 rx4 -->
+    <path
+        android:fillColor="#0B0B0D"
+        android:pathData="M14,67 H94 A4,4 0 0 1 98,71 V104 A4,4 0 0 1 94,108 H14 A4,4 0 0 1 10,104 V71 A4,4 0 0 1 14,67 Z" />
+
 </vector>
