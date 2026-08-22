@@ -1435,6 +1435,39 @@ Search/watchlist only ever considered flatrate/free (included-with-subscription)
       crashes in logcat throughout.
 - [x] Final `./gradlew test assembleDebug` green
 
+### M6 regression found on Kev's real phone (2026-08-22, post-install)
+
+Real-device testing (via wireless ADB from the laptop, working around the still-unfixed PVE
+routing gap) surfaced a genuine bug the emulator pass didn't catch: Central Intelligence still
+didn't show in Search even after Kev subscribed to Amazon Video (which does carry it, confirmed
+against live TMDB data — and The Agency, which has the same provider, *did* show correctly,
+proving the provider-matching logic itself is right).
+
+Root cause, confirmed by pulling Kev's actual device DB (`adb exec-out run-as ... cat
+databases/family_watchlist.db`, queried locally with `sqlite3` — the phone has no on-device
+`sqlite3`, unlike the emulator, so this needed the pull-then-query workaround):
+`provider_availability` had 0 rows for Central Intelligence despite `titles` correctly having
+its row (fetched the previous evening, `trailerKey` populated). `TitleRepository.kt:71-84`:
+metadata freshness (30-day TTL) *and* provider freshness (7-day TTL) are both derived from the
+**same** `TitleEntity.fetchedAt` timestamp — `needsProviderRefresh` only trips once 7 days have
+passed, or the title is stub-only. Since Central Intelligence was fetched within the last 7
+days, the app correctly believed its providers were still fresh — except M6's `MIGRATION_7_8`
+**drop-and-recreated the entire `provider_availability` table that same morning**, without
+resetting anything on the existing `titles` rows. Net effect: any title fetched in the 7 days
+before the migration now has an empty provider cache the app doesn't know to refill, for up to
+7 more days — not unique to Central Intelligence, this is a blanket regression from the
+migration itself.
+
+- [ ] Fix `MIGRATION_7_8` (or add a follow-up migration) to also invalidate `titles.fetchedAt`
+      for existing rows, so `needsProviderRefresh` correctly trips a re-fetch post-migration
+      instead of trusting a timestamp that no longer reflects what's actually cached
+- [ ] Test: a title with a recent `fetchedAt` (title migrated forward, `provider_availability`
+      empty) is correctly treated as needing a provider refresh, not silently trusted as fresh
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification on Kev's real phone via the working wireless-ADB-from-laptop path
+      (pull+query the DB the same way this was diagnosed) — confirm Central Intelligence and
+      other previously-viewed titles correctly regain their provider data after the fix
+
 **Bonus fix found while implementing (M6, not a separate milestone):** `provider_availability`'s
 primary key was `(tmdbId, mediaType, providerId)` — no `kind` column — which meant a provider
 offering a title as *both* FLATRATE and RENT/BUY (Amazon Video routinely does) could only ever
