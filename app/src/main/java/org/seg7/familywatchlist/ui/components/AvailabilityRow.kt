@@ -25,6 +25,7 @@ import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.dao.AvailabilityBadge
 import org.seg7.familywatchlist.data.local.entity.ProviderKind
 import org.seg7.familywatchlist.ui.theme.Accent
+import org.seg7.familywatchlist.ui.theme.AccentEmber
 import org.seg7.familywatchlist.ui.theme.Chalk
 import org.seg7.familywatchlist.ui.theme.ChalkFaint
 import org.seg7.familywatchlist.ui.theme.ChalkMuted
@@ -104,8 +105,14 @@ private fun ProviderBadge(badge: AvailabilityBadge, modifier: Modifier = Modifie
                 style = MaterialTheme.typography.labelLarge,
                 color = if (badge.subscribed) Chalk else ChalkMuted,
             )
-            if (badge.kind == ProviderKind.FREE) {
-                Text(text = "FREE", style = MaterialTheme.typography.labelSmall, color = ChalkFaint)
+            // M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): distinguish free-included
+            // (FLATRATE gets no tag at all — "included" is the unlabelled default) from paid
+            // (RENT/BUY), which must never imply a price TMDB doesn't give us.
+            when (badge.kind) {
+                ProviderKind.FREE -> Text(text = "FREE", style = MaterialTheme.typography.labelSmall, color = ChalkFaint)
+                ProviderKind.RENT -> Text(text = "RENT", style = MaterialTheme.typography.labelSmall, color = AccentEmber)
+                ProviderKind.BUY -> Text(text = "BUY", style = MaterialTheme.typography.labelSmall, color = AccentEmber)
+                ProviderKind.FLATRATE -> Unit
             }
         }
     }

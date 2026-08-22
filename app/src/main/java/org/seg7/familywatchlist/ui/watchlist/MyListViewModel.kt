@@ -17,6 +17,7 @@ import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
+import org.seg7.familywatchlist.data.repository.WatchlistItemAvailability
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
 /**
@@ -29,6 +30,8 @@ data class MyListRow(
     val item: WatchlistItem,
     val addedBy: ProfileEntity?,
     val isAvailable: Boolean,
+    /** M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum) — mirrors [WatchlistItemAvailability.paidOnly]. */
+    val paidOnly: Boolean = false,
 )
 
 data class MyListUiState(
@@ -101,7 +104,14 @@ class MyListViewModel(
         val profilesById = profiles.associateBy { it.id } + (family?.let { mapOf(it.id to it) } ?: emptyMap())
         val rows = items
             .filter { !mineOnly || it.item.addedByProfileId == activeProfileId }
-            .map { MyListRow(item = it.item, addedBy = profilesById[it.item.addedByProfileId], isAvailable = it.isAvailable) }
+            .map {
+                MyListRow(
+                    item = it.item,
+                    addedBy = profilesById[it.item.addedByProfileId],
+                    isAvailable = it.isAvailable,
+                    paidOnly = it.paidOnly,
+                )
+            }
         MyListUiState(rows = rows, mineOnly = mineOnly, ageRatingCap = ageRatingCap)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MyListUiState())
 

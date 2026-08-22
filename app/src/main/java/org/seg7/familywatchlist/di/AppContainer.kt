@@ -89,7 +89,17 @@ class AppContainer(context: Context) {
     }
 
     val watchlistRepository: WatchlistRepository by lazy {
-        WatchlistRepository(database.watchlistDao(), clock, availabilityGate::isAvailableOnSubscribedProvider)
+        WatchlistRepository(
+            database.watchlistDao(),
+            clock,
+            availabilityGate::isAvailableOnSubscribedProvider,
+            // Cache-only, deliberately not isPaidOnlyOnSubscribedProvider — the isAvailable call
+            // just above always runs first for the same title (see WatchlistRepository
+            // .observeActiveItemsWithAvailability), so freshness is already ensured. See
+            // AvailabilityGate.isPaidOnlyCached's kdoc for why the self-refreshing variant would
+            // be wasteful here, not just redundant.
+            { tmdbId, mediaType, _ -> availabilityGate.isPaidOnlyCached(tmdbId, mediaType) },
+        )
     }
 
     // PLAN.md §7 M2f: Settings' region picker source, cached in-memory for the process's life

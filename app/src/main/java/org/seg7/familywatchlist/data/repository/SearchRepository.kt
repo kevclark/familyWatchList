@@ -106,6 +106,18 @@ class SearchRepository(
         sendMutex.withLock { send(slots.filterNotNull()) }
     }
 
+    /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): badge-wording query for a result already
+     * known to have passed [AvailabilityGate.isAvailableOnSubscribedProvider] — true when the
+     * *only* way to watch it on a subscribed provider is to rent/buy it. Deliberately
+     * [AvailabilityGate.isPaidOnlyCached] (never [AvailabilityGate.isPaidOnlyOnSubscribedProvider]):
+     * [search] already ran the full, freshness-ensuring check for this exact title moments
+     * earlier, so this is a pure Room read — see that method's kdoc for why a *second*
+     * freshness-ensuring call here would be wasteful, not just redundant.
+     */
+    suspend fun isPaidOnly(tmdbId: Int, mediaType: MediaType): Boolean =
+        availabilityGate.isPaidOnlyCached(tmdbId, mediaType)
+
     /** `/search/multi`, movie/TV kept, everything else (e.g. `person`) dropped, results persisted as stubs. */
     private suspend fun fetchCandidates(query: String, page: Int): List<TitleEntity> {
         val trimmed = query.trim()

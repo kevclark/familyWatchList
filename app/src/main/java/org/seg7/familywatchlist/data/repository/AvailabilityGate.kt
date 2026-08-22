@@ -59,7 +59,25 @@ class AvailabilityGate(
      * it included with the subscription (FLATRATE/FREE), even if others only offer BUY/RENT.
      */
     suspend fun isPaidOnlyOnSubscribedProvider(tmdbId: Int, mediaType: MediaType, region: String = REGION_GB): Boolean {
-        val rows = subscribedAvailability(tmdbId, mediaType, region)
+        titleRepository.ensureFresh(tmdbId, mediaType, region)
+        return isPaidOnlyCached(tmdbId, mediaType)
+    }
+
+    /**
+     * The same badge-wording answer as [isPaidOnlyOnSubscribedProvider], but *never* calls
+     * [TitleRepository.ensureFresh] itself — a cache-only read. For a caller that already just
+     * ran [isAvailableOnSubscribedProvider] (or `WatchlistRepository`'s equivalent `isAvailable`)
+     * moments earlier on the exact same [tmdbId]/[mediaType] — which every real caller of this
+     * method does ([SearchRepository.isPaidOnly], [WatchlistRepository]'s badge wiring) — that
+     * call already ensured freshness; a second [isPaidOnlyOnSubscribedProvider] call would still
+     * be *correct*, but every title whose cached row still reads as [TitleEntity.isStubOnly]
+     * (any detail payload with no runtime/certification — including in production, momentarily,
+     * before that data exists) would otherwise re-trigger a second, wasted network fetch on every
+     * single badge lookup. Callers that *haven't* just established freshness should use
+     * [isPaidOnlyOnSubscribedProvider] instead.
+     */
+    suspend fun isPaidOnlyCached(tmdbId: Int, mediaType: MediaType): Boolean {
+        val rows = subscribedAvailabilityCached(tmdbId, mediaType)
         if (rows.isEmpty()) return false
         return rows.none { it.kind == ProviderKind.FLATRATE || it.kind == ProviderKind.FREE }
     }
@@ -68,6 +86,12 @@ class AvailabilityGate(
         val subscribedIds = providerRepository.getSubscribedIds()
         if (subscribedIds.isEmpty()) return emptyList()
         titleRepository.ensureFresh(tmdbId, mediaType, region)
+        return titleRepository.getAvailability(tmdbId, mediaType).filter { it.providerId in subscribedIds }
+    }
+
+    private suspend fun subscribedAvailabilityCached(tmdbId: Int, mediaType: MediaType): List<ProviderAvailabilityEntity> {
+        val subscribedIds = providerRepository.getSubscribedIds()
+        if (subscribedIds.isEmpty()) return emptyList()
         return titleRepository.getAvailability(tmdbId, mediaType).filter { it.providerId in subscribedIds }
     }
 }

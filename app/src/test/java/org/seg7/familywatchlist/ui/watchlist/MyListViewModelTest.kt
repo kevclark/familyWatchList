@@ -212,7 +212,7 @@ class MyListViewModelTest {
     fun `an item that has lost availability is flagged so the screen can dim it`() = runTest {
         watchlistRepository.add(38700, MediaType.MOVIE, kevId) // Paddington
         watchlistRepository.add(12345, MediaType.MOVIE, kevId) // Arrival
-        val readingRepo = WatchlistRepository(db.watchlistDao(), clock) { tmdbId, _, _ -> tmdbId != 38700 }
+        val readingRepo = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { tmdbId, _, _ -> tmdbId != 38700 })
 
         val state = viewModel(readingRepo).uiState.first { it.rows.size == 2 }
 

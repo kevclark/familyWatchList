@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import org.seg7.familywatchlist.ui.theme.Accent
+import org.seg7.familywatchlist.ui.theme.AccentEmber
 import org.seg7.familywatchlist.ui.theme.Chalk
 import org.seg7.familywatchlist.ui.theme.ChalkFaint
 import org.seg7.familywatchlist.ui.theme.Crimson
@@ -106,6 +108,16 @@ fun PosterCard(
      * this is purely the gesture hookup.
      */
     onLongPress: (() -> Unit)? = null,
+    /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): true when this title is available on a
+     * subscribed provider *only* to rent/buy — never included with a subscription. Renders a
+     * small "RENT/BUY" tag over the top-start corner of the poster art, consistent with the
+     * per-provider RENT/BUY tags [org.seg7.familywatchlist.ui.components.AvailabilityRow] already
+     * shows on the details screen. Never implies a price — TMDB's data has none to show. False by
+     * default so every pre-M6 caller (and anything not sourced through a paid-aware repository
+     * call) renders exactly as before.
+     */
+    paidOnly: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -145,6 +157,10 @@ fun PosterCard(
                 posterPath = posterPath,
                 modifier = if (dimmed) Modifier.alpha(DimmedAlpha) else Modifier,
             )
+
+            if (paidOnly && !dimmed) {
+                PaidOnlyTag(modifier = Modifier.align(Alignment.TopStart).padding(5.dp))
+            }
 
             when {
                 onQuickAdd != null -> QuickAddButton(
@@ -190,6 +206,26 @@ fun PosterCard(
 
 /** PLAN.md §5a M2g: the alpha applied to a watchlist item's poster art once it's lost availability. */
 private const val DimmedAlpha = 0.4f
+
+/**
+ * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): the poster-grid equivalent of
+ * [org.seg7.familywatchlist.ui.components.AvailabilityRow]'s per-provider RENT/BUY tags — Search
+ * results and My List don't render individual provider badges on each card, so this is the one
+ * signal on the card itself that a title isn't included with a subscription. Deliberately just
+ * "RENT/BUY", never a price (PLAN.md §3: TMDB's data has none to give).
+ */
+@Composable
+private fun PaidOnlyTag(modifier: Modifier = Modifier) {
+    Text(
+        text = "RENT/BUY",
+        style = MaterialTheme.typography.labelSmall,
+        color = Chalk,
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(AccentEmber.copy(alpha = 0.85f))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+    )
+}
 
 /**
  * The art itself, with the fallback for the (common, on a fresh install) case of a title TMDB
