@@ -1586,3 +1586,57 @@ successfully requests one. Both are needed; either alone isn't enough.
 - [ ] Live verification: tap YouTube's own fullscreen control inside the trailer player and
       confirm it actually goes fullscreen, and that back/close correctly exits fullscreen first
       before closing the dialog entirely
+
+## M7 — In-app "About this build" AI-transparency screen (Kev, 2026-08-22)
+
+Kev wants to honour that this app was heavily built with AI — a dedicated About screen in
+Settings showing the version plus real development stats: prompt count, cumulative dev time,
+and a breakdown by which Claude model did which kind of work.
+
+**Data source and nature — read before building.** This data lives entirely outside the app's
+own domain (Room, TMDB, user data) — it describes *how the app itself was built*, mined from
+this project's Claude Code session transcripts, the same way the M5 stats artifact
+(https://claude.ai/code/artifact/c9b9086c-a787-4c37-be4f-fbc8822134c7) was. The app has no way
+to compute this at runtime. **Bake it in as static values** (a small Kotlin object, e.g.
+`BuildStats.kt`), the same way `versionName` is a static build-time fact — not something to wire
+up as a live computation or leave a TODO for. It will go stale as development continues; that's
+expected and fine, same as a version number going stale until the next bump. Note the snapshot
+date directly in the UI (e.g. "as of 2026-08-22") so it reads as a point-in-time fact, not a
+live counter.
+
+**The actual numbers (2026-08-22 snapshot), re-derived directly from the session transcripts,
+joined against each background agent's own recorded model, for accuracy — use these exactly:**
+- **173 prompts** across the project's whole continuous session plus one short post-reboot
+  recovery session (this is the same figure and source as the M5 stats artifact)
+- **34 background agent dispatches, ~12.9 hours cumulative build time**, split by model:
+  - **Claude Opus 5** — 5 tasks, ~2.8 hours, ~908k tokens, 404 tool calls. Used for: initial
+    toolchain/environment setup, the emulator SIGSEGV crash investigation (deep native-crash
+    debugging), the M2b visual redesign pass (after Kev's first-pass UI review came back
+    "primary school"/"not on par with Netflix"), and app icon concept design (two rounds).
+    Pattern: judgment-heavy investigation, debugging, and creative/visual design work.
+  - **Claude Sonnet 5** — 28 tasks, ~10.0 hours, ~6.85M tokens, 4,000 tool calls. Used for: the
+    great majority of milestone feature implementation (data layer, screens, recommender engine,
+    bug fixes, tests) — well-specified, routine build work once a design/investigation decision
+    was already made.
+  - **Claude Haiku 4.5** — 1 task, ~0.6 minutes, ~26k tokens. A single lightweight session-
+    recovery check after a machine reboot.
+
+**Screen structure (implementation's call on exact layout/wording, but cover all of this):**
+- [ ] Consolidate into a real dedicated "About" screen (like `TunePicksScreen`'s pattern — a
+      navigable screen, not another inline Settings section) reached via a new "About" row in
+      Settings. Move the existing TMDB logo/attribution, JustWatch attribution, and disclaimer
+      text there from Settings' current inline `ABOUT` section (still satisfies PLAN.md §3's
+      "TMDB logo + notice ... in Settings → About" requirement — just relocated, not removed).
+      Move the `Version ${BuildConfig.VERSION_NAME}` row there too.
+- [ ] A "Built with Claude" (or similar — your call on framing/wording, keep it factual and
+      matter-of-fact rather than promotional) section showing: total prompts, total dev time,
+      and a per-model breakdown (model name, task count, hours, and — "ideally" per Kev, include
+      if it fits cleanly, don't force it if it clutters — tokens/tool-calls per model)
+- [ ] Snapshot date shown directly in the UI
+- [ ] Tests: proportionate for a static-data display screen — a state/rendering test confirming
+      the numbers/model rows actually render is enough, no need to test the literal figures
+      beyond "the constants get displayed"
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: navigate Settings → About, confirm everything renders correctly
+      (existing TMDB/JustWatch attribution still present and correct after the move, version
+      shown, AI-transparency stats shown)
