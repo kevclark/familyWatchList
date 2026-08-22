@@ -117,6 +117,34 @@ class DiscoverRepositoryTest {
         assertTrue(recorded.target.contains("watch_region=US"))
     }
 
+    /**
+     * M6 regression (PLAN.md §5 "Paid (rent/buy) titles" addendum): the whole reason
+     * `RecommendationRepository`'s candidate pool (Home's Popular/For You rows, the recommender's
+     * scoring) is provably unaffected by M6's Search/watchlist widening is that this query param
+     * — the *only* thing that decides which titles TMDB's `/discover` even returns — was never
+     * touched. Pins the literal value so a future edit here can't silently leak paid titles into
+     * Home without a test noticing.
+     */
+    @Test
+    fun `discoverMovies still requests only flatrate-or-free monetization types — M6 must never widen this`() = runTest {
+        server.enqueue(MockResponse(body = discoverPageJson(id = 38700, title = "Paddington")))
+
+        repo.discoverMovies(subscribedProviderIds = listOf(8))
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.target.contains("with_watch_monetization_types=flatrate%7Cfree"))
+    }
+
+    @Test
+    fun `discoverTv still requests only flatrate-or-free monetization types — M6 must never widen this`() = runTest {
+        server.enqueue(MockResponse(body = discoverPageJson(id = 38700, title = "Paddington")))
+
+        repo.discoverTv(subscribedProviderIds = listOf(8))
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.target.contains("with_watch_monetization_types=flatrate%7Cfree"))
+    }
+
     @Test
     fun `a different region is a different query hash — switching region never serves stale cross-region data`() = runTest {
         server.enqueue(MockResponse(body = discoverPageJson(id = 1, title = "GB Result")))

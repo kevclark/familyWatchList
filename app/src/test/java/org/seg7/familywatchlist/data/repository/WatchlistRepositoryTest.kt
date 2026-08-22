@@ -124,6 +124,46 @@ class WatchlistRepositoryTest {
     }
 
     /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): end-to-end through the *real*
+     * [AvailabilityGate] (production's actual wiring, per `AppContainer` — every other test in
+     * this class uses a fake lambda gate) — a title on a subscribed provider only as BUY/RENT now
+     * passes the watchlist add-gate, the same way it now passes Search's.
+     */
+    @Test
+    fun `add succeeds through the real AvailabilityGate for a BUY-RENT-only title on a subscribed provider -- M6`() = runTest {
+        val server = mockwebserver3.MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                mockwebserver3.MockResponse(
+                    body = """
+                        {
+                          "id": 38700,
+                          "title": "Central Intelligence",
+                          "watch/providers": {
+                            "results": { "GB": { "rent": [{"provider_id": 2, "provider_name": "Apple TV"}] } }
+                          }
+                        }
+                    """.trimIndent()
+                )
+            )
+            val api = org.seg7.familywatchlist.data.remote.TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
+            val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+            val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
+            val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
+            db.providerDao().upsertAll(listOf(org.seg7.familywatchlist.data.local.entity.ProviderEntity(2, "Apple TV", null, subscribed = true, displayPriority = 1)))
+            val gate = AvailabilityGate(titleRepository, providerRepository)
+            val repo = WatchlistRepository(db.watchlistDao(), clock, gate::isAvailableOnSubscribedProvider)
+
+            val result = repo.add(38700, MediaType.MOVIE, profileId)
+
+            assertEquals(WatchlistAddResult.ADDED, result)
+        } finally {
+            server.close()
+        }
+    }
+
+    /**
      * PLAN.md §5a's M2g refinement: [WatchlistRepository.observeActiveItemsWithAvailability]
      * is the state-computation logic behind "dim this card" — it must flag an item that's since
      * lost availability, and leave one that still has it alone, without the gate being consulted

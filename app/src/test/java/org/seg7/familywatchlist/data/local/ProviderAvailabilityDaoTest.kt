@@ -45,6 +45,23 @@ class ProviderAvailabilityDaoTest {
         assertEquals(listOf(337), rows.map { it.providerId })
     }
 
+    /**
+     * M6 regression (PLAN.md §5 "Paid (rent/buy) titles" addendum, DB v7 -> v8): the same
+     * provider can legitimately be both FLATRATE and RENT for one title (Amazon Video routinely
+     * is) — before `kind` joined the primary key, the second `upsertAll` here would have silently
+     * clobbered the first row instead of adding a second one.
+     */
+    @Test
+    fun `the same provider can hold both a FLATRATE and a RENT row for the same title without clobbering`() = runTest {
+        val dao = db.providerAvailabilityDao()
+        dao.upsertAll(listOf(ProviderAvailabilityEntity(1, MediaType.MOVIE, providerId = 8, kind = ProviderKind.FLATRATE, fetchedAt = 1L)))
+        dao.upsertAll(listOf(ProviderAvailabilityEntity(1, MediaType.MOVIE, providerId = 8, kind = ProviderKind.RENT, fetchedAt = 1L)))
+
+        val rows = dao.getForTitle(1, MediaType.MOVIE)
+
+        assertEquals(setOf(ProviderKind.FLATRATE, ProviderKind.RENT), rows.map { it.kind }.toSet())
+    }
+
     @Test
     fun `availability is scoped per title`() = runTest {
         val dao = db.providerAvailabilityDao()

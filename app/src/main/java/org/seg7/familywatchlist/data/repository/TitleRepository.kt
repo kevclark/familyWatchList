@@ -8,6 +8,7 @@ import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
 import org.seg7.familywatchlist.data.local.dao.TitleAttributeDao
 import org.seg7.familywatchlist.data.local.dao.TitleDao
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.remote.TmdbApi
@@ -44,9 +45,15 @@ class TitleRepository(
     fun observeAvailability(tmdbId: Int, mediaType: MediaType): Flow<List<AvailabilityBadge>> =
         providerAvailabilityDao.observeBadges(tmdbId, mediaType)
 
-    /** Raw GB provider ids with availability for a title — used by [AvailabilityGate], which pairs it with [ProviderRepository]'s subscribed set. */
-    suspend fun getAvailabilityProviderIds(tmdbId: Int, mediaType: MediaType): Set<Int> =
-        providerAvailabilityDao.getForTitle(tmdbId, mediaType).map { it.providerId }.toSet()
+    /**
+     * Raw GB availability rows, [ProviderAvailabilityEntity.kind] included — used by
+     * [AvailabilityGate], which pairs it with [ProviderRepository]'s subscribed set. M6 (PLAN.md
+     * §5 "Paid (rent/buy) titles" addendum) needs the *kind*, not just the provider id, to tell
+     * "available for free/included" apart from "available, but only to rent/buy" for badge
+     * wording — replaced the old ids-only `getAvailabilityProviderIds` for that reason.
+     */
+    suspend fun getAvailability(tmdbId: Int, mediaType: MediaType): List<ProviderAvailabilityEntity> =
+        providerAvailabilityDao.getForTitle(tmdbId, mediaType)
 
     /**
      * Batch-resolves a mixed movie/TV key list to their cached [TitleEntity] rows — PLAN.md §4:
