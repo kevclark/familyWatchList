@@ -3,6 +3,7 @@ package org.seg7.familywatchlist.data.local.dao
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
@@ -98,4 +99,22 @@ interface WatchEventDao {
         deleteTagsForEvent(watchEventId)
         insertTags(profileIds.map { WatchEventProfileEntity(watchEventId = watchEventId, profileId = it) })
     }
+
+    /** One-shot snapshot for [org.seg7.familywatchlist.data.repository.BackupRepository]'s export. */
+    @Query("SELECT * FROM watch_events ORDER BY watchedAt DESC, id DESC")
+    suspend fun getAllOnce(): List<WatchEventEntity>
+
+    /** One-shot snapshot of every event's profile tags — export's other half of [getAllOnce]. */
+    @Query("SELECT * FROM watch_event_profiles")
+    suspend fun getAllTagsOnce(): List<WatchEventProfileEntity>
+
+    /** Restore-only: preserves each event's original id (see [ProfileDao.insertAllPreservingIds]'s kdoc for why). */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEventsPreservingIds(events: List<WatchEventEntity>)
+
+    @Query("DELETE FROM watch_events")
+    suspend fun deleteAllEvents()
+
+    @Query("DELETE FROM watch_event_profiles")
+    suspend fun deleteAllTags()
 }

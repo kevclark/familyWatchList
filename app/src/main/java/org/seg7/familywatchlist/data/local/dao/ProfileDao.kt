@@ -3,6 +3,7 @@ package org.seg7.familywatchlist.data.local.dao
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
@@ -28,4 +29,21 @@ interface ProfileDao {
     /** Used by the repository to enforce PLAN.md §2's hard cap of 10 profiles. */
     @Query("SELECT count(*) FROM profiles")
     suspend fun count(): Int
+
+    /** One-shot snapshot for [org.seg7.familywatchlist.data.repository.BackupRepository]'s export. */
+    @Query("SELECT * FROM profiles ORDER BY createdAt ASC")
+    suspend fun getAllOnce(): List<ProfileEntity>
+
+    /**
+     * Restore-only: inserts with each row's original id preserved (REPLACE, not the
+     * auto-generating [insert]) so every other table's `profileId` foreign references in the
+     * same backup stay valid. Never used by normal app code, only
+     * [org.seg7.familywatchlist.data.repository.BackupRepository.restore].
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllPreservingIds(profiles: List<ProfileEntity>)
+
+    /** Restore-only: wipes every profile before re-importing a backup's snapshot. */
+    @Query("DELETE FROM profiles")
+    suspend fun deleteAll()
 }
