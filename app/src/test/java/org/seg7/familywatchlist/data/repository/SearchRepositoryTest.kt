@@ -150,6 +150,47 @@ class SearchRepositoryTest {
         }
     """.trimIndent()
 
+    /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): the real gap this milestone fixes — a
+     * title genuinely rentable/buyable on a subscribed provider (like "Central Intelligence" on
+     * Amazon Video, per Kev's report) but with no FLATRATE/FREE availability anywhere must now
+     * surface in Search, not be silently dropped the way it was pre-M6.
+     */
+    @Test
+    fun `a BUY-RENT-only title on a subscribed provider now surfaces in Search -- M6`() = runTest {
+        db.providerDao().upsertAll(listOf(ProviderEntity(2, "Apple TV", null, subscribed = true, displayPriority = 1)))
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = SINGLE_RESULT_JSON) },
+                "/movie/38700" to {
+                    MockResponse(
+                        body = """
+                            {
+                              "id": 38700,
+                              "title": "Paddington",
+                              "watch/providers": {
+                                "results": {
+                                  "GB": { "buy": [{"provider_id": 2, "provider_name": "Apple TV"}] }
+                                }
+                              }
+                            }
+                        """.trimIndent()
+                    )
+                },
+            )
+        )
+
+        // Search's emitted result carries the pre-detail search stub's title (unchanged M6
+        // behaviour — see SearchRepository.search's kdoc on `slots[index] = candidate`); what M6
+        // actually widens is whether this candidate *survives the availability check at all*
+        // (a BUY-only row on a subscribed provider), so the meaningful assertion is that it
+        // survives, not what title string comes back.
+        val finalResults = repo.search("paddington").last()
+
+        assertEquals(listOf("Paddington"), finalResults.map { it.title })
+        assertEquals(listOf(38700), finalResults.map { it.tmdbId })
+    }
+
     @Test
     fun `an empty raw search never spawns an availability check`() = runTest {
         server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":0,"total_results":0}"""))

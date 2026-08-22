@@ -120,21 +120,87 @@ class AvailabilityGateTest {
         assertEquals(1, server.requestCount)
     }
 
+    /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum, Kev 2026-08-22): the real gap that
+     * motivated this milestone — a title on a subscribed provider only as BUY/RENT (never
+     * FLATRATE/FREE) must now pass the gate, exactly like "Central Intelligence" not being
+     * findable despite being genuinely rentable/buyable on a subscribed provider.
+     */
+    @Test
+    fun `available on a subscribed provider only as BUY passes -- M6`() = runTest {
+        subscribeProviders(subscribed = setOf(2), unsubscribed = emptySet())
+        server.enqueue(MockResponse(body = movieDetailJson(buyProviderIds = listOf(2))))
+
+        assertTrue(gate.isAvailableOnSubscribedProvider(38700, MediaType.MOVIE))
+    }
+
+    @Test
+    fun `available on a subscribed provider only as RENT passes -- M6`() = runTest {
+        subscribeProviders(subscribed = setOf(2), unsubscribed = emptySet())
+        server.enqueue(MockResponse(body = movieDetailJson(rentProviderIds = listOf(2))))
+
+        assertTrue(gate.isAvailableOnSubscribedProvider(38700, MediaType.MOVIE))
+    }
+
+    @Test
+    fun `BUY-RENT on a non-subscribed provider is still dropped -- M6 only widens the kind, not the provider set`() = runTest {
+        subscribeProviders(subscribed = setOf(8), unsubscribed = setOf(2))
+        server.enqueue(MockResponse(body = movieDetailJson(buyProviderIds = listOf(2))))
+
+        assertFalse(gate.isAvailableOnSubscribedProvider(38700, MediaType.MOVIE))
+    }
+
+    @Test
+    fun `isPaidOnlyOnSubscribedProvider is true when the only subscribed row is BUY or RENT -- M6`() = runTest {
+        subscribeProviders(subscribed = setOf(2), unsubscribed = emptySet())
+        server.enqueue(MockResponse(body = movieDetailJson(rentProviderIds = listOf(2))))
+
+        assertTrue(gate.isPaidOnlyOnSubscribedProvider(38700, MediaType.MOVIE))
+    }
+
+    @Test
+    fun `isPaidOnlyOnSubscribedProvider is false once any subscribed provider offers it FLATRATE, even alongside a RENT row -- M6`() = runTest {
+        subscribeProviders(subscribed = setOf(8), unsubscribed = emptySet())
+        server.enqueue(MockResponse(body = movieDetailJson(providerIds = listOf(8), rentProviderIds = listOf(8))))
+
+        assertFalse(gate.isPaidOnlyOnSubscribedProvider(38700, MediaType.MOVIE))
+    }
+
+    @Test
+    fun `isPaidOnlyOnSubscribedProvider is false when the title isn't available on a subscribed provider at all -- M6`() = runTest {
+        subscribeProviders(subscribed = setOf(8), unsubscribed = emptySet())
+        server.enqueue(MockResponse(body = movieDetailJson(providerIds = emptyList())))
+
+        assertFalse(gate.isPaidOnlyOnSubscribedProvider(38700, MediaType.MOVIE))
+    }
+
     private suspend fun subscribeProviders(subscribed: Set<Int>, unsubscribed: Set<Int>) {
         val rows = subscribed.map { ProviderEntity(it, "Provider $it", null, subscribed = true, displayPriority = it) } +
             unsubscribed.map { ProviderEntity(it, "Provider $it", null, subscribed = false, displayPriority = it) }
         db.providerDao().upsertAll(rows)
     }
 
-    private fun movieDetailJson(providerIds: List<Int>): String {
-        val flatrate = providerIds.joinToString(",") { """{"provider_id": $it, "provider_name": "Provider $it"}""" }
+    private fun movieDetailJson(
+        providerIds: List<Int> = emptyList(),
+        buyProviderIds: List<Int> = emptyList(),
+        rentProviderIds: List<Int> = emptyList(),
+    ): String {
+        fun jsonList(ids: List<Int>) = ids.joinToString(",") { """{"provider_id": $it, "provider_name": "Provider $it"}""" }
         return """
             {
               "id": 38700,
               "title": "Paddington",
               "release_date": "2014-11-28",
               "runtime": 95,
-              "watch/providers": { "results": { "GB": { "flatrate": [$flatrate] } } }
+              "watch/providers": {
+                "results": {
+                  "GB": {
+                    "flatrate": [${jsonList(providerIds)}],
+                    "buy": [${jsonList(buyProviderIds)}],
+                    "rent": [${jsonList(rentProviderIds)}]
+                  }
+                }
+              }
             }
         """.trimIndent()
     }

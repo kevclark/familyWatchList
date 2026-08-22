@@ -20,6 +20,8 @@ import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.AttrType
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
+import org.seg7.familywatchlist.data.local.entity.ProviderKind
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
 import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
@@ -301,6 +303,49 @@ class RecommendationRepositoryTest {
         val weekStart = repo.currentWeekStart()
         val persisted = db.shortlistDao().getForScope(weekStart, id.toString())
         assertEquals(listOf(999), persisted.map { it.tmdbId })
+    }
+
+    /**
+     * M6 regression (PLAN.md §5 "Paid (rent/buy) titles" addendum, Kev's highest-risk callout):
+     * the recommender's candidate pool must be provably unaffected by widening
+     * `provider_availability` to also persist BUY/RENT rows. Proven two ways in one test:
+     *  1. [RecommendationRepository]'s constructor takes no [AvailabilityGate] at all — there is
+     *     no shared helper for a BUY/RENT-widened Search/watchlist check to leak through, because
+     *     this class never calls the gate in the first place (structural proof, not just this
+     *     test's behaviour).
+     *  2. Even with a BUY/RENT-only `provider_availability` row already sitting in Room for this
+     *     candidate before the refresh runs (exactly what a prior Search hit on this same title
+     *     — post-M6 — would have left behind), the candidate is scored and shortlisted completely
+     *     normally: `provider_availability`'s *content* has zero influence on whether a
+     *     `/recommendations`-sourced candidate is included, so persisting more kinds into that
+     *     table cannot change this outcome. (Candidate *selection* itself is governed solely by
+     *     [DiscoverRepository]'s untouched `with_watch_monetization_types=flatrate|free` —
+     *     covered separately in `DiscoverRepositoryTest`.)
+     */
+    @Test
+    fun `M6 regression -- a candidate with only BUY-RENT provider_availability rows is scored normally, unaffected by the paid widening`() = runTest {
+        val id = seedWarmProfile()
+        // Simulates what M6's widened TmdbMappers would have already persisted for this title
+        // from an earlier, unrelated Search hit — BUY/RENT only, no FLATRATE/FREE at all.
+        db.providerAvailabilityDao().upsertAll(
+            listOf(
+                ProviderAvailabilityEntity(
+                    tmdbId = 999,
+                    mediaType = MediaType.MOVIE,
+                    providerId = 2,
+                    kind = ProviderKind.RENT,
+                    fetchedAt = clock.nowMillis(),
+                ),
+            ),
+        )
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Great Match")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Great Match", genreId = 35, genreName = "Comedy", certification = "PG")))
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(1, entries.size)
+        assertEquals(999, entries.single().tmdbId)
+        assertEquals(ShortlistState.SUGGESTED, entries.single().state)
     }
 
     /**

@@ -57,7 +57,7 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         FamilyProfileMemberEntity::class,
         NotificationPreferenceEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -186,6 +186,32 @@ abstract class AppDatabase : RoomDatabase() {
                 connection.execSQL(
                     "CREATE TABLE IF NOT EXISTS `profile_notification_prefs` (`profileId` INTEGER NOT NULL, " +
                         "`enabled` INTEGER NOT NULL, PRIMARY KEY(`profileId`))"
+                )
+            }
+        }
+
+        /**
+         * v7 -> v8 (M6, PLAN.md §5 "Paid (rent/buy) titles" addendum, Kev 2026-08-22): widens
+         * `provider_availability`'s primary key to `(tmdbId, mediaType, providerId, kind)` — see
+         * [ProviderAvailabilityEntity]'s kdoc for why the old 3-column key was actually a latent
+         * data-loss bug once a provider could offer a title as *both* FLATRATE and RENT/BUY. A
+         * plain drop-and-recreate rather than a copy-preserving migration: this table is a pure
+         * 7-day TTL cache ([org.seg7.familywatchlist.data.repository.TitleRepository]'s own kdoc:
+         * "PLAN.md §3's 7-day TTL always refetches the full set" on every refresh), so there is no
+         * user data to preserve here — every existing row is stale-or-fresh cache the next
+         * `ensureFresh`/`refresh` call repopulates correctly under the new key regardless.
+         */
+        val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("DROP TABLE IF EXISTS `provider_availability`")
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `provider_availability` (`tmdbId` INTEGER NOT NULL, " +
+                        "`mediaType` TEXT NOT NULL, `providerId` INTEGER NOT NULL, `kind` TEXT NOT NULL, " +
+                        "`fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`tmdbId`, `mediaType`, `providerId`, `kind`))"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_provider_availability_tmdbId_mediaType` " +
+                        "ON `provider_availability` (`tmdbId`, `mediaType`)"
                 )
             }
         }
