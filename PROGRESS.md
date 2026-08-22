@@ -1396,25 +1396,48 @@ titles" addendum, right after the Search & watchlist availability gating section
 real gap: "Central Intelligence" wasn't findable despite being genuinely rentable/buyable —
 Search/watchlist only ever considered flatrate/free (included-with-subscription) availability.
 
-- [ ] `ProviderKind` enum gets `BUY`/`RENT` appended (check ordinal-vs-name persistence first,
-      append don't reorder)
-- [ ] `TmdbMappers.kt` also maps `forRegion.rent`/`.buy` from the existing per-title
+- [x] `ProviderKind` enum gets `BUY`/`RENT` appended (check ordinal-vs-name persistence first,
+      append don't reorder) — confirmed Room persists it as TEXT name via `Converters`, not an
+      ordinal, so appending needed no migration for the enum itself. (A *separate*, pre-existing
+      primary-key bug this exposed did need one — see below.)
+- [x] `TmdbMappers.kt` also maps `forRegion.rent`/`.buy` from the existing per-title
       `/watch/providers` response (no new network call needed)
-- [ ] Search results + watchlist add-gate broaden to count BUY/RENT (still gated to *subscribed*
+- [x] Search results + watchlist add-gate broaden to count BUY/RENT (still gated to *subscribed*
       providers only)
-- [ ] `DiscoverRepository`'s `with_watch_monetization_types = "flatrate|free"` stays
+- [x] `DiscoverRepository`'s `with_watch_monetization_types = "flatrate|free"` stays
       **unchanged** — Home's Popular/For You and the recommender's candidate pool must NOT see
       paid titles. Audit for any shared helper between the widened Search/watchlist check and
       `RecommendationRepository.gatherCandidatePool` that could leak this by accident — this is
-      the highest-risk part of the change.
-- [ ] Availability badges (Search, title details, My List) distinguish free-included from paid
+      the highest-risk part of the change. **Audited: no shared helper exists.**
+      `RecommendationRepository` takes no `AvailabilityGate` dependency at all (structural proof,
+      not just careful review) — its candidate pool comes solely from `DiscoverRepository`'s
+      `/discover` (still `flatrate|free`-filtered TMDB-side) and `/recommendations`, neither of
+      which reads `provider_availability`. Proved with a regression test, not just asserted.
+- [x] Availability badges (Search, title details, My List) distinguish free-included from paid
       — e.g. "Rent/Buy on {provider}" — no real price available from TMDB's data, don't imply
       one's coming
-- [ ] Tests: paid-only titles now surface in Search/pass the watchlist gate; Popular/For
+- [x] Tests: paid-only titles now surface in Search/pass the watchlist gate; Popular/For
       You/recommender candidate pool provably unaffected (regression test); badge rendering for
       each `ProviderKind`
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: search "Central Intelligence" and confirm it now appears, correctly
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification: search "Central Intelligence" and confirm it now appears, correctly
       badged, and can be added to the watchlist; confirm Home's Popular/For You rows are
-      unchanged
+      unchanged. Done on the emulator (`family_test`, `-gpu swangle`, GLES confirmed via
+      `dumpsys SurfaceFlinger`): subscribed "Apple TV Store" (via Settings > Streaming services,
+      it wasn't already on among the 6 pre-subscribed GB services), searched "Central
+      Intelligence" — now appears with a "RENT/BUY" tag (`docs/m6-search-paid-badge.png`), its
+      details screen's "Where to watch" shows three separate paid rows (Apple TV Store BUY, Apple
+      TV Store RENT — same provider, two kinds, proving the primary-key fix — and Google Play BUY,
+      each tagged), added it to the watchlist successfully (button flips to "On list"), and it
+      shows on My List with the same "RENT/BUY" poster tag, not dimmed. Home's "For You — popular
+      on your services" row is unchanged before/after (`docs/m6-home-unchanged.png` — Reacher/The
+      Mentalist/Lioness/Spider-Man, same as the pre-change baseline, no paid titles, no tags). No
+      crashes in logcat throughout.
 - [x] Final `./gradlew test assembleDebug` green
+
+**Bonus fix found while implementing (M6, not a separate milestone):** `provider_availability`'s
+primary key was `(tmdbId, mediaType, providerId)` — no `kind` column — which meant a provider
+offering a title as *both* FLATRATE and RENT/BUY (Amazon Video routinely does) could only ever
+have one row persisted; the second `Upsert` silently clobbered the first. Fixed by adding `kind`
+to the primary key (DB v7 -> v8, `MIGRATION_7_8`, drop+recreate — this table is a pure 7-day TTL
+cache with nothing worth preserving across the migration). Covered by a DAO regression test.
