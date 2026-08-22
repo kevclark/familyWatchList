@@ -1488,15 +1488,28 @@ before the migration now has an empty provider cache the app doesn't know to ref
 7 more days — not unique to Central Intelligence, this is a blanket regression from the
 migration itself.
 
-- [ ] Fix `MIGRATION_7_8` (or add a follow-up migration) to also invalidate `titles.fetchedAt`
+- [x] Fix `MIGRATION_7_8` (or add a follow-up migration) to also invalidate `titles.fetchedAt`
       for existing rows, so `needsProviderRefresh` correctly trips a re-fetch post-migration
-      instead of trusting a timestamp that no longer reflects what's actually cached
-- [ ] Test: a title with a recent `fetchedAt` (title migrated forward, `provider_availability`
-      empty) is correctly treated as needing a provider refresh, not silently trusted as fresh
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification on Kev's real phone via the working wireless-ADB-from-laptop path
-      (pull+query the DB the same way this was diagnosed) — confirm Central Intelligence and
-      other previously-viewed titles correctly regain their provider data after the fix
+      instead of trusting a timestamp that no longer reflects what's actually cached — added
+      `UPDATE titles SET fetchedAt = 0` to the same already-shipped `MIGRATION_7_8` rather than a
+      new migration (Kev's phone already ran the un-fixed version, so a follow-up migration would
+      have to duplicate the same fix anyway with no benefit). Full `fetchedAt` reset also forces
+      a redundant metadata re-fetch, not just providers — accepted as harmless per the task brief.
+- [x] Test: a title with a recent `fetchedAt` (title migrated forward, `provider_availability`
+      empty) is correctly treated as needing a provider refresh, not silently trusted as fresh —
+      `AppDatabaseMigrationTest` (new `androidx.room:room-testing` `MigrationTestHelper`,
+      driving the real `MIGRATION_7_8` SQL against the real exported v7 schema JSON, Robolectric)
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification — not reachable on Kev's real phone this session (still wireless-paired
+      to his laptop, unreachable from agent101 per the known network gap, out of scope to fix).
+      Verified instead on the `family_test` emulator: installed the app, then overwrote its DB
+      with a hand-built v7-schema file (matching `schemas/.../7.json`) seeding a title row with a
+      "yesterday" `fetchedAt` and zero `provider_availability` rows — i.e. exactly Kev's
+      confirmed bug state — launched the app (no crash, migration ran silently as part of normal
+      DB open), then pulled the DB back: `PRAGMA user_version` = 8, `provider_availability` has
+      the new 4-column PK, and the seeded title's `fetchedAt` is `0` as expected. Real-device
+      confirmation (that Central Intelligence's *provider row* actually refills after the app's
+      next TMDB refresh) is still outstanding until Kev's phone is reachable again.
 
 **Bonus fix found while implementing (M6, not a separate milestone):** `provider_availability`'s
 primary key was `(tmdbId, mediaType, providerId)` — no `kind` column — which meant a provider
