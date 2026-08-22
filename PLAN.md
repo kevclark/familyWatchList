@@ -743,6 +743,14 @@ agent that contributed (each async agent's completion notification carries a `du
 anywhere, so this needs to be assembled at M5 time from session history, not estimated from
 memory).
 
+**Delivered, 2026-08-22 — the 1st alpha release point** (first real-phone install + live use):
+https://claude.ai/code/artifact/c9b9086c-a787-4c37-be4f-fbc8822134c7 — mined directly from the
+project's session transcripts (`*.jsonl`), not estimated. Headline numbers: **173 prompts**
+across the continuous session plus one short post-reboot recovery session, **33 background
+agent runs**, **~46.0M ms (~12.8 hours) of cumulative agent build time**, over **7 calendar
+days** (2026-08-16 → 2026-08-22). Full per-task breakdown (M2b's visual rework pass was the
+single biggest agent run at ~109 minutes) is on the page.
+
 Orchestrator keeps `PROGRESS.md` (checkbox per milestone item) so any session can resume cold.
 
 **Testing bar:** recommender and caching logic get real JVM unit tests (deterministic
