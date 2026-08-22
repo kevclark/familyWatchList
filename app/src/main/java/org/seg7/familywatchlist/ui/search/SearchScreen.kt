@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -178,7 +179,9 @@ fun SearchScreen(
                     ),
                     horizontalArrangement = Arrangement.spacedBy(Dimens.CardGap),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.fillMaxSize(),
+                    // PLAN.md §5b M3i item 1: the keyboard can otherwise cover the last row of
+                    // results with no way to scroll past it short of dismissing it first.
+                    modifier = Modifier.fillMaxSize().imePadding(),
                 ) {
                     items(results, key = { "${it.mediaType}-${it.tmdbId}" }) { title ->
                         PosterCard(

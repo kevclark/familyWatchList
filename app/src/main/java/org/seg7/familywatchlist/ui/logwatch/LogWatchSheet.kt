@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -167,6 +168,9 @@ fun LogWatchSheetContent(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .navigationBarsPadding()
+            // PLAN.md §5b M3i item 1: keeps the "Save changes"/"Log it" button reachable by
+            // scrolling rather than hidden behind the on-screen keyboard.
+            .imePadding()
             .padding(horizontal = Dimens.Gutter, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {

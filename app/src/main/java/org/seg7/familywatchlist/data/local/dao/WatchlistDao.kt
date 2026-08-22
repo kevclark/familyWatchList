@@ -32,7 +32,8 @@ interface WatchlistDao {
         """
         SELECT w.tmdbId AS tmdbId, w.mediaType AS mediaType, t.title AS title,
                t.posterPath AS posterPath, t.year AS year,
-               w.addedByProfileId AS addedByProfileId, w.addedAt AS addedAt
+               w.addedByProfileId AS addedByProfileId, w.addedAt AS addedAt,
+               t.certification AS certification
         FROM watchlist_entries w
         LEFT JOIN titles t ON t.tmdbId = w.tmdbId AND t.mediaType = w.mediaType
         WHERE w.state = :state
