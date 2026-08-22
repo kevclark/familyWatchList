@@ -96,6 +96,16 @@ fun PosterCard(
      * is also supplied, since no caller currently needs both on the same card.
      */
     onRemoveUnavailable: (() -> Unit)? = null,
+    /**
+     * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')". Null (the default) keeps
+     * every existing call site's plain single-tap behaviour unchanged — only Home's
+     * recommendation-flavoured carousels (For You, Popular, Family Night) pass this; My List
+     * already has its own explicit remove affordance ([onRemoveUnavailable]) for a different
+     * action ("take this off my list" vs. "don't suggest this to me"), so it doesn't need a
+     * second gesture here. The caller owns what "dismiss" does (confirmation UI, persistence) —
+     * this is purely the gesture hookup.
+     */
+    onLongPress: (() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -115,7 +125,13 @@ fun PosterCard(
                 .aspectRatio(Dimens.PosterAspect)
                 .scale(scale)
                 .clip(MaterialTheme.shapes.small)
-                .clickableNoRipple(interactionSource, onClick)
+                .let { boxModifier ->
+                    if (onLongPress != null) {
+                        boxModifier.combinedClickableNoRipple(interactionSource, onLongClick = onLongPress, onClick = onClick)
+                    } else {
+                        boxModifier.clickableNoRipple(interactionSource, onClick)
+                    }
+                }
                 .semantics {
                     contentDescription = if (dimmed) {
                         "${title.orEmpty()} — ${dimReason ?: "no longer available on your services"}"

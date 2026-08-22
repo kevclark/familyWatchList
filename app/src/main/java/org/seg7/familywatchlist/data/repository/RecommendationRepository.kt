@@ -118,6 +118,50 @@ class RecommendationRepository(
         if (profileId == FAMILY_PROFILE_SENTINEL_ID) FAMILY_SCOPE_KEY else profileId.toString()
 
     /**
+     * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')" — the write side of a
+     * gesture that, until M4a, had a fully-built read side ([excludeDismissed], already called
+     * from both [refreshProfileShortlist] and [refreshFamilyShortlist]) and no way to actually
+     * reach it. Per-profile by construction: [scopeKeyFor] keys on [profileId] (or
+     * [FAMILY_SCOPE_KEY] for the Family sentinel), so a dismissal from one profile can never
+     * suppress the same title for another — each has its own row in `shortlist_entries`.
+     *
+     * Two cases, because a dismissed title may or may not already have a row this week:
+     *  - **Already shortlisted** (the common "For You" case): flip its existing row's `state` to
+     *    [ShortlistState.DISMISSED] via [ShortlistDao.updateState] — preserves its score/reasons
+     *    rather than clobbering them, though neither is read again once dismissed.
+     *  - **Not shortlisted yet** (a Popular/cold-start/Family-Night row card, which isn't backed
+     *    by a `shortlist_entries` row at all): insert a fresh DISMISSED placeholder row with a
+     *    zero score and empty reasons — there's nothing else to record, this row exists purely so
+     *    [excludeDismissed] finds it on the next recompute.
+     * Both branches write to exactly the (weekStart, scopeKey, tmdbId, mediaType) tuple
+     * [excludeDismissed] reads, so a title dismissed this week is guaranteed excluded from this
+     * profile's *next* refresh for the rest of the week, regardless of which row it came from.
+     */
+    suspend fun dismissTitle(profileId: Long, tmdbId: Int, mediaType: MediaType) {
+        val weekStart = currentWeekStart()
+        val scopeKey = scopeKeyFor(profileId)
+        val alreadyPresent = shortlistDao.getForScope(weekStart, scopeKey)
+            .any { it.tmdbId == tmdbId && it.mediaType == mediaType }
+        if (alreadyPresent) {
+            shortlistDao.updateState(weekStart, scopeKey, tmdbId, mediaType, ShortlistState.DISMISSED)
+        } else {
+            shortlistDao.upsertAll(
+                listOf(
+                    ShortlistEntryEntity(
+                        weekStart = weekStart,
+                        scopeKey = scopeKey,
+                        tmdbId = tmdbId,
+                        mediaType = mediaType,
+                        score = 0.0,
+                        reasons = "[]",
+                        state = ShortlistState.DISMISSED,
+                    ),
+                ),
+            )
+        }
+    }
+
+    /**
      * PLAN.md §4/§4a: (re)computes and persists one profile's personalised shortlist for the
      * current week, using that profile's own slider settings. Cold-start profiles are left
      * alone — [org.seg7.familywatchlist.ui.home.HomeViewModel] sources the existing

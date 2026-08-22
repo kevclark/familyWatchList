@@ -1,6 +1,8 @@
 package org.seg7.familywatchlist.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -32,5 +34,23 @@ fun Modifier.clickableNoRipple(
 ): Modifier = this.clickable(
     interactionSource = interactionSource,
     indication = null,
+    onClick = onClick,
+)
+
+/**
+ * As [clickableNoRipple], but with a long-click alongside the click — PLAN.md §5 screen 3's
+ * "long-press → dismiss ('not interested')" on Home's poster cards. Same no-ripple rationale:
+ * a Material long-press ripple on poster art is exactly the "primary school" quality Kev flagged
+ * (see [clickableNoRipple]'s kdoc).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+fun Modifier.combinedClickableNoRipple(
+    interactionSource: MutableInteractionSource,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+): Modifier = this.combinedClickable(
+    interactionSource = interactionSource,
+    indication = null,
+    onLongClick = onLongClick,
     onClick = onClick,
 )

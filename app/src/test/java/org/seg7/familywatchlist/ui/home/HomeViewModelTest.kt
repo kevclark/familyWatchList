@@ -269,6 +269,63 @@ class HomeViewModelTest {
     }
 
     /**
+     * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')" — [HomeViewModel.dismissTitle]
+     * must remove the card from the For You row *this frame*, not only after the next refresh
+     * (that guarantee is [RecommendationRepository.dismissTitle]'s own, covered by
+     * `RecommendationRepositoryTest`). Same seeded-shortlist setup as the "top-scored pick" test
+     * above; dismissing the higher-scored title also proves the hero fallback re-picks the
+     * remaining title rather than clinging to a now-hidden one.
+     */
+    @Test
+    fun `dismissTitle removes the card from For You immediately, without waiting for a refresh`() = runTest {
+        repeat(5) { i ->
+            db.watchEventDao().logWatch(
+                org.seg7.familywatchlist.data.local.entity.WatchEventEntity(
+                    tmdbId = 900 + i, mediaType = MediaType.MOVIE, watchedAt = java.time.LocalDate.now(), note = null,
+                ),
+                listOf(profileId),
+            )
+        }
+        db.titleDao().upsertAll(
+            listOf(
+                TitleEntity(
+                    tmdbId = 501, mediaType = MediaType.MOVIE, title = "Higher Score, Less Popular",
+                    year = 2024, posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                    certification = null, voteAverage = null, popularity = 1.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+                TitleEntity(
+                    tmdbId = 502, mediaType = MediaType.MOVIE, title = "Lower Score, More Popular",
+                    year = 2024, posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                    certification = null, voteAverage = null, popularity = 99.0, trailerKey = null, fetchedAt = clock.current,
+                ),
+            )
+        )
+        val weekStart = recommendationRepository.currentWeekStart()
+        db.shortlistDao().upsertAll(
+            listOf(
+                org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity(
+                    weekStart, profileId.toString(), 501, MediaType.MOVIE, score = 0.9, reasons = "[]",
+                    state = org.seg7.familywatchlist.data.local.entity.ShortlistState.SUGGESTED,
+                ),
+                org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity(
+                    weekStart, profileId.toString(), 502, MediaType.MOVIE, score = 0.5, reasons = "[]",
+                    state = org.seg7.familywatchlist.data.local.entity.ShortlistState.SUGGESTED,
+                ),
+            )
+        )
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val vm = viewModel(watchlistRepository)
+        vm.uiState.first { it.forYouTitles.size == 2 }
+
+        vm.dismissTitle(501, MediaType.MOVIE)
+
+        val afterDismiss = vm.uiState.first { it.forYouTitles.size == 1 }
+        assertEquals(listOf(502), afterDismiss.forYouTitles.map { it.tmdbId })
+        assertEquals(502, afterDismiss.hero?.tmdbId)
+    }
+
+    /**
      * PLAN.md §4's "Age-cap safety gap" (M3g), tightened by "Residual gap found by M3g" (M3h):
      * a cold-start profile's Popular row (and the cold-start hero fallback, which reads the same
      * [DiscoverRepository] data) previously applied **zero** age-rating filtering. Seeds three

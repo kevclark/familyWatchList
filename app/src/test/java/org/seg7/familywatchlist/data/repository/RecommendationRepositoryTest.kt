@@ -213,6 +213,63 @@ class RecommendationRepositoryTest {
         assertEquals(ShortlistState.DISMISSED, stored.single().state)
     }
 
+    /**
+     * PLAN.md §5 screen 3's "long-press → dismiss ('not interested')" write path
+     * ([RecommendationRepository.dismissTitle]), proven end-to-end against the read path
+     * ([excludeDismissed], already covered above for a row seeded directly) and proven per-profile:
+     * a dismissal from one profile's own scope never suppresses the same title for a different
+     * profile's own refresh.
+     */
+    @Test
+    fun `dismissTitle excludes a candidate from that profile's next refresh, but not from a different profile's`() = runTest {
+        val dismisser = seedWarmProfile(name = "Dismisser")
+        val other = seedWarmProfile(name = "Other")
+
+        repo.dismissTitle(dismisser, 999, MediaType.MOVIE)
+
+        // The dismisser's own refresh: /recommendations only, no detail fetch — excluded before
+        // scoring, exactly like the pre-seeded-DISMISSED-row test above.
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Dismissed By Me")))
+        val dismisserEntries = repo.refreshProfileShortlist(dismisser, region = "GB")
+        assertEquals(emptyList<ShortlistEntryEntity>(), dismisserEntries)
+        assertEquals(1, server.requestCount)
+
+        // The other profile's refresh: the same candidate is genuinely eligible and scores —
+        // this profile's own scope was never touched by the dismissal above. No second
+        // /recommendations response to enqueue: both profiles rated the same tmdbId (1) UP
+        // ([seedWarmProfile]'s fixture), and DiscoverRepository.movieRecommendations caches by
+        // tmdbId (not by profile) — the dismisser's refresh above already warmed that cache
+        // entry, so only the detail fetch for 999 hits the network here.
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Not Dismissed By Other", genreId = 35, genreName = "Comedy", certification = "PG")))
+        val otherEntries = repo.refreshProfileShortlist(other, region = "GB")
+        assertEquals(listOf(999), otherEntries.map { it.tmdbId })
+
+        val weekStart = repo.currentWeekStart()
+        assertEquals(ShortlistState.DISMISSED, db.shortlistDao().getForScope(weekStart, dismisser.toString()).single { it.tmdbId == 999 }.state)
+        assertEquals(ShortlistState.SUGGESTED, db.shortlistDao().getForScope(weekStart, other.toString()).single { it.tmdbId == 999 }.state)
+    }
+
+    /**
+     * The other of [RecommendationRepository.dismissTitle]'s two write branches — a title that
+     * already has a live SUGGESTED row this week (the common "dismiss straight off a For You
+     * card" case) gets that row flipped to DISMISSED in place, rather than a second row being
+     * inserted alongside it.
+     */
+    @Test
+    fun `dismissTitle flips an already-SUGGESTED row rather than duplicating it`() = runTest {
+        val id = seedWarmProfile()
+        val weekStart = repo.currentWeekStart()
+        db.shortlistDao().upsertAll(
+            listOf(ShortlistEntryEntity(weekStart, id.toString(), 999, MediaType.MOVIE, score = 4.2, reasons = "[\"Comedy\"]", state = ShortlistState.SUGGESTED)),
+        )
+
+        repo.dismissTitle(id, 999, MediaType.MOVIE)
+
+        val stored = db.shortlistDao().getForScope(weekStart, id.toString())
+        assertEquals(1, stored.size)
+        assertEquals(ShortlistState.DISMISSED, stored.single().state)
+    }
+
     @Test
     fun `a candidate over the profile's age cap is excluded after its detail is fetched`() = runTest {
         val id = seedWarmProfile(ageRatingCap = "12")
