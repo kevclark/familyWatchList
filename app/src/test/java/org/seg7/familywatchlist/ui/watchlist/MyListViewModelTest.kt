@@ -5,9 +5,11 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -19,7 +21,15 @@ import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
+import org.seg7.familywatchlist.data.recommend.FamilyBlend
+import org.seg7.familywatchlist.data.remote.TmdbClient
+import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
+import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.RecommendationRepository
+import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 import org.seg7.familywatchlist.testutil.FakeClock
@@ -39,9 +49,11 @@ class MyListViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private lateinit var db: AppDatabase
+    private lateinit var server: MockWebServer
     private lateinit var watchlistRepository: WatchlistRepository
     private lateinit var profileRepository: ProfileRepository
     private lateinit var userPreferencesRepository: UserPreferencesRepository
+    private lateinit var recommendationRepository: RecommendationRepository
     private lateinit var clock: FakeClock
 
     private var kevId = 0L
@@ -50,12 +62,33 @@ class MyListViewModelTest {
     @Before
     fun setUp() = runTest {
         db = buildInMemoryDb()
+        server = MockWebServer()
+        server.start()
         clock = FakeClock(startMillis = 1_000L)
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock)
         profileRepository = ProfileRepository(db.profileDao(), clock)
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         userPreferencesRepository = UserPreferencesRepository(
-            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("mylist_vm_prefs") }),
+            PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("mylist_vm_prefs_${System.nanoTime()}") }),
+        )
+        val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
+        val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
+        val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
+        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        val familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
+        recommendationRepository = RecommendationRepository(
+            watchEventDao = db.watchEventDao(),
+            ratingDao = db.ratingDao(),
+            watchlistDao = db.watchlistDao(),
+            titleAttributeDao = db.titleAttributeDao(),
+            titleRepository = titleRepository,
+            discoverRepository = discoverRepository,
+            providerRepository = providerRepository,
+            profileRepository = profileRepository,
+            profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
+            familyProfileRepository = familyProfileRepository,
+            shortlistDao = db.shortlistDao(),
+            clock = clock,
         )
 
         kevId = profileRepository.addProfile("Kev", "INITIAL|7C5C4A|", null).getOrThrow()
@@ -75,12 +108,14 @@ class MyListViewModelTest {
 
     @After
     fun tearDown() {
+        server.close()
         db.close()
     }
 
     private fun viewModel(
         watchlist: WatchlistRepository = watchlistRepository,
-    ) = MyListViewModel(watchlist, profileRepository, kevId, userPreferencesRepository)
+        activeProfileId: Long = kevId,
+    ) = MyListViewModel(watchlist, profileRepository, activeProfileId, userPreferencesRepository, recommendationRepository)
 
     @Test
     fun `the list is shared - it shows titles added by anyone by default`() = runTest {
@@ -142,6 +177,74 @@ class MyListViewModelTest {
         val byTitle = state.rows.associateBy { it.item.title }
         assertFalse("Paddington has lost availability and must be flagged", byTitle.getValue("Paddington").isAvailable)
         assertTrue("Arrival is still available and must not be flagged", byTitle.getValue("Arrival").isAvailable)
+    }
+
+    /**
+     * PLAN.md §5b M3i item 9: an item over the *viewing* profile's age cap must resolve as
+     * over-cap via the exact same [FamilyBlend.isOverCap] check the recommender/Search/Home
+     * already use — proven here against [MyListUiState.ageRatingCap] rather than a second
+     * mechanism. The screen combines these two into `dimmed`; this test pins the state-level
+     * data the screen reads to make that combination, without needing Compose.
+     */
+    @Test
+    fun `a capped viewer's age cap is resolved onto the state, and an over-cap item is flagged`() = runTest {
+        db.titleDao().upsert(
+            TitleEntity(
+                tmdbId = 5555, mediaType = MediaType.MOVIE, title = "Too Old For Kev Jr", year = 2020,
+                posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                certification = "15", voteAverage = null, popularity = null, trailerKey = null, fetchedAt = 1_000L,
+            )
+        )
+        val kevJrId = profileRepository.addProfile("Kev Jr", "INITIAL|000000|", "12").getOrThrow()
+        watchlistRepository.add(5555, MediaType.MOVIE, kevId)
+
+        val state = viewModel(activeProfileId = kevJrId).uiState.first { it.rows.isNotEmpty() && it.ageRatingCap != null }
+
+        assertEquals("12", state.ageRatingCap)
+        val row = state.rows.single { it.item.tmdbId == 5555 }
+        assertTrue(
+            "a '15' title must be over a '12' cap",
+            FamilyBlend.isOverCap(row.item.certification, state.ageRatingCap),
+        )
+    }
+
+    /** PLAN.md §5b M3i item 9: an uncapped viewer (no ageRatingCap set) never flags anything over-cap. */
+    @Test
+    fun `an uncapped viewer never flags an item over-cap`() = runTest {
+        db.titleDao().upsert(
+            TitleEntity(
+                tmdbId = 5555, mediaType = MediaType.MOVIE, title = "An 18", year = 2020,
+                posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                certification = "18", voteAverage = null, popularity = null, trailerKey = null, fetchedAt = 1_000L,
+            )
+        )
+        watchlistRepository.add(5555, MediaType.MOVIE, kevId) // kevId itself has no ageRatingCap
+
+        val state = viewModel(activeProfileId = kevId).uiState.first { it.rows.isNotEmpty() }
+
+        assertNull(state.ageRatingCap)
+        val row = state.rows.single { it.item.tmdbId == 5555 }
+        assertFalse(FamilyBlend.isOverCap(row.item.certification, state.ageRatingCap))
+    }
+
+    /** PLAN.md §5b M3i item 9: a title whose certification clears the viewer's cap is never flagged. */
+    @Test
+    fun `a title at-or-under the viewer's cap is never flagged over-cap`() = runTest {
+        db.titleDao().upsert(
+            TitleEntity(
+                tmdbId = 5555, mediaType = MediaType.MOVIE, title = "A U", year = 2020,
+                posterPath = null, backdropPath = null, overview = null, runtimeMin = null,
+                certification = "U", voteAverage = null, popularity = null, trailerKey = null, fetchedAt = 1_000L,
+            )
+        )
+        val kevJrId = profileRepository.addProfile("Kev Jr", "INITIAL|000000|", "12").getOrThrow()
+        watchlistRepository.add(5555, MediaType.MOVIE, kevId)
+
+        val state = viewModel(activeProfileId = kevJrId).uiState.first { it.rows.isNotEmpty() && it.ageRatingCap != null }
+
+        assertEquals("12", state.ageRatingCap)
+        val row = state.rows.single { it.item.tmdbId == 5555 }
+        assertFalse(FamilyBlend.isOverCap(row.item.certification, state.ageRatingCap))
     }
 
     @Test

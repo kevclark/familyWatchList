@@ -44,6 +44,7 @@ import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.ui.ActiveProfile
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.avatar.AvatarBadge
@@ -141,13 +142,23 @@ fun HomeScreen(
                         // PLAN.md §5a M2g: an item that's lost availability renders dimmed with a
                         // direct remove action, right here — no detour through details. Available
                         // items are untouched (no dim, no extra control) per the same spec.
+                        //
+                        // PLAN.md §5b M3i item 9: an item over the *viewing* profile's age cap
+                        // renders dimmed too — reusing this exact same mechanism (never a second
+                        // visual language) via the same FamilyBlend.isOverCap check the real
+                        // recommender/Search already use, against [HomeUiState.ageRatingCap]. This
+                        // is display-only: the shared list itself is unchanged, so an over-cap-only
+                        // item (still available) gets no remove action — only a genuinely
+                        // unavailable item does, matching the pre-existing M2g behaviour.
+                        val overCap = FamilyBlend.isOverCap(row.item.certification, state.ageRatingCap)
                         PosterCard(
                             title = row.item.title,
                             posterPath = row.item.posterPath,
                             onClick = { onOpenTitle(row.item.tmdbId, row.item.mediaType) },
-                            dimmed = !row.isAvailable,
-                            onRemoveUnavailable = {
-                                viewModel.removeFromWatchlist(row.item.tmdbId, row.item.mediaType)
+                            dimmed = !row.isAvailable || overCap,
+                            dimReason = if (!row.isAvailable) null else "Over your age rating cap",
+                            onRemoveUnavailable = if (row.isAvailable) null else {
+                                { viewModel.removeFromWatchlist(row.item.tmdbId, row.item.mediaType) }
                             },
                         )
                     }
@@ -242,12 +253,28 @@ fun HomeScreen(
                         .size(22.dp)
                         .clickableNoRipple(viewModel::refresh),
                 )
-                AvatarBadge(
-                    option = avatarKeyToOption(activeProfile.avatarKey),
-                    size = 30.dp,
-                    name = activeProfile.name,
-                    modifier = Modifier.clickableNoRipple(onSwitchProfile),
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    AvatarBadge(
+                        option = avatarKeyToOption(activeProfile.avatarKey),
+                        size = 30.dp,
+                        name = activeProfile.name,
+                        modifier = Modifier.clickableNoRipple(onSwitchProfile),
+                    )
+                    // PLAN.md §5b M3i item 5: individual profiles show their own cap; Family
+                    // shows the strictest cap among its curated members (both already resolved by
+                    // the same RecommendationRepository.resolveAgeRatingCap call HomeViewModel
+                    // uses for Popular-row filtering — see HomeUiState.ageRatingCap's kdoc).
+                    state.ageRatingCap?.let { cap ->
+                        Text(
+                            text = cap,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ChalkMuted,
+                        )
+                    }
+                }
             }
         }
     }

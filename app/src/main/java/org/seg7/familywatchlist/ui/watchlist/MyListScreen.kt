@@ -31,6 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.avatar.AvatarBadge
 import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
@@ -68,6 +69,7 @@ fun MyListScreen(
                     container.profileRepository,
                     activeProfileId,
                     container.userPreferencesRepository,
+                    container.recommendationRepository,
                 )
             }
         },
@@ -145,6 +147,12 @@ fun MyListScreen(
             ) {
                 items(state.visibleItems, key = { "${it.item.mediaType}-${it.item.tmdbId}" }) { row ->
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        // PLAN.md §5b M3i item 9: an item over the *viewing* profile's age cap
+                        // renders dimmed too, reusing the same FamilyBlend.isOverCap check
+                        // Home/Search/the recommender already use, against [state.ageRatingCap].
+                        // Display-only — the ✓ quick-add badge below still removes it exactly as
+                        // before, unaffected by whether the dim reason is availability or age.
+                        val overCap = FamilyBlend.isOverCap(row.item.certification, state.ageRatingCap)
                         PosterCard(
                             title = row.item.title,
                             posterPath = row.item.posterPath,
@@ -156,7 +164,8 @@ fun MyListScreen(
                             // quick-add badge already removes directly from this screen for any
                             // item (available or not) — that's the pre-existing direct-remove
                             // path this pass reuses rather than duplicating.
-                            dimmed = !row.isAvailable,
+                            dimmed = !row.isAvailable || overCap,
+                            dimReason = if (!row.isAvailable) null else "Over your age rating cap",
                             onQuickAdd = { viewModel.remove(row.item.tmdbId, row.item.mediaType) },
                         )
                         // The added-by tag — the whole reason this screen exists alongside the row.

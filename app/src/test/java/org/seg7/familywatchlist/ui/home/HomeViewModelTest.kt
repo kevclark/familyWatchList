@@ -463,4 +463,57 @@ class HomeViewModelTest {
         assertEquals(listOf(777), state.forYouTitles.map { it.tmdbId })
         assertEquals(777, state.hero?.tmdbId)
     }
+
+    /**
+     * PLAN.md §5b M3i item 10's other half, exercised live end-to-end (not just the pure
+     * [familyIsColdStart] unit tests in `HomeViewModelFamilyColdStartTest`): if even one curated
+     * member is warm, Family must stay on the real blended path exactly as before — never flagged
+     * cold-start just because some *other* member happens to be new. B here crosses the 5-event
+     * threshold; A stays at 0.
+     *
+     * Synchronises on `!it.isColdStartForYou` (a real transition away from [HomeViewModel]'s
+     * pessimistic `true` default) rather than `!it.isLoading` (which the discover half flips
+     * quickly regardless of whether the Family branch's several real Room round-trips have
+     * resolved yet) — see [familyIsColdStart]'s kdoc for why the "stays cold" direction isn't
+     * safe to prove this same way, and is covered by the pure-function tests instead.
+     */
+    @Test
+    fun `Family stays warm when at least one curated member is warm`() = runTest {
+        val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
+        val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
+        familyProfileRepository.save(name = "Family", avatarKey = "a", memberProfileIds = listOf(a, b))
+        repeat(5) { i ->
+            db.watchEventDao().logWatch(
+                org.seg7.familywatchlist.data.local.entity.WatchEventEntity(
+                    tmdbId = 900 + i, mediaType = MediaType.MOVIE, watchedAt = java.time.LocalDate.now(), note = null,
+                ),
+                listOf(b),
+            )
+        }
+        val family = ActiveProfile.Family(
+            FamilyProfileEntity(name = "Family", avatarKey = "a", createdAt = 0),
+            memberProfileIds = listOf(a, b),
+        )
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val state = viewModel(watchlistRepository, family).uiState.first { !it.isColdStartForYou }
+
+        assertFalse("B is warm, so Family must stay on the real blended path", state.isColdStartForYou)
+    }
+
+    /**
+     * PLAN.md §5b M3i item 10's explicit regression guard: an *individual* profile's existing
+     * cold-start behaviour must be completely untouched by this pass — same assertion as the
+     * pre-existing "a cold-start profile is flagged" test above, kept here as a named regression
+     * check specific to this milestone rather than relying on that older test not to bit-rot.
+     */
+    @Test
+    fun `an individual profile's cold-start detection is unchanged by the Family fix`() = runTest {
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+
+        val state = viewModel(watchlistRepository, activeProfile).uiState.first { !it.isLoading }
+
+        assertTrue("a fresh individual profile (0 events) must still be cold-start", state.isColdStartForYou)
+        assertEquals(emptyList<TitleEntity>(), state.forYouTitles)
+    }
 }
