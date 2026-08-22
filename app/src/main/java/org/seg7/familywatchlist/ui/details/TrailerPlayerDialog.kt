@@ -137,7 +137,7 @@ private fun TrailerWebView(youTubeKey: String) {
                 val embedUrl = "https://www.youtube.com/embed/$youTubeKey?autoplay=1&playsinline=1"
                 val html = """
                     <!DOCTYPE html>
-                    <html><head><style>body{margin:0;background:#000}iframe{width:100%;height:100%;border:0}</style></head>
+                    <html><head><style>html,body{height:100%;width:100%;margin:0;padding:0;background:#000}iframe{width:100%;height:100%;border:0}</style></head>
                     <body>
                         <iframe src="$embedUrl"
                                 referrerpolicy="strict-origin-when-cross-origin"

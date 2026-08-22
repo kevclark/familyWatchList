@@ -12,12 +12,17 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * M6 regression fix (PROGRESS.md "M6 regression found on Kev's real phone"): proves
- * [AppDatabase.MIGRATION_7_8] no longer leaves a title's `fetchedAt` looking deceptively fresh
- * after the migration drops and recreates `provider_availability`. Runs the *real* migration
- * SQL against the *real* exported v7 schema (checked into `app/schemas/`), the same schema
- * Room validates production installs against, rather than a hand-rolled fixture — so this would
- * have caught the original bug.
+ * M6 regression fix (PROGRESS.md "M6 regression found on Kev's real phone" and its
+ * "Two more real-device findings" follow-up): proves [AppDatabase.MIGRATION_7_8] widens
+ * `provider_availability`'s primary key correctly, and that [AppDatabase.MIGRATION_8_9] — not
+ * `MIGRATION_7_8` — is the migration that resets a title's `fetchedAt` so it no longer looks
+ * deceptively fresh after `provider_availability` was dropped and recreated. The reset was
+ * originally (and incorrectly) patched into `MIGRATION_7_8`'s already-shipped body without a
+ * version bump, so it never ran on devices that had already migrated past v8; `MIGRATION_8_9`
+ * is a genuine new version transition that does run. Runs the *real* migration SQL against the
+ * *real* exported schemas (checked into `app/schemas/`), the same schemas Room validates
+ * production installs against, rather than hand-rolled fixtures — so this would have caught the
+ * original bug.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -33,18 +38,32 @@ class AppDatabaseMigrationTest {
     )
 
     /**
-     * A title fetched shortly before the migration ran (like Kev's real Central Intelligence
-     * row: fetched the previous evening) has a `fetchedAt` well inside the 7-day provider TTL.
-     * Before the fix, that timestamp survived the migration untouched even though
-     * `provider_availability` was just wiped out from under it — [TitleRepository.isProviderDataStale]
-     * would then wrongly report the row as fresh for up to another 7 days. After the fix, the
-     * migration itself zeroes `fetchedAt`, so the very next freshness check trips a real refetch.
+     * Proves [AppDatabase.MIGRATION_7_8] still validates cleanly against the real v7 schema —
+     * i.e. the primary-key-widening fix on its own, independent of the (now separate)
+     * `fetchedAt` reset.
      */
     @Test
-    fun migrate7to8_resetsFetchedAtSoProviderRefreshTrips() {
+    fun migrate7to8_validatesAgainstRealSchema() {
+        helper.createDatabase(dbName, 7).apply { close() }
+
+        helper.runMigrationsAndValidate(dbName, 8, true, AppDatabase.MIGRATION_7_8)
+    }
+
+    /**
+     * A title fetched shortly before the migration ran (like Kev's real Central Intelligence
+     * row: fetched the previous evening) has a `fetchedAt` well inside the 7-day provider TTL.
+     * Before the fix, that timestamp survived the v7->v8 migration untouched even though
+     * `provider_availability` was just wiped out from under it — [TitleRepository.isProviderDataStale]
+     * would then wrongly report the row as fresh for up to another 7 days. [AppDatabase.MIGRATION_8_9]
+     * zeroes `fetchedAt`, so the very next freshness check trips a real refetch — and it does so
+     * as a genuine v8->v9 transition, so it actually runs on a device already sitting at v8
+     * (unlike the abandoned in-place patch to `MIGRATION_7_8`).
+     */
+    @Test
+    fun migrate8to9_resetsFetchedAtSoProviderRefreshTrips() {
         val recentFetchedAt = 9_999_999_999L // "yesterday", i.e. well within the 7-day TTL
 
-        helper.createDatabase(dbName, 7).apply {
+        helper.createDatabase(dbName, 8).apply {
             execSQL(
                 "INSERT INTO titles (tmdbId, mediaType, title, year, posterPath, backdropPath, " +
                     "overview, runtimeMin, certification, voteAverage, voteCount, popularity, " +
@@ -54,7 +73,7 @@ class AppDatabaseMigrationTest {
             close()
         }
 
-        val migrated = helper.runMigrationsAndValidate(dbName, 8, true, AppDatabase.MIGRATION_7_8)
+        val migrated = helper.runMigrationsAndValidate(dbName, 9, true, AppDatabase.MIGRATION_8_9)
 
         migrated.query("SELECT fetchedAt FROM titles WHERE tmdbId = 11 AND mediaType = 'MOVIE'").use { cursor ->
             assertTrue(cursor.moveToFirst())
