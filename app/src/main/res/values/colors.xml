@@ -2,5 +2,4 @@
 <resources>
     <!-- Mirrors the `Ink` Compose token (ui/theme/Color.kt). Keep the two in step. -->
     <color name="ink">#0B0B0D</color>
-    <color name="ic_launcher_background">#0B0B0D</color>
 </resources>
