@@ -89,15 +89,30 @@ import org.seg7.familywatchlist.ui.ActiveProfile
  * When [activeProfile] is [ActiveProfile.Family] -- the *persistent* counterpart to the ad-hoc
  * chip row above, selected from the profile picker exactly like a person -- Home's hero/For You
  * source from the Family profile's own **persisted** shortlist instead: [refresh] calls
- * [RecommendationRepository.refreshFamilyShortlist] with `persist = true` and
- * [ActiveProfile.Family.memberProfileIds] (the *curated* membership, never "every profile on the
- * account"), and [forYouShortlist] observes [FAMILY_SCOPE_KEY] rather than a per-profile scope
- * key. PLAN.md §4's cold-start note: the Family profile is never itself the subject of a watch
- * event, so it has no cold-start concept of its own -- [_coldStart] is pinned `false` whenever
- * [activeProfile] is Family, and shortlist quality is left entirely to the existing per-member
- * cold-start handling already inside [org.seg7.familywatchlist.data.recommend.FamilyBlend] (a
- * cold-start member simply contributes an empty/near-zero vector to the blend, no special-casing
- * needed here).
+ * [RecommendationRepository.refreshFamilyShortlist] with `persist = true` and the *live* curated
+ * membership (re-read from [familyProfileRepository], not the possibly-stale
+ * [ActiveProfile.Family.memberProfileIds] snapshot -- see [refresh]'s own comment), and
+ * [forYouShortlist] observes [FAMILY_SCOPE_KEY] rather than a per-profile scope key.
+ *
+ * ## Family cold-start (PLAN.md §5b M3i, the live-review batch's item 10)
+ * Originally [_coldStart] was pinned `false` whenever [activeProfile] is Family, on the theory
+ * that the Family profile is never itself the subject of a watch event, so it has no cold-start
+ * concept of its own. Confirmed live during Kev's 2026-08-22 review to be a real gap in practice,
+ * not just a theoretical one: with every curated member individually cold-start (few/no logged
+ * events each), Family still ran the real scoring path and presented a low-confidence,
+ * mostly-popularity-ranked shortlist with the same visual confidence as a genuinely personalised
+ * one -- [org.seg7.familywatchlist.data.recommend.FamilyBlend]'s per-member cold-start handling
+ * (a cold member contributes an empty/near-zero vector) softens the blend's *math*, but does
+ * nothing about how the *result* is presented. Fixed: Family is cold-start when *every* one of
+ * its curated members is individually below [RecommendationRepository.isColdStart]'s 5-event
+ * threshold (reusing that exact per-profile check, called once per member, never reimplemented).
+ * If even one member is warm, Family stays on the real blended path exactly as before -- this
+ * only ever triggers when the blend would otherwise be built from entirely empty data. An empty
+ * membership list (no [FamilyProfileEntity][org.seg7.familywatchlist.data.local.entity
+ * .FamilyProfileEntity] persisted yet) is treated as *not* cold-start -- vacuously "every member
+ * is cold" would be true over zero members, but there's nothing to show a cold-start intro for in
+ * that case, and it preserves this branch's original behaviour when there's no real family data
+ * to reason about at all.
  */
 @OptIn(FlowPreview::class)
 class HomeViewModel(
@@ -117,16 +132,24 @@ class HomeViewModel(
         if (activeProfile is ActiveProfile.Family) FAMILY_SCOPE_KEY else activeProfile.id.toString()
 
     private val _discover = MutableStateFlow(DiscoverState())
-    // PLAN.md §4: Family is never itself the subject of a watch event, so it has no cold-start
-    // concept of its own -- pinned false rather than driven by isColdStart (which would look up
-    // watch events for the sentinel id and always report "cold", misrepresenting a warm family).
-    private val _coldStart = MutableStateFlow(activeProfile !is ActiveProfile.Family)
+    // PLAN.md §5b M3i item 10: pessimistic default for both kinds of profile now -- refresh()
+    // resolves the real value for either (per-profile isColdStart for an Individual, "every
+    // curated member is cold-start" for Family) shortly after this ViewModel is constructed; see
+    // the class kdoc's "Family cold-start" section.
+    private val _coldStart = MutableStateFlow(true)
 
     private val familyNightProfiles: StateFlow<List<ProfileEntity>> =
         profileRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _familyNightSelection = MutableStateFlow<Set<Long>>(emptySet())
     private val _familyNightTitles = MutableStateFlow<List<TitleEntity>>(emptyList())
     private val familyNightTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    // PLAN.md §5b M3i items 5 and 9: the active profile's (or Family's strictest-member) age cap
+    // — [refresh] resolves it via the same [RecommendationRepository.resolveAgeRatingCap] the
+    // Popular-row filtering below already uses. Doubles as the source for both the avatar badge
+    // (item 5) and My List's over-cap dimming (item 9) — one resolution, two renderers, rather
+    // than a second lookup for each.
+    private val _ageRatingCap = MutableStateFlow<String?>(null)
 
     // PLAN.md §7 M2f: live region Flow, not a one-shot read — a region change made in Settings
     // re-resolves every My List card's availability immediately if Home is already open.
@@ -144,6 +167,7 @@ class HomeViewModel(
         val discover: DiscoverState,
         val shortlist: List<ShortlistEntryEntity>,
         val coldStart: Boolean,
+        val ageRatingCap: String?,
     )
 
     private data class FamilyNightState(
@@ -153,14 +177,14 @@ class HomeViewModel(
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
-        combine(myList, _discover, forYouShortlist, _coldStart) { list, discover, shortlist, coldStart ->
-            HomeCore(list, discover, shortlist, coldStart)
+        combine(myList, _discover, forYouShortlist, _coldStart, _ageRatingCap) { list, discover, shortlist, coldStart, ageRatingCap ->
+            HomeCore(list, discover, shortlist, coldStart, ageRatingCap)
         },
         combine(familyNightProfiles, _familyNightSelection, _familyNightTitles) { profiles, selectedIds, titles ->
             FamilyNightState(profiles, selectedIds, titles)
         },
     ) { core, family ->
-        val (list, discover, shortlist, coldStart) = core
+        val (list, discover, shortlist, coldStart, ageRatingCap) = core
         // Shortlist entries carry only (tmdbId, mediaType, score) — resolve to cached TitleEntity
         // rows for rendering. Offline-first: every shortlisted candidate was already detail-fetched
         // while scoring, so this is a plain cache read, no network.
@@ -188,6 +212,7 @@ class HomeViewModel(
             isLoading = discover.isLoading,
             errorMessage = discover.error,
             hasSubscribedServices = discover.hasSubscribedServices,
+            ageRatingCap = ageRatingCap,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState(isLoading = true))
 
@@ -254,6 +279,9 @@ class HomeViewModel(
                 // your services" row both read popularMovies/popularTv), reusing the exact same
                 // check the real recommender's scoring path already uses.
                 val ageCap = recommendationRepository.resolveAgeRatingCap(activeProfile.id)
+                // PLAN.md §5b M3i items 5/9: same resolution, published for the avatar badge and
+                // My List's over-cap dimming — see [_ageRatingCap]'s kdoc.
+                _ageRatingCap.value = ageCap
                 val filteredMovies = movies.filter { it.survivesAgeCap(ageCap) }
                 val filteredTv = tv.filter { it.survivesAgeCap(ageCap) }
                 Triple(subscribed.isNotEmpty(), filteredMovies, filteredTv)
@@ -275,19 +303,16 @@ class HomeViewModel(
             runCatching {
                 when (activeProfile) {
                     is ActiveProfile.Family -> {
-                        // PLAN.md §4: no cold-start concept for Family itself (see the class
-                        // kdoc's "Family profile" section) — always attempt the real, persisted
-                        // curated-membership blend, never the ad-hoc persist=false path M3c built.
-                        //
                         // Membership is re-read live from familyProfileRepository rather than
                         // reused from activeProfile.memberProfileIds: Compose's viewModel(key=...)
                         // keeps this ViewModel instance alive across recompositions keyed only on
                         // activeProfile.id (the sentinel, which never changes), so a membership
                         // edit made in Settings while Home is already open would otherwise be
                         // invisible to a subsequent pull-to-refresh until Home itself is torn down.
-                        _coldStart.value = false
-                        val memberIds = familyProfileRepository.get()?.memberIds
-                        if (!memberIds.isNullOrEmpty()) {
+                        val memberIds = familyProfileRepository.get()?.memberIds.orEmpty()
+                        val cold = familyIsColdStart(memberIds, recommendationRepository::isColdStart)
+                        _coldStart.value = cold
+                        if (!cold && memberIds.isNotEmpty()) {
                             val region = userPreferencesRepository.region.first()
                             val slider = FamilyBlendSlider(userPreferencesRepository.familyBlendSlider.first())
                             recommendationRepository.refreshFamilyShortlist(
@@ -359,6 +384,25 @@ class HomeViewModel(
     }
 }
 
+/**
+ * PLAN.md §5b M3i item 10: Family is cold-start when *every* one of [memberIds] is individually
+ * below [RecommendationRepository.isColdStart]'s 5-event threshold — [isColdStart] is that exact
+ * per-profile check, injected as a function reference (`recommendationRepository::isColdStart`
+ * in [HomeViewModel.refresh]) so this pure boolean combination is directly unit-testable without
+ * standing up a real [RecommendationRepository]/Room database — see [HomeViewModelTest]/the
+ * dedicated `familyIsColdStartTest` cases for why: driving this end-to-end through the reactive
+ * `uiState` StateFlow (as the rest of this file's tests do) needs the Family branch's several
+ * real Room round-trips to outrace the (near-instant, no-network-when-unsubscribed) discover
+ * branch before a `uiState.first { ... }` predicate can observe the *real* computed value rather
+ * than [HomeViewModel]'s pessimistic initial default — reliable for a positive "flips to false"
+ * assertion, not for proving a "stays true" one where the default already matches.
+ *
+ * An empty [memberIds] (no [org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity]
+ * persisted yet) is deliberately *not* cold-start — see [HomeViewModel]'s class kdoc.
+ */
+internal suspend fun familyIsColdStart(memberIds: List<Long>, isColdStart: suspend (Long) -> Boolean): Boolean =
+    memberIds.isNotEmpty() && memberIds.all { isColdStart(it) }
+
 data class HomeUiState(
     val hero: TitleEntity? = null,
     val myList: List<WatchlistItemAvailability> = emptyList(),
@@ -375,6 +419,8 @@ data class HomeUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val hasSubscribedServices: Boolean = false,
+    /** PLAN.md §5b M3i items 5/9: the active profile's (or Family's strictest-member) age cap — null means no cap. */
+    val ageRatingCap: String? = null,
 ) {
     /** PLAN.md §4a slider 4's UI-home decision, reused verbatim: the chip row itself is only relevant with 2+ profiles on the account at all. */
     val familyNightChipsVisible: Boolean get() = familyNightProfiles.size >= 2

@@ -12,6 +12,7 @@ import org.seg7.familywatchlist.data.local.dao.WatchlistItem
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
 import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
 
@@ -31,6 +32,15 @@ data class MyListUiState(
     val rows: List<MyListRow> = emptyList(),
     /** PLAN.md §2: "filters to the active profile with a 'whole family' toggle". */
     val mineOnly: Boolean = false,
+    /**
+     * PLAN.md §5b M3i item 9: the *viewing* profile's (or Family's strictest-member) age cap —
+     * resolved once via [RecommendationRepository.resolveAgeRatingCap], the same rule Home's
+     * avatar badge/Popular-row filtering and Search already use. Null means "no cap" — every row
+     * renders normally. The screen (not this state) combines this with each row's
+     * [WatchlistItem.certification] via [org.seg7.familywatchlist.data.recommend.FamilyBlend
+     * .isOverCap] to decide which rows dim, so there's exactly one place that check happens.
+     */
+    val ageRatingCap: String? = null,
 ) {
     val visibleItems: List<MyListRow>
         get() = rows
@@ -46,22 +56,39 @@ class MyListViewModel(
     profileRepository: ProfileRepository,
     private val activeProfileId: Long,
     userPreferencesRepository: UserPreferencesRepository,
+    recommendationRepository: RecommendationRepository,
 ) : ViewModel() {
 
     private val _mineOnly = MutableStateFlow(false)
+
+    // PLAN.md §5b M3i item 9: resolved once at construction — [activeProfileId] is fixed for the
+    // lifetime of one MyListViewModel instance (the screen is keyed on it,
+    // `viewModel(key = "mylist-$activeProfileId")` in MyListScreen), so there's no live
+    // preference this needs to react to the way region does. `resolveAgeRatingCap` itself already
+    // handles the FAMILY_PROFILE_SENTINEL_ID case transparently (strictest cap among curated
+    // members) — see its kdoc — so this works unchanged whether [activeProfileId] is a real
+    // profile or the Family sentinel.
+    private val _ageRatingCap = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<MyListUiState> = combine(
         // PLAN.md §7 M2f: live region Flow — see HomeViewModel.myList's kdoc for why.
         watchlistRepository.observeActiveItemsWithAvailability(userPreferencesRepository.region),
         profileRepository.observeAll(),
         _mineOnly,
-    ) { items, profiles, mineOnly ->
+        _ageRatingCap,
+    ) { items, profiles, mineOnly, ageRatingCap ->
         val profilesById = profiles.associateBy { it.id }
         val rows = items
             .filter { !mineOnly || it.item.addedByProfileId == activeProfileId }
             .map { MyListRow(item = it.item, addedBy = profilesById[it.item.addedByProfileId], isAvailable = it.isAvailable) }
-        MyListUiState(rows = rows, mineOnly = mineOnly)
+        MyListUiState(rows = rows, mineOnly = mineOnly, ageRatingCap = ageRatingCap)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MyListUiState())
+
+    init {
+        viewModelScope.launch {
+            _ageRatingCap.value = recommendationRepository.resolveAgeRatingCap(activeProfileId)
+        }
+    }
 
     fun setMineOnly(mineOnly: Boolean) {
         _mineOnly.value = mineOnly
