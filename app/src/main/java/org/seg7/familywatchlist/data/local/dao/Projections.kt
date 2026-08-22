@@ -14,7 +14,15 @@ import java.time.LocalDate
  * generated queries to a single round-trip.
  */
 
-/** A watchlist entry joined to its cached title — PLAN.md §5's "My List" row and screen. */
+/**
+ * A watchlist entry joined to its cached title — PLAN.md §5's "My List" row and screen.
+ *
+ * [certification] (M3i item 9) is the title's cached UK certification, if any — carried through
+ * so [org.seg7.familywatchlist.ui.watchlist.MyListViewModel]/[org.seg7.familywatchlist.ui.home
+ * .HomeViewModel] can check it against the *viewing* profile's age cap without a second query;
+ * null exactly when [org.seg7.familywatchlist.data.local.entity.TitleEntity.certification] is
+ * null (no cached title row, or a title TMDB has no GB certification for).
+ */
 data class WatchlistItem(
     val tmdbId: Int,
     val mediaType: MediaType,
@@ -23,6 +31,7 @@ data class WatchlistItem(
     val year: Int?,
     val addedByProfileId: Long,
     val addedAt: Long,
+    val certification: String?,
 )
 
 /** A watch event joined to its cached title — PLAN.md §5 screen 7 (History). */

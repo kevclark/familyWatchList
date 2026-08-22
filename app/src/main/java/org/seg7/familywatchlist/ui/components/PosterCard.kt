@@ -79,6 +79,15 @@ fun PosterCard(
      */
     dimmed: Boolean = false,
     /**
+     * PLAN.md §5b M3i item 9: the caption/content-description text shown while [dimmed] is true,
+     * when the reason isn't the original lost-availability case — e.g. "Over your age rating cap"
+     * for a My List item over the *viewing* profile's cap. Null (the default) keeps the original
+     * M2g "Not on your services" copy, so every existing [dimmed] caller is unaffected. Reuses the
+     * exact same alpha/remove-button visual language regardless of which reason is passed — this
+     * is a caption swap only, never a second dimming mechanism.
+     */
+    dimReason: String? = null,
+    /**
      * A dedicated "clean this up" affordance shown only when [dimmed] is true — distinct from
      * [onQuickAdd]'s ✓/＋ toggle (which means "in my list" / "not in my list") because an
      * unavailable-but-listed item is neither of those; it needs a plain "take this off the list"
@@ -109,7 +118,7 @@ fun PosterCard(
                 .clickableNoRipple(interactionSource, onClick)
                 .semantics {
                     contentDescription = if (dimmed) {
-                        "${title.orEmpty()} — no longer available on your services"
+                        "${title.orEmpty()} — ${dimReason ?: "no longer available on your services"}"
                     } else {
                         title.orEmpty()
                     }
@@ -149,7 +158,7 @@ fun PosterCard(
                 // Dimmed overrides the year line — "why is this greyed out" matters more here
                 // than the release year, and there's only room for one caption line.
                 dimmed -> Text(
-                    text = "Not on your services",
+                    text = dimReason ?: "Not on your services",
                     style = MaterialTheme.typography.bodySmall,
                     color = ChalkFaint,
                 )
