@@ -20,6 +20,7 @@ import org.seg7.familywatchlist.data.backup.UserPreferencesBackup
 import org.seg7.familywatchlist.data.backup.WatchEventBackup
 import org.seg7.familywatchlist.data.backup.WatchlistEntryBackup
 import org.seg7.familywatchlist.data.local.AppDatabase
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity
 import org.seg7.familywatchlist.data.local.entity.FamilyProfileMemberEntity
 import org.seg7.familywatchlist.data.local.entity.NotificationPreferenceEntity
@@ -181,11 +182,20 @@ class BackupRepository(
         }
         val profileIds = payload.profiles.map { it.id }.toSet()
         if (profileIds.size != payload.profiles.size) return "Backup file is corrupt: duplicate profile ids"
-        val refersToUnknownProfile = payload.watchEvents.any { event -> event.profileIds.any { it !in profileIds } } ||
-            payload.ratings.any { it.profileId !in profileIds } ||
-            payload.watchlistEntries.any { it.addedByProfileId !in profileIds } ||
-            payload.profileSliders.any { it.profileId !in profileIds } ||
-            payload.notificationPreferences.any { it.profileId !in profileIds } ||
+        // FIX (verification pass, M4b live testing): watchEvents/ratings/watchlistEntries/
+        // profileSliders can legitimately reference FAMILY_PROFILE_SENTINEL_ID (-1) — "the Family"
+        // logging/rating/adding as itself rather than as a named profile (FamilyProfileEntity.kt).
+        // That sentinel is never a row in `profiles`, so it must be allowed here as well or every
+        // household that has ever used the Family profile gets its own genuine export rejected as
+        // "corrupt" on restore. familyProfileMemberIds is deliberately NOT included in this
+        // widened set — those ids name the Family profile's *members*, who must always be real
+        // profiles, never the sentinel itself.
+        val validProfileRefs = profileIds + FAMILY_PROFILE_SENTINEL_ID
+        val refersToUnknownProfile = payload.watchEvents.any { event -> event.profileIds.any { it !in validProfileRefs } } ||
+            payload.ratings.any { it.profileId !in validProfileRefs } ||
+            payload.watchlistEntries.any { it.addedByProfileId !in validProfileRefs } ||
+            payload.profileSliders.any { it.profileId !in validProfileRefs } ||
+            payload.notificationPreferences.any { it.profileId !in validProfileRefs } ||
             payload.familyProfileMemberIds.any { it !in profileIds }
         if (refersToUnknownProfile) return "Backup file is corrupt: references a profile it doesn't include"
         if (runCatching { DayOfWeek.valueOf(payload.userPreferences.refreshDayOfWeek) }.isFailure) {
