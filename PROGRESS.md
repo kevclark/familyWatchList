@@ -1282,6 +1282,52 @@ legitimately in a `WebView`, which is the fix:
       (`LogWatchFlowUiTest`, JVM/Robolectric so it runs in `./gradlew test`)
 - [x] `./gradlew test assembleDebug` green (all four M4b checkpoints, verified individually)
 
+## M4c — App icon (Kev, 2026-08-22)
+
+Not part of the original PLAN.md scope — raised fresh during M4. Went through an orchestrator
+concept pass (rejected as "pretty poor"), then a fresh Opus concept pass (3 directions: Floor,
+Shortlist, Room), then an Opus refinement pass on Room specifically after Kev flagged it read
+as "sitting under a lamp" (fixed by replacing a top-down light beam with a wide screen-shaped
+plane the family sits in front of, silhouettes fused into one sofa-back shape rather than
+floating separately). **Kev's final call: go with "Sofa" (the `roomD` variant).**
+
+Exact spec extracted from the published concept artifact
+(https://claude.ai/code/artifact/fe87ffca-109f-4373-b33e-b50fedc6b572), for faithful
+implementation rather than a re-interpretation:
+- 108×108dp adaptive icon canvas, 72×72dp safe zone (viewBox `18 18 72 72`) — matches Android's
+  standard adaptive icon convention exactly, no translation needed
+- Ground: radial gradient, center 26%/14%, radius 96%, `#191922` → `#0B0B0D`
+- Warm violet floor-wash: linear gradient bottom-lifted, `#8B5CF6` at 0% → 16% opacity, applied
+  over the bottom ~63% of the canvas (y=40 to y=108 of 108)
+- Bloom: radial gradient ellipse (cx 54, cy 45, rx 52, ry 44), `#8B5CF6` 55% → 18% → 0% opacity
+- Screen plane: rounded rect (x28 y30 w52 h29 rx3), radial gradient center 50%/38% r72%, warm
+  core `#FFF3E4` → mid `#D9C4FF` → edge `#8B5CF6`
+- Sofa silhouette (all filled ground colour `#0B0B0D`, i.e. cut as negative space against the
+  lit backdrop): three head circles at (38, 60.5, r6.8), (54, 63.0, r5.0), (69, 59.0, r7.4),
+  each with a neck rect down to y=70, plus one continuous sofa-back rect (x10 y67 w88 h41 rx4)
+  — deliberately bleeds past the 72dp safe zone on both sides so it gets cropped by the mask
+  rather than floating inside it like clip art
+- Accent `#8B5CF6` (Obsidian) matches the app's own default accent exactly — no new colour
+  introduced
+
+- [ ] Build as a real Android adaptive icon: `res/mipmap-anydpi-v26/ic_launcher.xml` (+
+      `ic_launcher_round.xml`) referencing a background layer + foreground layer, each a
+      `VectorDrawable` (minSdk is 26 — adaptive icons are natively supported on every device
+      this app runs on, no legacy flat-PNG fallback needed for compatibility). Reproduce the
+      gradients above as real `<gradient>` elements inside the vector paths, not a rasterized
+      approximation — implementation's call on exactly how to split the composition across the
+      two layers (the scene is one continuous image, not natural background/subject layers),
+      document the choice.
+- [ ] Wire into `AndroidManifest.xml` (`android:icon`/`android:roundIcon` already point at
+      `@mipmap/ic_launcher` — confirm, don't assume)
+- [ ] Live verification: install on the emulator, screenshot the actual home-screen/launcher
+      icon (not just the in-app preview) and compare against the concept artifact
+- [ ] `./gradlew test assembleDebug` green
+- **Deliberately out of scope for now, not decided by Kev:** the themed/monochrome icon variant
+  (Android 13+ Material You) — the concept artifact suggested pairing Sofa with "Floor" for
+  that, but Kev only confirmed Sofa as the primary launcher icon, not a themed-icon pairing.
+  Flag as a follow-up decision rather than assuming Floor.
+
 ## M5 — Ship
 
 - [ ] Installed on Kev's phone via wireless ADB (`docs/PREVIEW.md` §3)
