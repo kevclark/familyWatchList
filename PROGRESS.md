@@ -1194,17 +1194,28 @@ confirmed by Kev, both straightforward now that Family is a fully independent pr
 
 ## M4 — Polish
 
+Split into two checkpoints (Kev, 2026-08-22 — on usage credits now, splitting so there's a
+natural pause to check cost/results rather than one long uninterruptible run). No open product
+decisions in either half — everything below is already fully specified, so no back-and-forth
+expected the way M3j needed.
+
+**M4a — screen/interaction polish:**
 - [ ] Trailers via TMDB `/videos` → YouTube intent
 - [ ] Coil crossfade placeholders, shared-element-style transition, predictive back
 - [ ] Dismiss ("not interested") long-press flow
-- [ ] Settings: services toggles, profile management, About
+
+**M4b — settings, data, and repo hygiene:**
+- [ ] Settings audit: services toggles, profile management, About — confirm what earlier
+      milestones (M3i's "Manage profiles" row, M2a's services picker) already cover vs. genuinely
+      missing pieces before building anything new
 - [ ] JSON backup/restore via Storage Access Framework (user data only, no TMDB cache)
 - [ ] Attribution pass: TMDB notice verbatim + JustWatch on every availability UI
 - [ ] README.md for the repo: what/why, screenshots, build & preview instructions,
       TMDB/JustWatch attribution
+
 - [x] Compose UI test for the log-watch flow — landed early in M2b
       (`LogWatchFlowUiTest`, JVM/Robolectric so it runs in `./gradlew test`)
-- [ ] `./gradlew test assembleDebug` green
+- [ ] `./gradlew test assembleDebug` green (both checkpoints)
 
 ## M5 — Ship
 
