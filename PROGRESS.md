@@ -1116,12 +1116,24 @@ research behind the rating-scale call. This milestone builds every confirmed ite
 
 - [x] Tests for every fix/gap above
 - [x] `./gradlew test assembleDebug` green
-- [ ] Live verification / screenshots for the harder-to-eyeball ones especially: My List
-      dimming on a capped profile, Family cold-start actually triggering, keyboard-padding fix
-      — **not performed this pass**: no emulator/device was running and none was booted (agent101
-      RAM/timing constraints against the several full Gradle builds already run this session) —
-      see the M3i report for the honest statement; relies on the unit/integration test coverage
-      above instead. Flagged for Kev/a follow-up session with a live device.
+- [x] Live verification / screenshots — 2026-08-22, `family_test` AVD (`-gpu swangle`, renderer
+      confirmed ANGLE/Vulkan/SwiftShader driver-5.0.0 via `dumpsys SurfaceFlinger`):
+      - Item 9 (My List age-cap dimming): live DB already had exactly the needed scenario — Sam
+        (`ageRatingCap=12`) with 3 shared-watchlist items certified `15` (The Matrix / Reloaded /
+        Revolutions, all `ACTIVE`, added by Kevu). Switched to Sam: both Home's My List carousel
+        and the full My List screen render all three dimmed, each with content-desc/caption
+        "Over your age rating cap" — screenshots `docs/m3i-mylist-home-dimmed.png` and
+        `docs/m3i-mylist-full-dimmed.png`. Bonus check: switching to the Family profile
+        (strictest-member cap = Sam's 12) dims the same three items too, confirming
+        `FamilyBlend.strictestCap` feeds this path correctly as well.
+      - Item 10 (Family cold-start): live DB genuinely qualifies — Kevu has 3 watch_event_profiles
+        rows, Sam has 0, both under the 5-event threshold, so `familyIsColdStart` is true with no
+        setup needed. Switched to the Family profile on Home: the `ColdStartHero` intro panel
+        ("Let's find your picks") renders exactly as the individual cold-start case does —
+        screenshot `docs/m3i-family-coldstart.png`.
+      - Keyboard-padding fix (Search/log-watch `imePadding()`) was **not** covered this pass —
+        out of scope for the two safety-relevant items requested; still unverified live.
+      No bugs found in either item 9 or item 10's on-device behaviour.
 
 ## M4 — Polish
 
