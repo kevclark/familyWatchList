@@ -1348,6 +1348,17 @@ implementation rather than a re-interpretation:
 
 ## M5 — Ship
 
-- [ ] Installed on Kev's phone via wireless ADB (`docs/PREVIEW.md` §3)
-- [ ] `docs/PREVIEW.md` verified end-to-end from the laptop (scrcpy)
+- [x] Installed on Kev's phone — 2026-08-22, **via USB from the laptop, not wireless ADB from
+      buildhost as `docs/PREVIEW.md` §3 originally assumed.** Found live: buildhost sits on an
+      isolated Proxmox VM subnet (`198.51.100.0/24`) with no route to Kev's home Wi-Fi
+      (`203.0.113.0/24`) — the hypervisor (`198.51.100.1`/`203.0.113.190`) is dual-homed and has a route to
+      the home LAN, but buildhost's traffic still didn't reach the phone, pointing at IP
+      forwarding or a Proxmox firewall rule blocking it on the hypervisor itself (not something fixable
+      from buildhost — needs checking directly on the hypervisor, deferred, not blocking). Worked around by
+      building the debug APK on buildhost, `scp`-ing it to the laptop (already on the home LAN),
+      and installing via USB `adb` from there instead — first real install off-emulator,
+      confirmed running.
+- [ ] `docs/PREVIEW.md` verified end-to-end from the laptop (scrcpy) — wireless install path
+      still blocked by the the hypervisor routing/firewall gap above; USB from the laptop is the confirmed
+      working path for now. `docs/PREVIEW.md` needs a note on this until the hypervisor's side is fixed.
 - [ ] Final `./gradlew test assembleDebug` green

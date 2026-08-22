@@ -186,6 +186,18 @@ scp kev@buildhost:/tmp/shot.png .              # from the laptop
 
 Phone and buildhost must be on the **same Wi-Fi/LAN**.
 
+> **Known gap, 2026-08-22: this currently does NOT work from buildhost.** buildhost sits on an
+> isolated Proxmox VM subnet (`198.51.100.0/24`) with no working route to Kev's home Wi-Fi
+> (`203.0.113.0/24`), confirmed via a failed `ping` even after correcting for the actual IP.
+> the hypervisor (`198.51.100.1` / `203.0.113.190`) is dual-homed and has its own route to the home LAN, but
+> traffic from buildhost still doesn't reach the phone — points at IP forwarding or a Proxmox
+> firewall rule on the hypervisor itself, not something fixable from buildhost's side. Not yet fixed.
+> **Working alternative until this is resolved:** build the debug APK on buildhost
+> (`./gradlew assembleDebug`), `scp` `app/build/outputs/apk/debug/app-debug.apk` to the laptop
+> (already on the home LAN), then install via **USB** `adb` from the laptop directly — this is
+> what actually got the app onto Kev's phone for the first time. Needs a real USB *data* cable,
+> not a charge-only one (confirmed via `lsusb` showing nothing until the cable was swapped).
+
 ### On the phone (once per pairing)
 
 1. Settings → About phone → tap **Build number** 7× to unlock Developer options.
