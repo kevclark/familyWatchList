@@ -140,14 +140,13 @@ class TitleDetailViewModel(
      * provider — this is the main real-world path into that gate, since details is reachable
      * ungated from History for a title that's since stopped streaming anywhere the family pays
      * for. Removing is never blocked.
+     *
+     * PLAN.md §4b (M3j): the Family profile is now symmetric with every individual profile here
+     * — [FAMILY_PROFILE_SENTINEL_ID] is a legitimate [org.seg7.familywatchlist.data.local.entity
+     * .WatchlistEntryEntity.addedByProfileId] value like any real profile's id (no `@ForeignKey`
+     * to `profiles`, confirmed), so the old "switch to a person profile" block is gone.
      */
     fun toggleWatchlist() {
-        if (activeProfileId == FAMILY_PROFILE_SENTINEL_ID) {
-            viewModelScope.launch {
-                _events.emit(TitleDetailUiEvent.WatchlistBlocked("Switch to a person profile to add titles to the list."))
-            }
-            return
-        }
         viewModelScope.launch {
             val title = uiState.value.title
             val region = userPreferencesRepository.region.first()
@@ -165,20 +164,15 @@ class TitleDetailViewModel(
     /**
      * Thumbs for the active profile; tapping the current value again clears it.
      *
-     * PLAN.md §4 (M3d): a [org.seg7.familywatchlist.data.local.entity.RatingEntity] is one row
-     * per real person, same reasoning as [toggleWatchlist]'s watchlist-attribution gate — a
-     * "family" rating attributed to [FAMILY_PROFILE_SENTINEL_ID] wouldn't belong to anyone's
-     * affinity vector and would just be dead data, so this is blocked rather than silently
-     * written. Rating per-member is still possible the normal way: log the watch (which
-     * auto-tags every member while Family is active — see `LogWatchViewModel`) and rate there.
+     * PLAN.md §4b (M3j): the Family profile now owns its own affinity vector, so a rating
+     * attributed to [FAMILY_PROFILE_SENTINEL_ID] is real, meaningful data (it feeds Family's own
+     * [org.seg7.familywatchlist.data.repository.RecommendationRepository.refreshProfileShortlist]
+     * run) rather than the "dead data" it would have been under the old blend design — the old
+     * "switch to a person profile" block is gone. Rating per-member individually is still
+     * possible the normal way: log the watch (which auto-tags every member, plus Family itself,
+     * while Family is active — see `LogWatchViewModel`) and rate there.
      */
     fun rate(value: RatingValue) {
-        if (activeProfileId == FAMILY_PROFILE_SENTINEL_ID) {
-            viewModelScope.launch {
-                _events.emit(TitleDetailUiEvent.ActionBlocked("Switch to a person profile to rate titles."))
-            }
-            return
-        }
         viewModelScope.launch {
             ratingRepository.setOrToggle(activeProfileId, tmdbId, mediaType, value)
         }
