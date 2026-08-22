@@ -757,6 +757,13 @@ tests only for the log-watch flow (highest-value). Every milestone ends with
 - **TMDB provider data quality** for UK broadcaster catch-up (iPlayer/C4/ITVX) is decent but
   imperfect — availability badges are "best effort", worth saying so in About.
 - **Non-commercial TMDB use** — fine (personal family app, no distribution).
+- **Emulator has no Widevine DRM, so in-app trailer playback (M4a-2) can't be verified
+  headlessly** — confirmed 2026-08-22: `adb logcat` shows the AVD's DRM HAL only registers
+  `clearkey`, no Widevine, a known AOSP-emulator limitation; the video-decode path in YouTube's
+  IFrame Player needs a real device. **Deferred, Kev's call:** not worth adding Widevine to the
+  emulator right now — the real phone at M5 is the acid test for this feature. Worth
+  revisiting only if a future roadmap item adds more playback-dependent features that would
+  benefit from headless verification.
 - **TMDB AI/ML clause (terms §1.C/§2.A)** — reviewed 2026-08-16: it targets training/validating
   ML or AI systems and harvesting datasets for that purpose. Our recommender is a
   deterministic hand-written scoring function (fixed weights, no training, no runtime AI) and
