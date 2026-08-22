@@ -81,7 +81,12 @@ fun HistoryScreen(
     val viewModel: HistoryViewModel = viewModel(
         factory = viewModelFactory {
             initializer {
-                HistoryViewModel(container.watchEventRepository, container.profileRepository, container.ratingRepository)
+                HistoryViewModel(
+                    container.watchEventRepository,
+                    container.profileRepository,
+                    container.ratingRepository,
+                    container.familyProfileRepository,
+                )
             }
         },
     )
