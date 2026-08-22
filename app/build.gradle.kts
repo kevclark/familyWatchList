@@ -84,6 +84,19 @@ android {
         }
     }
 
+    // M6 fix: AppDatabaseMigrationTest's MigrationTestHelper loads exported schema JSON from
+    // "assets" at runtime (see the Room migration-testing docs). Robolectric's unit tests read
+    // assets from the *debug variant's own* merged assets (test_config.properties'
+    // `android_merged_assets` always points at `mergeDebugAssets`, regardless of a `test`
+    // sourceSet), not a separate unit-test asset set — so the schemas have to live under the
+    // `debug` sourceSet specifically, not `test`, to be visible at all. Debug-only means this
+    // never ships in a release build.
+    sourceSets {
+        getByName("debug") {
+            assets.directories.add("$projectDir/schemas")
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -144,6 +157,9 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.junit)
+    // M6 fix: AppDatabaseMigrationTest drives real MIGRATION_7_8 SQL against exported schema
+    // JSON via MigrationTestHelper (Robolectric provides real SQLite, so this runs on the JVM).
+    testImplementation(libs.androidx.room.testing)
     // M3f: RecommendationSchedulerRescheduleTest drives real WorkManager under Robolectric to
     // assert on ExistingPeriodicWorkPolicy.KEEP vs UPDATE behaviour, not just delay-math.
     testImplementation(libs.androidx.work.testing)

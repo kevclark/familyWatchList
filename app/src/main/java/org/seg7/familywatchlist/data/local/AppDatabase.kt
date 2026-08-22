@@ -200,6 +200,11 @@ abstract class AppDatabase : RoomDatabase() {
          * "PLAN.md §3's 7-day TTL always refetches the full set" on every refresh), so there is no
          * user data to preserve here — every existing row is stale-or-fresh cache the next
          * `ensureFresh`/`refresh` call repopulates correctly under the new key regardless.
+         *
+         * Also zeroes `titles.fetchedAt` for every existing row — see the inline comment below
+         * for why: the drop-and-recreate above, on its own, left provider caches invisible for
+         * up to 7 days on real devices (found on Kev's phone the same day this migration first
+         * shipped; PROGRESS.md "M6 regression found on Kev's real phone").
          */
         val MIGRATION_7_8: Migration = object : Migration(7, 8) {
             override fun migrate(connection: SQLiteConnection) {
@@ -213,6 +218,20 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS `index_provider_availability_tmdbId_mediaType` " +
                         "ON `provider_availability` (`tmdbId`, `mediaType`)"
                 )
+                // Regression fix (found on Kev's real phone the same day this migration first
+                // shipped, see PROGRESS.md "M6 regression found on Kev's real phone"): dropping
+                // provider_availability alone left every existing titles.fetchedAt untouched, so
+                // TitleRepository.isProviderDataStale's 7-day check kept trusting a timestamp
+                // that no longer reflected what was actually cached -- any title fetched in the
+                // 7 days before this migration ran would silently sit with zero provider rows
+                // for up to 7 more days. Zeroing fetchedAt on every existing titles row forces
+                // the next read to trip both isProviderDataStale (7-day TTL) and
+                // isMetadataStale (30-day TTL), so a real refetch happens immediately. Resetting
+                // the *full* timestamp -- rather than something more surgical that only fools the
+                // provider check -- also forces an unnecessary-but-harmless metadata re-fetch on
+                // the same call; that's an acceptable, one-time side effect worth taking here
+                // rather than adding a second, more fragile timestamp column just to avoid it.
+                connection.execSQL("UPDATE `titles` SET `fetchedAt` = 0")
             }
         }
     }
