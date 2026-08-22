@@ -557,6 +557,89 @@ without being flagged as an open question. Correcting it now:
   friend's account — availability at watch-time is irrelevant to whether you can log it.
   Do not extend this restriction there; it only applies to Search and the watchlist add path.
 
+### 5b. Live-review batch (Kev's hands-on pass, 2026-08-22 — 18 numbered findings, orchestrator
+investigated every one against the actual code/live device before any decision was made)
+
+**Confirmed fixes, no design ambiguity — build these:**
+- **Search results grid + log-watch/edit sheet lack keyboard-aware padding** (`imePadding()`)
+  — the last row of results, and the log-watch sheet's "Save changes" button, can sit behind
+  the on-screen keyboard with no way to scroll them into view except dismissing it first. Add
+  `imePadding()` (or equivalent) to both scrollable containers.
+- **History shows no ratings.** `HistoryRowItem` renders title/date/watched-by only — add the
+  per-profile thumbs rating(s) to each row (reuse the existing `RatingValue` rendering
+  convention from the log-watch sheet's `RatingDot`, don't invent a new visual language for it).
+- **Home's refresh icon has zero visible feedback.** It does genuinely trigger
+  `HomeViewModel.refresh()`, but nothing on screen indicates it ran — add a loading indicator
+  tied to the tap (spinner replacing the icon while in flight is enough, no toast needed).
+- **Search's empty-result message conflates three different reasons** ("no services
+  subscribed" already has its own message; "not available on your services" and "excluded by
+  age cap" currently share one generic "Nothing available... matched" string). Give the
+  age-cap case its own distinct message when it's the actual reason results are thin/absent.
+- **Age cap isn't shown anywhere on Home.** Add a small badge/label under the profile avatar
+  (top-right) when the active profile — or, once M3i's Family fix below lands, the strictest
+  cap among Family's members — has a non-null `ageRatingCap`.
+- **Region picker doesn't surface your current region.** Opening it shows an unsorted, unscrolled
+  full list — GB (or whatever's current) is checkmarked once you find it, but nothing prioritises
+  or scrolls to it. Sort the current region to the top of the (unfiltered) list, or auto-scroll to
+  it on open — implementation's call, either resolves the actual complaint.
+- **Settings gets a "Manage profiles" link** into the profile picker's existing edit flow
+  (long-press → edit is otherwise the only path to name/avatar/age-cap editing, and nobody
+  would think to look for it there). Doesn't need to duplicate the dialog — just navigate to
+  the profile picker, or open the same dialog directly from Settings, whichever is cleaner.
+- **My List's "Whole family"/"Added by me" filter pills predate the Family profile** and now
+  collide with it in name. Rename "Whole family" → "Everyone" (behaviour unchanged — still just
+  "don't filter by who added it"). Leave "Added by me" as-is.
+
+**Real gaps needing a specific fix, design already decided below:**
+- **My List has zero age-cap filtering (found during the review, not previously covered by
+  M3g/M3h's audit).** Kev's call, 2026-08-22: an over-cap item is **shown dimmed with a reason**
+  for a capped viewer — reuse the exact same dimming pattern already built for lost-availability
+  items (PLAN.md §5a M2g), not a second visual language. It stays fully visible/normal for any
+  viewer whose cap it clears (including no cap). This is a *display* filter only — the shared
+  list itself, and who can add to it, are unchanged (M2d's watchlist add-gate stays
+  availability-only, per the earlier audit's reasoning, which still holds for *adding*; this is
+  specifically about how it *renders* to a capped viewer).
+- **The Family profile never shows a cold-start state, even when every member is individually
+  cold-start.** Confirmed live during the review: with Kevu (3 events, under the 5-event
+  threshold) and Sam (0 events) as Family's only two members, Family still ran the real
+  scoring path — the persisted shortlist topped out at score 0.33 (compare a genuinely warm
+  profile's 0.949 from earlier testing), and one specific title Kev flagged scored 0.088,
+  second-from-last of 30 — a low-confidence, mostly quality/freshness-ranked list presented
+  with the same confidence as a real personalised one. **Kev's fix, confirmed:** Family gets
+  real cold-start detection — cold if *every* curated member is individually below the
+  5-event threshold — and its own cold-start intro screen (reuse the individual cold-start
+  panel's mechanism; copy can stay the same or go family-flavoured, implementation's call).
+  If even one member is warm, Family stays on the real blended path as today — this only
+  triggers when the blend would otherwise be built from entirely empty data.
+
+**Investigated, confirmed correct — no action:**
+- **Hulu isn't a Disney-ownership issue** — it has never operated in the UK market at all;
+  unrelated to who owns it. Default GB services list is correct as-is.
+- **Family profile has no age-cap field at creation, and that's deliberate** — its effective
+  cap is derived (strictest cap among members), matching the original recommender spec, not
+  settable independently. No change.
+- **Kevu still cold-start after logging watches** — confirmed via live DB query: exactly 3 of
+  the required 5 events. Correct, expected state, not stuck.
+- **"FAMILY WATCHLIST" on Home stays as static branding** (Kev's call, 2026-08-22) — it's the
+  app's wordmark, not a profile-state indicator; understood as such once explained.
+- **Rating scale: RESOLVED, keep the existing 3-point UP/NEUTRAL/DOWN as-is (Kev, 2026-08-22),
+  after real research rather than a guess.** Checked how Netflix and Prime actually do this:
+  Netflix started with 5-star ratings and *dropped* them in 2017 specifically because the
+  granularity confused users (they thought stars were a crowd-average, not a personal
+  prediction) and because switching to simple binary thumbs got 200% more ratings submitted in
+  testing — more granularity meant less engagement, not more signal. Netflix's 2022 "Two
+  Thumbs Up" addition is asymmetric (down / up / love-it), never a symmetric double-down —
+  they A/B-tested alternatives (including a heart icon) before landing there. Prime Video is
+  plainer still: binary thumbs only. Kev's original double-up/double-down proposal doesn't
+  match what either platform actually runs in production, and Netflix's own data argues against
+  it. No algorithm change, no new `AffinityEngine.ratingWeight` values, no schema migration —
+  ratings stay exactly as built. (Rating *display* on History, above, is unaffected — that's
+  rendering the existing 3-point value, not changing what it is.)
+
+**Explicitly deferred, not part of this batch:**
+- **Camera/photo avatar import** (backlog — genuine new feature: permissions, storage,
+  cropping — not a fix-batch item).
+
 ---
 
 ## 6. Build environment & preview (agent101)
