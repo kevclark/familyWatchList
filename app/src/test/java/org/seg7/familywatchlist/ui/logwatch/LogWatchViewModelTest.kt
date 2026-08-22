@@ -282,22 +282,25 @@ class LogWatchViewModelTest {
     }
 
     /**
-     * PLAN.md §4 (M3d): "identical effect to manually multi-selecting everyone on the log-watch
-     * sheet today, not new behaviour, just a shortcut." Proven directly rather than assumed: two
-     * independent saves — one starting from [LogWatchSheet]'s Family auto-tag initial selection
-     * (`initialSelectedProfileIds` pre-populated with every member, exactly what
-     * [initialLogWatchSelection] computes for [org.seg7.familywatchlist.ui.ActiveProfile.Family]),
-     * the other starting from today's ordinary single-person default and manually ticking the
-     * other two chips by hand — must write the exact same `WatchEventProfile` tag set.
+     * PLAN.md §4b (M3j, supersedes M3d): auto-tag pre-selects every real member **plus Family's
+     * own sentinel id** now — no longer identical to a manual multi-select of just the members
+     * (that equivalence was the M3d design; M3j deliberately breaks it so Family gets its own
+     * `WatchEventProfile` row too). Proven directly: the auto-tag save's DB tag set must contain
+     * every member *and* the sentinel, and must therefore differ from a manual multi-select of
+     * only the real people.
      */
     @Test
-    fun `Family auto-tag writes the identical DB tag set as manually multi-selecting every member`() = runTest {
-        // Path A: the auto-tag shortcut — every member pre-selected, save with zero interaction.
-        val autoTagVm = viewModel(initialSelectedProfileIds = setOf(kevId, samId, ellieId))
+    fun `Family auto-tag writes every member plus Family's own sentinel id, unlike manual multi-select`() = runTest {
+        // Path A: the auto-tag shortcut — every member plus the sentinel pre-selected, save with zero interaction.
+        val autoTagVm = viewModel(
+            initialSelectedProfileIds = setOf(
+                kevId, samId, ellieId, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID,
+            ),
+        )
         val autoTagInitialState = autoTagVm.uiState.first { it.profiles.isNotEmpty() }
         assertEquals(
-            "the sheet must open with every member already ticked, not just the active profile",
-            setOf(kevId, samId, ellieId),
+            "the sheet must open with every member and Family's own id already ticked",
+            setOf(kevId, samId, ellieId, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID),
             autoTagInitialState.selectedProfileIds,
         )
         autoTagVm.save()
@@ -307,9 +310,9 @@ class LogWatchViewModelTest {
         val autoTagTagged = watchEventRepository.getProfileIds(autoTagEvent.id).toSet()
         watchEventRepository.deleteWatch(autoTagEvent.id) // clean slate for path B below
 
-        // Path B: today's existing manual multi-select — start from the ordinary single-person
-        // default and tick the other two chips by hand, the exact mechanism a user drives today.
-        val manualVm = viewModel() // default: setOf(kevId), the pre-M3d behaviour
+        // Path B: today's existing manual multi-select of just the real people — the mechanism a
+        // user drives by hand, which can never produce the sentinel id (it's not a selectable chip).
+        val manualVm = viewModel() // default: setOf(kevId)
         manualVm.uiState.first { it.profiles.isNotEmpty() }
         manualVm.toggleProfile(samId)
         manualVm.toggleProfile(ellieId)
@@ -319,11 +322,15 @@ class LogWatchViewModelTest {
         val manualEvent = db.watchEventDao().observeAll().first().single()
         val manualTagged = watchEventRepository.getProfileIds(manualEvent.id).toSet()
 
-        assertEquals(setOf(kevId, samId, ellieId), autoTagTagged)
         assertEquals(
-            "auto-tag and manual multi-select of the same people must write the identical WatchEventProfile tag set",
-            manualTagged,
+            setOf(kevId, samId, ellieId, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID),
             autoTagTagged,
+        )
+        assertEquals(setOf(kevId, samId, ellieId), manualTagged)
+        assertTrue(
+            "auto-tag must include Family's own sentinel id, which a manual multi-select of real people never can",
+            org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID in autoTagTagged &&
+                org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID !in manualTagged,
         )
     }
 
@@ -333,7 +340,7 @@ class LogWatchViewModelTest {
      * ViewModel-level equivalence test above.
      */
     @Test
-    fun `initialLogWatchSelection pre-ticks just the individual, or every real Family member`() {
+    fun `initialLogWatchSelection pre-ticks the individual, or every real Family member plus Family's own id`() {
         val individual = org.seg7.familywatchlist.ui.ActiveProfile.Individual(
             org.seg7.familywatchlist.data.local.entity.ProfileEntity(
                 id = kevId, name = "Kev", avatarKey = "a", ageRatingCap = null, createdAt = 0,
@@ -345,10 +352,10 @@ class LogWatchViewModelTest {
             org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity(name = "Family", avatarKey = "a", createdAt = 0),
             memberProfileIds = listOf(kevId, samId, ellieId),
         )
-        assertEquals(setOf(kevId, samId, ellieId), initialLogWatchSelection(family))
-        // Never the Family profile's own sentinel id, even though it's what ActiveProfile.id reports.
-        assertTrue(
-            org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID !in initialLogWatchSelection(family),
+        // PLAN.md §4b (M3j): Family's own sentinel id now rides along with the real members.
+        assertEquals(
+            setOf(kevId, samId, ellieId, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID),
+            initialLogWatchSelection(family),
         )
     }
 }

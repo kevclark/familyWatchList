@@ -31,16 +31,20 @@ import org.seg7.familywatchlist.data.repository.WatchEventRepository
  * instead of the defaults, and saves through
  * [WatchEventRepository.updateWatch] rather than logging a new one.
  *
- * ## Family auto-tag (PLAN.md §4, M3d)
+ * ## Family auto-tag (PLAN.md §4b, M3j — supersedes M3d)
  * [initialSelectedProfileIds] is what actually decides the pre-ticked chips — the common
  * single-person case passes `setOf(activeProfile.id)` (unchanged from M2b), but logging a watch
- * while the *Family* profile is active passes every real member's [ProfileEntity.id] instead
+ * while the *Family* profile is active passes every real member's [ProfileEntity.id] **plus
+ * Family's own [org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID]**
  * ([org.seg7.familywatchlist.ui.logwatch.LogWatchSheet] computes which). There is deliberately no
- * separate "Family" code path below this point: [selectedProfileIds] is the exact same
- * `Set<Long>` of real profile ids the manual multi-select chips already write through
- * [toggleProfile] and [save] — auto-tagging is just a different *initial* value for a mechanism
- * that already existed, so the DB result is provably identical to a manual multi-select of the
- * same people (see `LogWatchViewModelTest`'s M3d cases for the actual equivalence proof).
+ * separate "Family" code path below this point beyond that initial value: [selectedProfileIds] is
+ * the exact same `Set<Long>` the manual multi-select chips already write through [toggleProfile]
+ * and [save] — it happens to include the sentinel id when Family auto-tagged it, and [save] just
+ * writes a [org.seg7.familywatchlist.data.local.entity.WatchEventProfileEntity] row per id in that
+ * set, sentinel included, since neither that entity nor `RatingEntity` has a `@ForeignKey` to
+ * `profiles`. As of M3j, logging a watch while Family is active is *not* equivalent to a manual
+ * multi-select of just its members any more — it also tags Family itself, which a manual
+ * multi-select of real people alone could never do (Family isn't a selectable chip).
  */
 class LogWatchViewModel(
     private val watchEventRepository: WatchEventRepository,
