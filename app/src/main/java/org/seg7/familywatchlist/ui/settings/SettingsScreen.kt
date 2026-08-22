@@ -124,6 +124,17 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
                 subtitle = "Go back to the profile picker",
                 onClick = { scope.launch { container.userPreferencesRepository.clearActiveProfileId() } },
             )
+            // PLAN.md §5b M3i item 7: long-press → edit on the profile picker was otherwise the
+            // only way to reach name/avatar/age-cap editing, and nobody would think to look for
+            // it there. Reuses "Switch profile"'s exact navigation (clearActiveProfileId bounces
+            // the app back to ProfilePickerScreen) rather than a second route/dialog — the
+            // picker's own "Long-press a profile to edit or delete it" hint is already the entry
+            // point this needs; this row just gets a person there and says how once they arrive.
+            SettingsRow(
+                title = "Manage profiles",
+                subtitle = "Long-press a profile there to edit its name, avatar or age rating",
+                onClick = { scope.launch { container.userPreferencesRepository.clearActiveProfileId() } },
+            )
             SettingsRow(
                 title = "Streaming services",
                 subtitle = "Change which services you subscribe to",
@@ -557,10 +568,19 @@ private fun RegionPickerSheet(
                         ),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     )
-                    val filtered = regions.orEmpty().filter {
-                        query.isBlank() || it.englishName.contains(query.trim(), ignoreCase = true) ||
-                            it.code.contains(query.trim(), ignoreCase = true)
-                    }
+                    // PLAN.md §5b M3i item 6: the current region is checkmarked once you find it,
+                    // but nothing used to surface *where* it is in an otherwise unsorted,
+                    // unscrolled full list. Sorting it to the top (over auto-scrolling to it)
+                    // was the simpler of the two equally-valid fixes the plan allows, and reads
+                    // more like "your current choice, right here" than a list that jumps under
+                    // you the moment the sheet opens — the rest of the list stays in its original
+                    // (still unfiltered/unsorted-by-name) order, `sortedBy` being stable.
+                    val filtered = regions.orEmpty()
+                        .filter {
+                            query.isBlank() || it.englishName.contains(query.trim(), ignoreCase = true) ||
+                                it.code.contains(query.trim(), ignoreCase = true)
+                        }
+                        .sortedBy { if (it.code == currentRegion) 0 else 1 }
                     LazyColumn(modifier = Modifier.fillMaxWidth().height(420.dp)) {
                         items(filtered, key = { it.code }) { region ->
                             RegionRow(region = region, selected = region.code == currentRegion, onClick = { onSelect(region) })

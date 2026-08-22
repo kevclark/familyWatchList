@@ -1078,26 +1078,26 @@ was made — see PLAN.md §5b for the full writeup including reasoning and the N
 research behind the rating-scale call. This milestone builds every confirmed item.
 
 **Fixes:**
-- [ ] `imePadding()` (or equivalent) on Search's results grid and the log-watch/edit sheet —
+- [x] `imePadding()` (or equivalent) on Search's results grid and the log-watch/edit sheet —
       both currently let content sit behind the on-screen keyboard with no way to scroll past it
-- [ ] History rows show each tagged profile's rating (reuse `RatingDot`'s visual convention,
+- [x] History rows show each tagged profile's rating (reuse `RatingDot`'s visual convention,
       3-point scale unchanged — see the rating-scale resolution below)
-- [ ] Home's refresh icon gets a loading indicator while `HomeViewModel.refresh()` is in flight
-- [ ] Search's empty-result state gets a distinct "hidden due to age rating" message, separate
+- [x] Home's refresh icon gets a loading indicator while `HomeViewModel.refresh()` is in flight
+- [x] Search's empty-result state gets a distinct "hidden due to age rating" message, separate
       from the existing "not available on your services" / "no services selected" messages
-- [ ] Age cap shown as a small badge under the profile avatar on Home (individual or Family's
+- [x] Age cap shown as a small badge under the profile avatar on Home (individual or Family's
       strictest-member cap)
-- [ ] Region picker sorts the current region to the top of the list (or auto-scrolls to it) —
+- [x] Region picker sorts the current region to the top of the list (or auto-scrolls to it) —
       no more scrolling/typing to find where you already are
-- [ ] Settings gets a "Manage profiles" row linking into the existing profile-picker edit flow
-- [ ] My List's "Whole family" filter pill renamed to "Everyone" (behaviour unchanged — this is
+- [x] Settings gets a "Manage profiles" row linking into the existing profile-picker edit flow
+- [x] My List's "Whole family" filter pill renamed to "Everyone" (behaviour unchanged — this is
       a naming-collision fix with the newer literal Family profile, not a logic change)
 
 **Real gaps, design confirmed:**
-- [ ] My List: an over-cap item renders **dimmed with a reason** for a capped viewer (reuse the
+- [x] My List: an over-cap item renders **dimmed with a reason** for a capped viewer (reuse the
       exact lost-availability dimming pattern, PLAN.md §5a M2g — not a new visual language).
       Display-only filter; the shared list and who can add to it are unchanged
-- [ ] Family profile gets real cold-start detection: cold if *every* curated member is
+- [x] Family profile gets real cold-start detection: cold if *every* curated member is
       individually below the 5-event threshold, with its own cold-start intro screen (reuse the
       individual cold-start panel's mechanism). If even one member is warm, Family stays on the
       real blended path as today
@@ -1114,10 +1114,14 @@ research behind the rating-scale call. This milestone builds every confirmed ite
 **Explicitly out of scope:**
 - Camera/photo avatar import — backlog, genuine new feature
 
-- [ ] Tests for every fix/gap above
-- [ ] `./gradlew test assembleDebug` green
+- [x] Tests for every fix/gap above
+- [x] `./gradlew test assembleDebug` green
 - [ ] Live verification / screenshots for the harder-to-eyeball ones especially: My List
       dimming on a capped profile, Family cold-start actually triggering, keyboard-padding fix
+      — **not performed this pass**: no emulator/device was running and none was booted (agent101
+      RAM/timing constraints against the several full Gradle builds already run this session) —
+      see the M3i report for the honest statement; relies on the unit/integration test coverage
+      above instead. Flagged for Kev/a follow-up session with a live device.
 
 ## M4 — Polish
 

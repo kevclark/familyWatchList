@@ -16,9 +16,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +35,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,6 +47,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.avatar.AvatarBadge
 import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
@@ -74,7 +80,9 @@ fun HistoryScreen(
     val container = LocalAppContainer.current
     val viewModel: HistoryViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { HistoryViewModel(container.watchEventRepository, container.profileRepository) }
+            initializer {
+                HistoryViewModel(container.watchEventRepository, container.profileRepository, container.ratingRepository)
+            }
         },
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -234,11 +242,50 @@ private fun HistoryRowItem(
                     )
                 }
             }
+            // PLAN.md §5b M3i item 2: each tagged profile's current rating, reusing the
+            // log-watch sheet's RatingDot visual convention (thumbs up/neutral dash/thumbs down)
+            // — read-only here, and only rendered for profiles who actually rated the title (an
+            // untagged/unrated profile shows nothing, not a placeholder).
+            if (row.ratings.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    row.watchedBy.mapNotNull { profile -> row.ratings[profile.id]?.let { profile to it } }
+                        .forEach { (profile, value) -> HistoryRatingDot(value = value, profileName = profile.name) }
+                }
+            }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             IconAction(Icons.Filled.Edit, "Edit this watch", onEdit)
             IconAction(Icons.Filled.Delete, "Delete this watch", onDelete, tint = Crimson)
+        }
+    }
+}
+
+/**
+ * PLAN.md §5b M3i item 2: a read-only counterpart to `LogWatchSheet`'s `RatingDot` — same
+ * three-icon convention (thumbs up / neutral dash / thumbs down), smaller and non-interactive
+ * since History only ever displays an existing rating, never sets one.
+ */
+@Composable
+private fun HistoryRatingDot(value: RatingValue, profileName: String) {
+    Box(
+        modifier = Modifier
+            .size(20.dp)
+            .clip(CircleShape)
+            .background(InkRaised)
+            .semantics {
+                contentDescription = when (value) {
+                    RatingValue.UP -> "$profileName rated this thumbs up"
+                    RatingValue.NEUTRAL -> "$profileName rated this neutral"
+                    RatingValue.DOWN -> "$profileName rated this thumbs down"
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        when (value) {
+            RatingValue.UP -> Icon(Icons.Filled.ThumbUp, contentDescription = null, tint = Accent, modifier = Modifier.size(11.dp))
+            RatingValue.NEUTRAL -> Text("—", style = MaterialTheme.typography.labelSmall, color = ChalkMuted)
+            RatingValue.DOWN -> Icon(Icons.Filled.ThumbDown, contentDescription = null, tint = Crimson, modifier = Modifier.size(11.dp))
         }
     }
 }

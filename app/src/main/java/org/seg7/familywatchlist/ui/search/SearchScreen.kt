@@ -236,6 +236,27 @@ fun SearchScreen(
                     )
                 }
 
+                // PLAN.md §5b M3i item 4: a distinct message for the "excluded by age rating"
+                // case, checked ahead of the generic "not on your services" one below — both are
+                // in principle possible for the same empty result, and the age-cap explanation is
+                // the more specific/actionable of the two when it applies. See
+                // SearchUiState.isPlausiblyHiddenByAgeRating's kdoc for exactly when this fires
+                // (a heuristic, not a certainty — documented there).
+                state.isPlausiblyHiddenByAgeRating -> CenteredMessage {
+                    Text(
+                        text = "Nothing at or under this profile's age rating matched “${state.query}”.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = ChalkMuted,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        text = "Some results may be hidden by this profile's age rating setting.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ChalkFaint,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
                 state.hasSearched -> CenteredMessage {
                     Text(
                         // PLAN.md §5a: results are gated to what's on a subscribed service, so

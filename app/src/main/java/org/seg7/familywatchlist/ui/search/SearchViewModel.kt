@@ -60,7 +60,32 @@ data class SearchUiState(
      * flashes the wrong message before [ProviderRepository.observeSubscribed] has emitted.
      */
     val hasSubscribedServices: Boolean = true,
+    /**
+     * PLAN.md §5b M3i item 4: the active profile's (or Family's strictest-member) age cap, as
+     * resolved for the search that actually ran — null means "no cap", the common case. Together
+     * with an empty, genuinely-searched result this drives [isPlausiblyHiddenByAgeRating]: a
+     * distinct "hidden due to age rating" empty state, separate from "not on your services"/
+     * "no services selected". Not a certainty (a cap being *set* doesn't prove it's *why* this
+     * particular query came back empty — the title(s) might simply not exist/not be subscribed
+     * either) — see that property's kdoc for the exact heuristic and its documented trade-off.
+     */
+    val ageRatingCap: String? = null,
 ) {
+    /**
+     * PLAN.md §5b M3i item 4's heuristic, deliberately simple: *plausible*, not *proven*. Search
+     * already gates every result through [org.seg7.familywatchlist.data.recommend.FamilyBlend
+     * .isOverCap] (via [SearchRepository.search]'s `ageRatingCap` parameter) before this state is
+     * ever built, so there's no cheap way from here to tell "the cap excluded something" apart
+     * from "nothing matched/nothing's subscribed either" without a second, cap-free search just
+     * to compare against — not worth the extra TMDB round-trip against PLAN.md §3's 4 req/s
+     * budget for a copy nuance. Firing whenever a cap is *set at all* on a genuinely-empty,
+     * genuinely-searched, services-are-subscribed result is strictly more informative than the
+     * generic message it replaces (it only shows for capped viewers to begin with), even though
+     * it can occasionally show for a query that would have been empty regardless of the cap.
+     */
+    val isPlausiblyHiddenByAgeRating: Boolean
+        get() = hasSearched && results.isEmpty() && hasSubscribedServices && errorMessage == null && ageRatingCap != null
+
     /**
      * Filtering happens here rather than in the repository, so flipping a chip re-renders
      * instantly off the results already in hand instead of costing another TMDB round-trip —
@@ -90,6 +115,8 @@ private data class SearchInternal(
     val isSearching: Boolean = false,
     val errorMessage: String? = null,
     val hasSearched: Boolean = false,
+    /** PLAN.md §5b M3i item 4: the cap actually used by the search that produced [results]. */
+    val ageRatingCap: String? = null,
 )
 
 /**
@@ -150,6 +177,7 @@ class SearchViewModel(
                 hasSearched = search.hasSearched,
                 listedKeys = listed,
                 hasSubscribedServices = hasServices,
+                ageRatingCap = search.ageRatingCap,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 
@@ -247,13 +275,21 @@ class SearchViewModel(
             // PLAN.md §4/§8 (M3g): Search must respect the active profile's (or Family's
             // strictest-member) age cap — the same rule the real recommender already enforces.
             val ageRatingCap = recommendationRepository.resolveAgeRatingCap(activeProfileId)
+            // PLAN.md §5b M3i item 4: published alongside isSearching/results so the empty-state
+            // message can tell "excluded by age cap" apart from the other two reasons — see
+            // SearchUiState.isPlausiblyHiddenByAgeRating's kdoc for the heuristic.
+            _search.value = _search.value.copy(ageRatingCap = ageRatingCap)
             searchRepository.search(query, region, ageRatingCap = ageRatingCap)
                 // Flow's `catch` never intercepts `CancellationException` (cancellation
                 // transparency) — only genuine failures (a bad network call, a decode error)
                 // land here, so a cancelled-by-requery job falls straight through to
                 // `onCompletion` below instead of being mistaken for an error.
                 .catch { throwable ->
-                    _search.value = SearchInternal(
+                    // .copy, not a fresh SearchInternal(): keeps ageRatingCap set just above
+                    // rather than dropping it — moot for isPlausiblyHiddenByAgeRating (which
+                    // already requires errorMessage == null), but keeps this state internally
+                    // consistent with what search actually ran.
+                    _search.value = _search.value.copy(
                         isSearching = false,
                         hasSearched = true,
                         errorMessage = throwable.message ?: "Search failed",

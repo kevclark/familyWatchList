@@ -22,6 +22,10 @@ interface RatingDao {
     @Query("SELECT * FROM ratings WHERE profileId = :profileId")
     suspend fun getForProfile(profileId: Long): List<RatingEntity>
 
+    /** Every rating in the database — PLAN.md §5b M3i item 2: History needs every tagged profile's rating on every row, not just one title at a time. */
+    @Query("SELECT * FROM ratings")
+    fun observeAll(): Flow<List<RatingEntity>>
+
     /** Every profile's thumbs on one title — the details screen and the log-watch sheet both need this. */
     @Query("SELECT * FROM ratings WHERE tmdbId = :tmdbId AND mediaType = :mediaType")
     fun observeForTitle(tmdbId: Int, mediaType: MediaType): Flow<List<RatingEntity>>

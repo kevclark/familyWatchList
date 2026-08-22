@@ -9,14 +9,27 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.dao.WatchEventItem
+import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
+import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.WatchEventRepository
 
-/** One history row: the event, its title, and who was tagged on it. */
+/**
+ * One history row: the event, its title, who was tagged on it, and (PLAN.md §5b M3i item 2)
+ * each tagged profile's *current* rating of the title, if any — keyed by profileId, using the
+ * exact same [RatingValue] the log-watch sheet's `RatingDot` already renders (no algorithm/schema
+ * change, purely a read of the existing per-(profile, title) rating). A rating is of the title,
+ * not of this specific watch (see [RatingEntity][org.seg7.familywatchlist.data.local.entity
+ * .RatingEntity]'s kdoc), so re-watching and re-rating the same title updates every one of its
+ * history rows at once — that's correct, not a bug: it's still "how does this profile currently
+ * feel about this title."
+ */
 data class HistoryRow(
     val event: WatchEventItem,
     val watchedBy: List<ProfileEntity>,
+    val ratings: Map<Long, RatingValue> = emptyMap(),
 )
 
 data class HistoryUiState(
@@ -42,6 +55,7 @@ data class HistoryUiState(
 class HistoryViewModel(
     private val watchEventRepository: WatchEventRepository,
     profileRepository: ProfileRepository,
+    ratingRepository: RatingRepository,
 ) : ViewModel() {
 
     private val _filterProfileId = MutableStateFlow<Long?>(null)
@@ -50,9 +64,16 @@ class HistoryViewModel(
         watchEventRepository.observeAllItems(),
         watchEventRepository.observeTagsByEvent(),
         profileRepository.observeAll(),
+        ratingRepository.observeAll(),
         _filterProfileId,
-    ) { events, tagsByEvent, profiles, filterProfileId ->
+    ) { events, tagsByEvent, profiles, ratings, filterProfileId ->
         val profilesById = profiles.associateBy { it.id }
+        // PLAN.md §5b M3i item 2: every rating in the DB, regrouped by the (tmdbId, mediaType)
+        // key each history row already carries via its event — so "this row's title" resolves
+        // straight to "who rated it what" without a per-row DB round trip.
+        val ratingsByTitle: Map<Pair<Int, MediaType>, Map<Long, RatingValue>> =
+            ratings.groupBy { it.tmdbId to it.mediaType }
+                .mapValues { (_, rows) -> rows.associate { it.profileId to it.value } }
         val rows = events
             .filter { event ->
                 filterProfileId == null || filterProfileId in tagsByEvent[event.id].orEmpty()
@@ -61,6 +82,7 @@ class HistoryViewModel(
                 HistoryRow(
                     event = event,
                     watchedBy = tagsByEvent[event.id].orEmpty().mapNotNull { profilesById[it] },
+                    ratings = ratingsByTitle[event.tmdbId to event.mediaType].orEmpty(),
                 )
             }
         HistoryUiState(
