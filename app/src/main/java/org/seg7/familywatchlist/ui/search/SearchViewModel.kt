@@ -70,6 +70,14 @@ data class SearchUiState(
      * either) — see that property's kdoc for the exact heuristic and its documented trade-off.
      */
     val ageRatingCap: String? = null,
+    /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): `"MEDIATYPE-tmdbId"` keys (same format
+     * as [listedKeys]) for every visible result available *only* to rent/buy on a subscribed
+     * provider — no FLATRATE/FREE option at all. Drives each card's "RENT/BUY" tag via
+     * [isPaidOnly]. Empty by default so a screen mid-search (before badges resolve) never shows a
+     * stale tag.
+     */
+    val paidOnlyKeys: Set<String> = emptySet(),
 ) {
     /**
      * PLAN.md §5b M3i item 4's heuristic, deliberately simple: *plausible*, not *proven*. Search
@@ -99,6 +107,9 @@ data class SearchUiState(
         }
 
     fun isListed(title: TitleEntity): Boolean = listedKey(title.tmdbId, title.mediaType) in listedKeys
+
+    /** M6: whether [title] should render the "RENT/BUY" tag — see [paidOnlyKeys]'s kdoc. */
+    fun isPaidOnly(title: TitleEntity): Boolean = listedKey(title.tmdbId, title.mediaType) in paidOnlyKeys
 }
 
 internal fun listedKey(tmdbId: Int, mediaType: MediaType): String = "$mediaType-$tmdbId"
@@ -117,6 +128,8 @@ private data class SearchInternal(
     val hasSearched: Boolean = false,
     /** PLAN.md §5b M3i item 4: the cap actually used by the search that produced [results]. */
     val ageRatingCap: String? = null,
+    /** M6: mirrors [SearchUiState.paidOnlyKeys] — see its kdoc. */
+    val paidOnlyKeys: Set<String> = emptySet(),
 )
 
 /**
@@ -178,6 +191,7 @@ class SearchViewModel(
                 listedKeys = listed,
                 hasSubscribedServices = hasServices,
                 ageRatingCap = search.ageRatingCap,
+                paidOnlyKeys = search.paidOnlyKeys,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 
@@ -294,7 +308,16 @@ class SearchViewModel(
                         _search.value = _search.value.copy(isSearching = false, hasSearched = true)
                     }
                 }
-                .collect { results -> _search.value = _search.value.copy(results = results) }
+                .collect { results ->
+                    // M6: badge-only, cache-only lookups (the availability check just run inside
+                    // SearchRepository.search already detail-fetched every one of these) — safe
+                    // to do per emission, including the progressively-growing intermediate ones.
+                    val paidOnly = results
+                        .filter { searchRepository.isPaidOnly(it.tmdbId, it.mediaType) }
+                        .map { listedKey(it.tmdbId, it.mediaType) }
+                        .toSet()
+                    _search.value = _search.value.copy(results = results, paidOnlyKeys = paidOnly)
+                }
         }
     }
 

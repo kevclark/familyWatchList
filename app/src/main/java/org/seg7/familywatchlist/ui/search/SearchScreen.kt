@@ -205,6 +205,7 @@ fun SearchScreen(
                             year = title.year,
                             isListed = state.isListed(title),
                             onQuickAdd = { viewModel.toggleWatchlist(title) },
+                            paidOnly = state.isPaidOnly(title),
                         )
                     }
                 }

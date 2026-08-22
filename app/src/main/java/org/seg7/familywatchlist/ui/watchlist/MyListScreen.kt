@@ -189,6 +189,7 @@ fun MyListScreen(
                             dimmed = !row.isAvailable || overCap,
                             dimReason = if (!row.isAvailable) null else "Over your age rating cap",
                             onQuickAdd = { viewModel.remove(row.item.tmdbId, row.item.mediaType) },
+                            paidOnly = row.paidOnly,
                         )
                         // The added-by tag — the whole reason this screen exists alongside the row.
                         Row(

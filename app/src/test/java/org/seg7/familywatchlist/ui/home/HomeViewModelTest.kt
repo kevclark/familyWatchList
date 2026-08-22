@@ -137,10 +137,10 @@ class HomeViewModelTest {
 
     @Test
     fun `an item that has lost availability is flagged so Home's My List carousel can dim it`() = runTest {
-        val addingRepo = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val addingRepo = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         addingRepo.add(38700, MediaType.MOVIE, profileId)
         addingRepo.add(12345, MediaType.MOVIE, profileId)
-        val readingRepo = WatchlistRepository(db.watchlistDao(), clock) { tmdbId, _, _ -> tmdbId != 38700 }
+        val readingRepo = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { tmdbId, _, _ -> tmdbId != 38700 })
 
         val state = viewModel(readingRepo).myList.first { it.size == 2 }
 
@@ -151,7 +151,7 @@ class HomeViewModelTest {
 
     @Test
     fun `removeFromWatchlist actually removes the entry — the carousel's direct clean-up action`() = runTest {
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         watchlistRepository.add(38700, MediaType.MOVIE, profileId)
         val vm = viewModel(watchlistRepository)
         vm.myList.first { it.isNotEmpty() }
@@ -171,7 +171,7 @@ class HomeViewModelTest {
     @Test
     fun `My List carousel only shows the active profile's own additions`() = runTest {
         val otherProfileId = profileId + 1
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         watchlistRepository.add(38700, MediaType.MOVIE, profileId)
         watchlistRepository.add(12345, MediaType.MOVIE, otherProfileId)
 
@@ -188,7 +188,7 @@ class HomeViewModelTest {
     @Test
     fun `My List carousel filters correctly for Family, including its own additions`() = runTest {
         val member = profileRepository.addProfile("Member", "avatar", null).getOrThrow()
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         watchlistRepository.add(38700, MediaType.MOVIE, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID)
         watchlistRepository.add(12345, MediaType.MOVIE, member)
 
@@ -204,7 +204,7 @@ class HomeViewModelTest {
     /** PLAN.md §4: cold-start profiles (< 5 events) never get a personalised "For You" — the row falls back to popular-on-your-services state. */
     @Test
     fun `a cold-start profile is flagged and has no For You titles`() = runTest {
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
 
         val state = viewModel(watchlistRepository).uiState.first { !it.isLoading }
 
@@ -260,7 +260,7 @@ class HomeViewModelTest {
             )
         )
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         val state = viewModel(watchlistRepository).uiState.first { it.forYouTitles.size == 2 }
 
         assertFalse(state.isColdStartForYou)
@@ -314,7 +314,7 @@ class HomeViewModelTest {
             )
         )
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         val vm = viewModel(watchlistRepository)
         vm.uiState.first { it.forYouTitles.size == 2 }
 
@@ -367,7 +367,7 @@ class HomeViewModelTest {
         // the profile must actually be added, not just constructed in memory.
         val cappedProfileId = profileRepository.addProfile("Capped Kid", "avatar", "12").getOrThrow()
         val cappedProfile = ActiveProfile.Individual(profileRepository.getById(cappedProfileId)!!)
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         val state = viewModel(watchlistRepository, cappedProfile).uiState.first { it.popularMovies.isNotEmpty() }
 
         assertEquals(setOf(1002), state.popularMovies.map { it.tmdbId }.toSet())
@@ -404,7 +404,7 @@ class HomeViewModelTest {
         server.enqueue(MockResponse(body = discoverMoviePageJson(listOf(1002 to "Right At The Cap", 1003 to "Unknown Cert"))))
         server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         // `activeProfile` (this file's default) has `ageRatingCap = null`.
         val state = viewModel(watchlistRepository).uiState.first { it.popularMovies.isNotEmpty() }
 
@@ -424,7 +424,7 @@ class HomeViewModelTest {
         server.enqueue(MockResponse(body = discoverMoviePageJson(listOf(38700 to "Spider-Man: No Way Home"))))
         server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         val state = viewModel(watchlistRepository).uiState.first { it.popularMovies.isNotEmpty() }
 
         assertTrue(state.isColdStartForYou)
@@ -449,7 +449,7 @@ class HomeViewModelTest {
         server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
         server.enqueue(MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}"""))
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         viewModel(watchlistRepository).uiState.first { !it.isLoading }
 
         val movieRequest = server.takeRequest()
@@ -491,7 +491,7 @@ class HomeViewModelTest {
             )
         )
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         val vm = viewModel(watchlistRepository)
         vm.uiState.first { it.familyNightProfiles.size == 3 }
 
@@ -571,7 +571,7 @@ class HomeViewModelTest {
             memberProfileIds = listOf(1L, 2L),
         )
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         val state = viewModel(watchlistRepository, family).uiState.first { it.forYouTitles.isNotEmpty() }
 
         assertFalse("Family has 5+ of its own events, so it must not be cold-start", state.isColdStartForYou)
@@ -604,7 +604,7 @@ class HomeViewModelTest {
             memberProfileIds = listOf(a, b),
         )
 
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
         val state = viewModel(watchlistRepository, family).uiState.first { !it.isLoading }
 
         assertTrue(
@@ -621,7 +621,7 @@ class HomeViewModelTest {
      */
     @Test
     fun `an individual profile's cold-start detection is unchanged by the Family fix`() = runTest {
-        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
 
         val state = viewModel(watchlistRepository, activeProfile).uiState.first { !it.isLoading }
 

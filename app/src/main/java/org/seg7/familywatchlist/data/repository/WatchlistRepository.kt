@@ -27,6 +27,12 @@ enum class WatchlistAddResult { ADDED, REMOVED, UNAVAILABLE }
 data class WatchlistItemAvailability(
     val item: WatchlistItem,
     val isAvailable: Boolean,
+    /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): true when [isAvailable] but only via a
+     * subscribed provider's BUY/RENT row — never FLATRATE/FREE. Badge-only, same as
+     * [AvailabilityGate.isPaidOnlyOnSubscribedProvider]; always false when [isAvailable] is false.
+     */
+    val paidOnly: Boolean = false,
 )
 
 /**
@@ -47,6 +53,13 @@ class WatchlistRepository(
     private val watchlistDao: WatchlistDao,
     private val clock: AppClock,
     private val isAvailable: suspend (tmdbId: Int, mediaType: MediaType, region: String) -> Boolean = { _, _, _ -> true },
+    /**
+     * M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): mirrors [isAvailable]'s "injected as a
+     * plain suspend function" shape — in production, [AvailabilityGate.isPaidOnlyOnSubscribedProvider]
+     * (wired in `AppContainer`, alongside [isAvailable]). Defaults to "never paid-only" so every
+     * pre-M6 caller/test is unaffected; badge-only, never gates [add].
+     */
+    private val isPaidOnly: suspend (tmdbId: Int, mediaType: MediaType, region: String) -> Boolean = { _, _, _ -> false },
 ) {
     fun observeActive(): Flow<List<WatchlistEntryEntity>> = watchlistDao.observeByState(WatchlistState.ACTIVE)
 
@@ -77,7 +90,16 @@ class WatchlistRepository(
             .map { (items, region) ->
                 coroutineScope {
                     items
-                        .map { item -> async { WatchlistItemAvailability(item, isAvailable(item.tmdbId, item.mediaType, region)) } }
+                        .map { item ->
+                            async {
+                                val available = isAvailable(item.tmdbId, item.mediaType, region)
+                                // M6: paid-only is only meaningful once we know it's available at
+                                // all — skip the (cache-only, but still a lookup) second check
+                                // otherwise, same short-circuit AvailabilityGate itself applies.
+                                val paidOnly = available && isPaidOnly(item.tmdbId, item.mediaType, region)
+                                WatchlistItemAvailability(item, available, paidOnly)
+                            }
+                        }
                         .awaitAll()
                 }
             }
