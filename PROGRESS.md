@@ -1388,4 +1388,33 @@ implementation rather than a re-interpretation:
       **Done:** added a `ChalkFaint` caption line ("Pick 2 or more for a joint recommendation —
       this doesn't switch profiles") directly in `FamilyNightChipRow`'s `Column`, under the
       `SectionHeader`.
+
+## M6 — Paid (rent/buy) availability in Search + watchlist (Kev, 2026-08-22)
+
+First post-alpha feature. Full reasoning and exact scope in PLAN.md §5's "Paid (rent/buy)
+titles" addendum, right after the Search & watchlist availability gating section. Found via a
+real gap: "Central Intelligence" wasn't findable despite being genuinely rentable/buyable —
+Search/watchlist only ever considered flatrate/free (included-with-subscription) availability.
+
+- [ ] `ProviderKind` enum gets `BUY`/`RENT` appended (check ordinal-vs-name persistence first,
+      append don't reorder)
+- [ ] `TmdbMappers.kt` also maps `forRegion.rent`/`.buy` from the existing per-title
+      `/watch/providers` response (no new network call needed)
+- [ ] Search results + watchlist add-gate broaden to count BUY/RENT (still gated to *subscribed*
+      providers only)
+- [ ] `DiscoverRepository`'s `with_watch_monetization_types = "flatrate|free"` stays
+      **unchanged** — Home's Popular/For You and the recommender's candidate pool must NOT see
+      paid titles. Audit for any shared helper between the widened Search/watchlist check and
+      `RecommendationRepository.gatherCandidatePool` that could leak this by accident — this is
+      the highest-risk part of the change.
+- [ ] Availability badges (Search, title details, My List) distinguish free-included from paid
+      — e.g. "Rent/Buy on {provider}" — no real price available from TMDB's data, don't imply
+      one's coming
+- [ ] Tests: paid-only titles now surface in Search/pass the watchlist gate; Popular/For
+      You/recommender candidate pool provably unaffected (regression test); badge rendering for
+      each `ProviderKind`
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: search "Central Intelligence" and confirm it now appears, correctly
+      badged, and can be added to the watchlist; confirm Home's Popular/For You rows are
+      unchanged
 - [x] Final `./gradlew test assembleDebug` green

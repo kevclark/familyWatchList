@@ -615,6 +615,49 @@ without being flagged as an open question. Correcting it now:
   friend's account — availability at watch-time is irrelevant to whether you can log it.
   Do not extend this restriction there; it only applies to Search and the watchlist add path.
 
+**Paid (rent/buy) titles included in Search + watchlist, Kev's call, 2026-08-22 — first
+post-alpha decision.** Found via a real gap: "Central Intelligence" wasn't in Search despite
+being genuinely rentable/buyable on Amazon Video, Apple TV, etc. — the app only ever considered
+`flatrate`/`free` (included-with-subscription) availability, confirmed via
+`TmdbApi.kt`'s `with_watch_monetization_types = "flatrate|free"` default and
+`TmdbMappers.kt` only persisting `forRegion.flatrate` into `ProviderAvailabilityEntity`. Kev's
+decision, after being told the real constraint below: **broaden Search and the watchlist
+add-gate to also count buy/rent availability on a subscribed provider — but leave Home's
+Popular/For You rows and the recommender's candidate pool untouched (flatrate/free only,
+unchanged)** — the app should never proactively nudge spending, only surface paid options when
+someone explicitly searches for a title.
+
+- **Real API constraint, not a gap to "fix" later:** TMDB's watch-provider data (JustWatch-
+  sourced) never includes actual prices for buy/rent — only provider name/logo, both in
+  `/movie|tv/{id}/watch/providers` and `/discover`'s `with_watch_monetization_types` filter. Any
+  "paid" badge can only ever say something like "Rent/Buy on {provider}", never a real price
+  ("£3.99") — that data simply doesn't exist in this pipeline. Don't build UI that implies a
+  price is coming; there's nothing to fetch it from.
+- **`ProviderKind` enum** (`data/local/entity/Enums.kt`, currently `{ FLATRATE, FREE }`) gets
+  `BUY`/`RENT` **appended at the end**, not inserted — check how it's persisted (ordinal vs.
+  name-based `TypeConverter`) before assuming a Room migration is/isn't needed, but appending
+  rather than reordering is safe either way.
+- **Per-title fetch needs no new network call.** `/movie|tv/{id}/watch/providers` already
+  returns `rent`/`buy` arrays alongside `flatrate` in the same response — `TmdbMappers.kt` just
+  needs to also map them in, with the new `ProviderKind` values. This only affects per-title
+  detail/search-availability resolution.
+- **`DiscoverRepository`'s discover calls keep `with_watch_monetization_types = "flatrate|free"`
+  unchanged** — this is what must NOT change, since it's what feeds Popular/For You/cold-start
+  and the recommender's whole candidate pool. The riskiest part of this change is making sure
+  the widened Search/watchlist availability check is a genuinely separate code path (or an
+  explicit parameter) from whatever `RecommendationRepository`'s `gatherCandidatePool` uses —
+  audit for shared helper functions that could leak the broadened check into recommendations by
+  accident.
+- **Search results and the watchlist add-gate** both broaden to: available if a subscribed
+  provider has it under FLATRATE, FREE, BUY, **or** RENT (still gated to *subscribed* providers
+  only — this doesn't add new provider names, just a second reason an existing subscribed
+  provider counts).
+- **Visual treatment:** every place an availability badge already renders (Search results,
+  title details' "Where to watch," My List) should distinguish free-included from paid with a
+  clear badge (e.g. "Rent/Buy" vs. nothing/"Included") — implementation's call on exact wording
+  and placement, apply consistently everywhere the badge already exists rather than only in
+  Search.
+
 ### 5b. Live-review batch (Kev's hands-on pass, 2026-08-22 — 18 numbered findings, orchestrator
 investigated every one against the actual code/live device before any decision was made)
 
