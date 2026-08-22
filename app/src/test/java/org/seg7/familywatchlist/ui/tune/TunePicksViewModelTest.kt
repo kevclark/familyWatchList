@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -18,10 +19,17 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
+import org.seg7.familywatchlist.data.local.entity.AttrType
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
+import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.RatingEntity
+import org.seg7.familywatchlist.data.local.entity.RatingValue
+import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.recommend.RecommenderSpec
 import org.seg7.familywatchlist.data.recommend.SliderSettings
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
+import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
@@ -29,6 +37,7 @@ import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
+import org.seg7.familywatchlist.data.repository.WatchEventRepository
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.MainDispatcherRule
 import org.seg7.familywatchlist.testutil.buildInMemoryDb
@@ -55,6 +64,8 @@ class TunePicksViewModelTest {
     private lateinit var profileSlidersRepository: ProfileSlidersRepository
     private lateinit var recommendationRepository: RecommendationRepository
     private lateinit var userPreferencesRepository: UserPreferencesRepository
+    private lateinit var familyProfileRepository: FamilyProfileRepository
+    private lateinit var watchEventRepository: WatchEventRepository
 
     @Before
     fun setUp() {
@@ -69,6 +80,8 @@ class TunePicksViewModelTest {
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         profileRepository = ProfileRepository(db.profileDao(), clock)
         profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao())
+        familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
+        watchEventRepository = WatchEventRepository(db.watchEventDao(), db.watchlistDao())
         recommendationRepository = RecommendationRepository(
             watchEventDao = db.watchEventDao(),
             ratingDao = db.ratingDao(),
@@ -79,7 +92,7 @@ class TunePicksViewModelTest {
             providerRepository = providerRepository,
             profileRepository = profileRepository,
             profileSlidersRepository = profileSlidersRepository,
-            familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock),
+            familyProfileRepository = familyProfileRepository,
             shortlistDao = db.shortlistDao(),
             clock = clock,
         )
@@ -316,6 +329,118 @@ class TunePicksViewModelTest {
 
         assertEquals(0.6, vm.familyBlend.value, 1e-6) // immediate (1e-6: Float -> Double widening isn't bit-exact)
         assertEquals(0.6, userPreferencesRepository.familyBlendSlider.first { it > 0.0 }, 1e-6)
+    }
+
+    /**
+     * PLAN.md §4b (M3k): Family is now a fully independent profile with its own storable slider
+     * settings — [TunePicksViewModel] is keyed purely on a `Long` id with no assumption of a real
+     * `profiles` row (confirmed by reading the ViewModel/screen before writing this), so it must
+     * work unchanged when constructed with [FAMILY_PROFILE_SENTINEL_ID], mirroring "starts at
+     * SliderSettings DEFAULT..." above for a real profile.
+     */
+    @Test
+    fun `starts at SliderSettings DEFAULT for the Family sentinel, same as any real profile`() = runTest {
+        val vm = buildViewModel(FAMILY_PROFILE_SENTINEL_ID)
+
+        assertEquals(SliderSettings.DEFAULT, vm.sliders.first())
+        assertEquals(RecommenderSpec.SHORTLIST_TARGET_SIZE, vm.suggestionCount.first())
+    }
+
+    /**
+     * PLAN.md §4b/§4a (M3k): Settings' "Tune my picks" row is now unconditionally enabled for
+     * Family (the disabled branch this milestone removes described the old fixed-weight blend
+     * design, which no longer applies) — this proves the underlying mechanism it opens onto,
+     * [ProfileSlidersRepository.set]/`.get` and [RecommendationRepository.refreshProfileShortlist],
+     * genuinely works end-to-end for [FAMILY_PROFILE_SENTINEL_ID], not just that the row renders.
+     * A Family profile is created first so `refreshProfileShortlist`'s existence check (PLAN.md
+     * §4b) doesn't treat the recompute as a no-op "no such profile" — mirrors
+     * `RecommendationRepositoryTest`'s `refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID)` setup.
+     */
+    @Test
+    fun `a slider change while Family is active is eventually persisted, exactly like a real profile`() = runTest {
+        val kevId = profileRepository.addProfile("Kev", "avatar", null).getOrThrow()
+        val samId = profileRepository.addProfile("Sam", "avatar", null).getOrThrow()
+        familyProfileRepository.save("Family", "avatar", listOf(kevId, samId)).getOrThrow()
+        profileSlidersRepository.set(FAMILY_PROFILE_SENTINEL_ID, SliderSettings(discovery = 0.9)) // sentinel — see the coercion test's kdoc above
+        val vm = buildViewModel(FAMILY_PROFILE_SENTINEL_ID)
+        vm.sliders.first { it.discovery == 0.9 }
+
+        vm.onDiscoveryChange(1f)
+
+        val persisted = profileSlidersRepository.observe(FAMILY_PROFILE_SENTINEL_ID).first { it.discovery == 1.0 }
+        assertEquals(1.0, persisted.discovery, 1e-9)
+    }
+
+    /**
+     * PLAN.md §4b (M3k): the recompute a slider change triggers must run through Family's own
+     * *independent* shortlist pipeline (`refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID, ...)`
+     * — see PLAN.md §4b) and not silently bail out as "no such profile" — proven directly against
+     * [RecommendationRepository.refreshProfileShortlist] (not routed through the ViewModel's own
+     * debounced trigger — see this file's kdoc above `a slider change is eventually persisted...`
+     * for why a full network round trip through the debounced collector was tried and dropped as
+     * flaky elsewhere in this class) by seeding Family past its own cold-start threshold, mirroring
+     * `RecommendationRepositoryTest.seedWarmFamily`, and confirming the exact call this ViewModel's
+     * recompute collector makes persists a real, non-empty shortlist under [FAMILY_SCOPE_KEY].
+     */
+    @Test
+    fun `refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID) — the call a slider change triggers — persists a real shortlist`() = runTest {
+        val kevId = profileRepository.addProfile("Kev", "avatar", null).getOrThrow()
+        val samId = profileRepository.addProfile("Sam", "avatar", null).getOrThrow()
+        familyProfileRepository.save("Family", "avatar", listOf(kevId, samId)).getOrThrow()
+        // Past FAMILY_PROFILE_SENTINEL_ID's own cold-start threshold — mirrors
+        // RecommendationRepositoryTest.seedWarmFamily exactly, including its *mixed* Comedy(4)/
+        // Drama(1) genre split (never all-one-genre): PLAN.md §4's IDF damping fully zeroes an
+        // attribute present on every single watched title, which would silently wash the below
+        // candidate's Comedy-match score to exactly 0 and get it filtered as non-positive — see
+        // seedWarmProfile's kdoc in that file for the same pitfall.
+        listOf(501, 502, 503, 504).forEach { tmdbId ->
+            db.titleAttributeDao().upsertAll(listOf(TitleAttributeEntity(tmdbId, MediaType.MOVIE, AttrType.GENRE, 35, "Comedy", null)))
+            watchEventRepository.logWatch(tmdbId, MediaType.MOVIE, java.time.LocalDate.of(2026, 8, 1), null, listOf(FAMILY_PROFILE_SENTINEL_ID))
+        }
+        db.titleAttributeDao().upsertAll(listOf(TitleAttributeEntity(505, MediaType.MOVIE, AttrType.GENRE, 18, "Drama", null)))
+        watchEventRepository.logWatch(505, MediaType.MOVIE, java.time.LocalDate.of(2026, 8, 1), null, listOf(FAMILY_PROFILE_SENTINEL_ID))
+        db.ratingDao().upsert(RatingEntity(FAMILY_PROFILE_SENTINEL_ID, 501, MediaType.MOVIE, RatingValue.UP, clock.current))
+        server.enqueue(
+            MockResponse(
+                body = """
+                {
+                  "page": 1,
+                  "results": [
+                    {"id": 7000, "title": "Family's Own Pick", "poster_path": "/p.jpg", "release_date": "2026-08-01", "vote_average": 8.0, "vote_count": 500, "popularity": 50.0}
+                  ],
+                  "total_pages": 1,
+                  "total_results": 1
+                }
+                """.trimIndent(),
+            )
+        )
+        server.enqueue(
+            MockResponse(
+                body = """
+                {
+                  "id": 7000,
+                  "title": "Family's Own Pick",
+                  "release_date": "2026-08-01",
+                  "runtime": 100,
+                  "vote_average": 8.0,
+                  "vote_count": 500,
+                  "popularity": 50.0,
+                  "genres": [{"id": 35, "name": "Comedy"}],
+                  "credits": {"cast": [], "crew": []},
+                  "keywords": {"keywords": []},
+                  "videos": {"results": []},
+                  "watch/providers": {"results": {}},
+                  "release_dates": {"results": []}
+                }
+                """.trimIndent(),
+            )
+        )
+
+        val entries = recommendationRepository.refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID, region = "GB")
+
+        assertEquals(listOf(7000), entries.map { it.tmdbId })
+        val weekStart = recommendationRepository.currentWeekStart()
+        assertEquals(listOf(7000), db.shortlistDao().getForScope(weekStart, FAMILY_SCOPE_KEY).map { it.tmdbId })
     }
 
     @Test

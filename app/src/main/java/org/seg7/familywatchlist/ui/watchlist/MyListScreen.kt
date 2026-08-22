@@ -74,6 +74,7 @@ fun MyListScreen(
                     activeProfileId,
                     container.userPreferencesRepository,
                     container.recommendationRepository,
+                    container.familyProfileRepository,
                 )
             }
         },

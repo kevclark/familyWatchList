@@ -152,25 +152,15 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
             modifier = Modifier.padding(horizontal = Dimens.Gutter),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // PLAN.md §4 (M3d): the four taste sliders tune one *person's* affinity vector — they
-            // have no meaning for the Family profile (its shortlist always uses the fixed spec
-            // weights; only the separate, already-app-level family-blend slider applies to it).
-            // Disabled rather than hidden outright, so it's discoverable that this exists and why
-            // it's unavailable right now, rather than silently vanishing from the list.
-            if (activeProfileId == FAMILY_PROFILE_SENTINEL_ID) {
-                SettingsRow(
-                    title = "Tune my picks",
-                    subtitle = "Switch to a person profile to tune personal picks — this doesn't apply to Family",
-                    onClick = {},
-                    enabled = false,
-                )
-            } else {
-                SettingsRow(
-                    title = "Tune my picks",
-                    subtitle = "Adjust discovery, recency, and personal-match sliders",
-                    onClick = onOpenTunePicks,
-                )
-            }
+            // PLAN.md §4b (M3j/M3k): Family is now a fully independent profile with its own
+            // storable slider settings and its own independently-scored shortlist (no longer the
+            // fixed-weight blend the M3d comment this replaces used to describe), so "Tune my
+            // picks" applies to it exactly like any real profile — no disabled branch needed.
+            SettingsRow(
+                title = "Tune my picks",
+                subtitle = "Adjust discovery, recency, and personal-match sliders",
+                onClick = onOpenTunePicks,
+            )
         }
 
         Text(

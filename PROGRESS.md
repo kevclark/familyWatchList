@@ -1179,17 +1179,17 @@ respect except its age cap, which stays derived (strictest among curated members
 Two gaps M3j's own report flagged as spec questions rather than silently deciding — both
 confirmed by Kev, both straightforward now that Family is a fully independent profile.
 
-- [ ] My List's "Added by ___" label resolves Family's own name/avatar when Family added the
+- [x] My List's "Added by ___" label resolves Family's own name/avatar when Family added the
       item — thread `FamilyProfileRepository` into `MyListViewModel` the same way M3j already
       did for `HistoryViewModel`, so `profilesById`-style resolution covers the sentinel too
-- [ ] "Tune my picks" is enabled for Family in Settings (`SettingsScreen.kt` currently disables
+- [x] "Tune my picks" is enabled for Family in Settings (`SettingsScreen.kt` currently disables
       it with a comment — "the four taste sliders have no meaning for the Family profile" — that
       was true under the old blend design and is false now; remove the disabled branch, Family
       just uses the same `TunePicksScreen`/`TunePicksViewModel` flow keyed on its sentinel id,
       which already works generically). Leave slider 4 (family-blend weight, for the *ad-hoc*
       chip-row feature) exactly as already gated — unrelated to this fix.
-- [ ] Tests + `./gradlew test assembleDebug` green
-- [ ] Live verification: My List shows Family's name/avatar on its own items; Family profile can
+- [x] Tests + `./gradlew test assembleDebug` green
+- [x] Live verification: My List shows Family's name/avatar on its own items; Family profile can
       open and adjust Tune my picks and it actually affects its (now-independent) shortlist
 
 ## M4 — Polish
