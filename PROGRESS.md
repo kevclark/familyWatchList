@@ -1377,6 +1377,30 @@ implementation rather than a re-interpretation:
       to validate). Verified on the emulator that the dialog still opens cleanly (no crash,
       `Error 153` still shown as expected — emulator has no real Widevine either) — **the actual
       fix still needs a real-phone install to confirm playback**, which Kev will need to do.
+
+      **Correction, 2026-08-22 later that night — the DRM theory above was wrong.** Kev
+      confirmed on his real phone (post-fix, wireless-install) that Error 153 still occurs. Real
+      cause, researched properly this time (see PLAN.md for sources): **Error 153 means YouTube
+      never received a valid `Referer` header identifying the embedding page** — since late
+      2025 YouTube strictly enforces this for embedded players. `TrailerWebView` loads
+      `youtube.com/embed/{key}` **directly** as the WebView's own top-level page via `loadUrl`,
+      so there is no parent page at all — no referrer chain exists for YouTube to verify. The
+      `WebChromeClient`/`RESOURCE_PROTECTED_MEDIA_ID` grant from the first fix is harmless but
+      was solving a problem that wasn't the actual one. **Real fix, queued:** wrap the embed in
+      a small local HTML page containing a real `<iframe src="youtube.com/embed/...">` (with
+      `referrerpolicy="strict-origin-when-cross-origin"`), loaded via `loadDataWithBaseURL` with
+      a genuine `https://` base origin — that gives the iframe a real parent-page origin to send
+      as its referrer, which a direct `loadUrl` never can.
+- [ ] **Trailer Error 153 — real fix (supersedes the DRM-permission attempt above).** Replace
+      `TrailerWebView`'s direct `loadUrl("https://www.youtube.com/embed/...")` with
+      `loadDataWithBaseURL` loading a minimal local HTML wrapper containing a real `<iframe>`
+      pointed at the same embed URL, `referrerpolicy="strict-origin-when-cross-origin"`, and a
+      genuine `https://` base URL (not `null`/`file://`) so the iframe has a real origin to
+      report as its referrer. Keep the existing `WebChromeClient`/DRM permission grant and
+      `domStorageEnabled`/JS settings — those aren't wrong, just not sufficient on their own.
+      Needs a real-phone install to verify (emulator has no Widevine either way, but this fix is
+      about the referrer, not DRM, so it may actually be verifiable on the emulator this time —
+      try it there first as a sanity check before requiring Kev's phone).
 - [x] **"Who's watching tonight?" row confused for a profile switcher** — investigated, not a
       bug: `FamilyNightChipRow` (`ui/home/HomeScreen.kt`) is the ad-hoc Family Night blend
       selector (M3c) — tapping toggles inclusion (a subtle Accent border/text change), and the
