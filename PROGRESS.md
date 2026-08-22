@@ -1391,16 +1391,22 @@ implementation rather than a re-interpretation:
       `referrerpolicy="strict-origin-when-cross-origin"`), loaded via `loadDataWithBaseURL` with
       a genuine `https://` base origin — that gives the iframe a real parent-page origin to send
       as its referrer, which a direct `loadUrl` never can.
-- [ ] **Trailer Error 153 — real fix (supersedes the DRM-permission attempt above).** Replace
+- [x] **Trailer Error 153 — real fix (supersedes the DRM-permission attempt above).** Replaced
       `TrailerWebView`'s direct `loadUrl("https://www.youtube.com/embed/...")` with
       `loadDataWithBaseURL` loading a minimal local HTML wrapper containing a real `<iframe>`
       pointed at the same embed URL, `referrerpolicy="strict-origin-when-cross-origin"`, and a
-      genuine `https://` base URL (not `null`/`file://`) so the iframe has a real origin to
-      report as its referrer. Keep the existing `WebChromeClient`/DRM permission grant and
-      `domStorageEnabled`/JS settings — those aren't wrong, just not sufficient on their own.
-      Needs a real-phone install to verify (emulator has no Widevine either way, but this fix is
-      about the referrer, not DRM, so it may actually be verifiable on the emulator this time —
-      try it there first as a sanity check before requiring Kev's phone).
+      genuine `https://` base URL (`https://familywatchlist.app/`, doesn't need to resolve —
+      `loadDataWithBaseURL` never fetches it, it only needs to read as a real origin) so the
+      iframe has a real parent-page origin to report as its referrer. Kept the existing
+      `WebChromeClient`/DRM permission grant and `domStorageEnabled`/JS settings — those aren't
+      wrong, just not sufficient on their own. **Verified live on the emulator** (`family_test`,
+      `-gpu swangle`, GLES confirmed via `dumpsys SurfaceFlinger`): opened Central Intelligence's
+      trailer, the YouTube IFrame Player chrome loaded (title "Central Intelligence | ...",
+      Warner Bros. Entertainment, 1:11 duration — no Error 153), and it genuinely played: two
+      screenshots 3s apart show different frames (Dwayne Johnson talking, then a night fight
+      scene), not a static error card. Screenshot: `docs/m5fix-trailer-playing.png`. This
+      resolves the referrer theory with real evidence, on top of Kev's real-device confirmation
+      that the DRM-permission theory alone was insufficient.
 - [x] **"Who's watching tonight?" row confused for a profile switcher** — investigated, not a
       bug: `FamilyNightChipRow` (`ui/home/HomeScreen.kt`) is the ad-hoc Family Night blend
       selector (M3c) — tapping toggles inclusion (a subtle Accent border/text change), and the
