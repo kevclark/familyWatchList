@@ -36,4 +36,14 @@ interface RatingDao {
     /** Clearing a thumbs is distinct from setting NEUTRAL — "no opinion recorded" vs "meh". */
     @Query("DELETE FROM ratings WHERE profileId = :profileId AND tmdbId = :tmdbId AND mediaType = :mediaType")
     suspend fun delete(profileId: Long, tmdbId: Int, mediaType: MediaType)
+
+    /** One-shot snapshot for [org.seg7.familywatchlist.data.repository.BackupRepository]'s export. */
+    @Query("SELECT * FROM ratings")
+    suspend fun getAllOnce(): List<RatingEntity>
+
+    @Upsert
+    suspend fun upsertAll(ratings: List<RatingEntity>)
+
+    @Query("DELETE FROM ratings")
+    suspend fun deleteAll()
 }

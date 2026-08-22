@@ -19,4 +19,14 @@ interface ProfileSlidersDao {
 
     @Query("DELETE FROM profile_sliders WHERE profileId = :profileId")
     suspend fun delete(profileId: Long)
+
+    /** One-shot snapshot for [org.seg7.familywatchlist.data.repository.BackupRepository]'s export. */
+    @Query("SELECT * FROM profile_sliders")
+    suspend fun getAllOnce(): List<ProfileSlidersEntity>
+
+    @Upsert
+    suspend fun upsertAll(sliders: List<ProfileSlidersEntity>)
+
+    @Query("DELETE FROM profile_sliders")
+    suspend fun deleteAll()
 }

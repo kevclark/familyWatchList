@@ -32,6 +32,10 @@ interface FamilyProfileDao {
     @Query("DELETE FROM family_profile_members")
     suspend fun deleteAllMembers()
 
+    /** Restore-only: wipes the singleton row before [org.seg7.familywatchlist.data.repository.BackupRepository.restore] re-imports it (or leaves it absent if the backup had none). */
+    @Query("DELETE FROM family_profile")
+    suspend fun deleteFamilyProfile()
+
     /**
      * Replaces the entire membership set atomically — [org.seg7.familywatchlist.data.repository
      * .FamilyProfileRepository.save]'s "editable membership" write. A plain delete-then-insert

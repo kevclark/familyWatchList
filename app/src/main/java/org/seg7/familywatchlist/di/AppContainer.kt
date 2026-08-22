@@ -13,6 +13,7 @@ import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
+import org.seg7.familywatchlist.data.repository.BackupRepository
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.NotificationPreferencesRepository
@@ -144,5 +145,10 @@ class AppContainer(context: Context) {
 
     val userPreferencesRepository: UserPreferencesRepository by lazy {
         UserPreferencesRepository(userPreferencesDataStore)
+    }
+
+    // PLAN.md §5 screen 8 "JSON backup/restore" (M4b).
+    val backupRepository: BackupRepository by lazy {
+        BackupRepository(database, userPreferencesRepository, clock)
     }
 }

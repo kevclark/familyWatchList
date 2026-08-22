@@ -19,4 +19,14 @@ interface NotificationPreferenceDao {
 
     @Query("DELETE FROM profile_notification_prefs WHERE profileId = :profileId")
     suspend fun delete(profileId: Long)
+
+    /** One-shot snapshot for [org.seg7.familywatchlist.data.repository.BackupRepository]'s export. */
+    @Query("SELECT * FROM profile_notification_prefs")
+    suspend fun getAllOnce(): List<NotificationPreferenceEntity>
+
+    @Upsert
+    suspend fun upsertAll(prefs: List<NotificationPreferenceEntity>)
+
+    @Query("DELETE FROM profile_notification_prefs")
+    suspend fun deleteAll()
 }

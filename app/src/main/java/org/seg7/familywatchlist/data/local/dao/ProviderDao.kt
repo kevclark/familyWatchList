@@ -28,4 +28,13 @@ interface ProviderDao {
 
     @Query("UPDATE providers SET subscribed = :subscribed WHERE providerId = :providerId")
     suspend fun setSubscribed(providerId: Int, subscribed: Boolean)
+
+    /**
+     * Restore-only: [org.seg7.familywatchlist.data.repository.BackupRepository.restore] clears
+     * every provider's subscription before re-applying the backup's
+     * `subscribedProviderIds` — providers themselves are TMDB cache (seeded, not exported, per
+     * PLAN.md §2/§8), so this only ever touches the `subscribed` flag, never a row's existence.
+     */
+    @Query("UPDATE providers SET subscribed = 0")
+    suspend fun clearAllSubscribed()
 }

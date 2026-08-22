@@ -50,4 +50,14 @@ interface WatchlistDao {
         "UPDATE watchlist_entries SET state = 'WATCHED' WHERE tmdbId = :tmdbId AND mediaType = :mediaType AND state = 'ACTIVE'"
     )
     suspend fun markWatchedIfActive(tmdbId: Int, mediaType: MediaType)
+
+    /** One-shot snapshot for [org.seg7.familywatchlist.data.repository.BackupRepository]'s export. */
+    @Query("SELECT * FROM watchlist_entries")
+    suspend fun getAllOnce(): List<WatchlistEntryEntity>
+
+    @Upsert
+    suspend fun upsertAll(entries: List<WatchlistEntryEntity>)
+
+    @Query("DELETE FROM watchlist_entries")
+    suspend fun deleteAll()
 }

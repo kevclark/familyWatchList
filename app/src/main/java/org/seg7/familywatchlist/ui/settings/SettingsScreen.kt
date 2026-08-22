@@ -1,5 +1,8 @@
 package org.seg7.familywatchlist.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -61,6 +65,7 @@ import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.repository.AccentColor
+import org.seg7.familywatchlist.data.repository.BackupRepository
 import org.seg7.familywatchlist.data.repository.RegionOption
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.di.AppContainer
@@ -208,6 +213,14 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
         }
 
         Text(
+            text = "BACKUP & RESTORE",
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+            modifier = Modifier.padding(start = Dimens.Gutter, top = 28.dp, bottom = 10.dp),
+        )
+        BackupRestoreSection(modifier = Modifier.padding(horizontal = Dimens.Gutter))
+
+        Text(
             text = "APPEARANCE",
             style = MaterialTheme.typography.labelSmall,
             color = ChalkFaint,
@@ -229,6 +242,12 @@ fun SettingsScreen(activeProfileId: Long, onOpenTunePicks: () -> Unit, modifier:
             modifier = Modifier.padding(horizontal = Dimens.Gutter, vertical = 0.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // PLAN.md §3: "TMDB logo + the exact notice ... in Settings → About and on
+            // onboarding" — same asset/wording as `ui/onboarding/AttributionStep.kt`.
+            Image(
+                painter = painterResource(R.drawable.ic_tmdb_logo),
+                contentDescription = "The Movie Database (TMDB)",
+            )
             Text(
                 text = stringResource(R.string.tmdb_attribution),
                 style = MaterialTheme.typography.bodySmall,
@@ -462,6 +481,96 @@ private fun ScheduleHourRow(selected: Int, onSelect: (Int) -> Unit) {
             }
         }
     }
+}
+
+/**
+ * PLAN.md §5 screen 8 "JSON backup/restore" (M4b) + §2's "Backup/restore: Settings →
+ * export/import a single JSON of Profiles, WatchEvents, Ratings, WatchlistEntries,
+ * Provider.subscribed ... via Storage Access Framework."
+ *
+ * Both actions go through Android's document picker (`ACTION_CREATE_DOCUMENT` /
+ * `ACTION_OPEN_DOCUMENT`, wired here via [ActivityResultContracts.CreateDocument] /
+ * [ActivityResultContracts.OpenDocument]) rather than any broad storage permission — the user
+ * picks exactly where the file goes/comes from each time, nothing else on the device is touched.
+ * The actual read/write and JSON shape live in
+ * [org.seg7.familywatchlist.data.repository.BackupRepository]; this composable only owns the
+ * SAF launchers and a one-line status message (success/error) shown until the next action.
+ */
+@Composable
+private fun BackupRestoreSection(modifier: Modifier = Modifier) {
+    val container = LocalAppContainer.current
+    val appContext = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf<String?>(null) }
+    var isBusy by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        isBusy = true
+        scope.launch {
+            runCatching { container.backupRepository.exportTo(appContext, uri) }
+                .onSuccess { status = "Backup saved." }
+                .onFailure { status = "Couldn't save the backup: ${it.message ?: "unknown error"}" }
+            isBusy = false
+        }
+    }
+
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        isBusy = true
+        scope.launch {
+            when (val outcome = container.backupRepository.importFrom(appContext, uri)) {
+                is BackupRepository.RestoreOutcome.Success -> status = "Backup restored."
+                is BackupRepository.RestoreOutcome.Error -> status = outcome.message
+            }
+            isBusy = false
+        }
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SettingsRow(
+            title = "Export backup",
+            subtitle = "Save profiles, watch history, ratings and your list as a JSON file",
+            enabled = !isBusy,
+            onClick = {
+                status = null
+                exportLauncher.launch(defaultBackupFileName())
+            },
+        )
+        SettingsRow(
+            title = "Restore from backup",
+            subtitle = "Replaces current profiles, history, ratings and your list from a JSON file",
+            enabled = !isBusy,
+            onClick = {
+                status = null
+                restoreLauncher.launch(arrayOf("application/json"))
+            },
+        )
+        if (isBusy) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(color = Chalk, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text("Working…", style = MaterialTheme.typography.bodySmall, color = ChalkMuted)
+            }
+        }
+        status?.let {
+            Text(text = it, style = MaterialTheme.typography.bodySmall, color = ChalkMuted, modifier = Modifier.padding(top = 2.dp))
+        }
+        Text(
+            text = "The TMDB streaming cache isn't included — it refetches automatically after a restore.",
+            style = MaterialTheme.typography.labelSmall,
+            color = ChalkFaint,
+        )
+    }
+}
+
+/** e.g. "family-watchlist-backup-2026-08-22.json" — descriptive default, still fully editable in the SAF picker. */
+private fun defaultBackupFileName(): String {
+    val date = java.time.LocalDate.now().toString()
+    return "family-watchlist-backup-$date.json"
 }
 
 /**
