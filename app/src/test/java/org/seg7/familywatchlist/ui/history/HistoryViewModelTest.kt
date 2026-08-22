@@ -15,8 +15,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.ProfileRepository
+import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.WatchEventRepository
 import org.seg7.familywatchlist.testutil.FakeClock
 import org.seg7.familywatchlist.testutil.MainDispatcherRule
@@ -40,6 +42,7 @@ class HistoryViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var watchEventRepository: WatchEventRepository
     private lateinit var profileRepository: ProfileRepository
+    private lateinit var ratingRepository: RatingRepository
     private lateinit var viewModel: HistoryViewModel
 
     private var kevId = 0L
@@ -51,6 +54,7 @@ class HistoryViewModelTest {
         val clock = FakeClock(startMillis = 1_000L)
         watchEventRepository = WatchEventRepository(db.watchEventDao(), db.watchlistDao())
         profileRepository = ProfileRepository(db.profileDao(), clock)
+        ratingRepository = RatingRepository(db.ratingDao(), clock)
 
         kevId = profileRepository.addProfile("Kev", "INITIAL|7C5C4A|", null).getOrThrow()
         samId = profileRepository.addProfile("Sam", "INITIAL|4A6357|", null).getOrThrow()
@@ -66,7 +70,7 @@ class HistoryViewModelTest {
             )
         }
 
-        viewModel = HistoryViewModel(watchEventRepository, profileRepository)
+        viewModel = HistoryViewModel(watchEventRepository, profileRepository, ratingRepository)
     }
 
     @After
@@ -148,6 +152,36 @@ class HistoryViewModelTest {
         assertTrue("no rows match this filter", state.rows.isEmpty())
         // …but history itself is not empty, so the UI must show a different message.
         assertFalse("history overall has entries", state.isEmpty)
+    }
+
+    /**
+     * PLAN.md §5b M3i item 2: each tagged profile's current rating rides along on the row —
+     * proven here against two profiles tagged on the same event with two different rating
+     * values, plus a third, untagged profile's rating (Sam rating a title she isn't tagged as
+     * having watched — the read-model is per-(profile, title), not per-(profile, event), so this
+     * confirms only *tagged* profiles' ratings surface on a given row).
+     */
+    @Test
+    fun `each row carries every tagged profile's current rating`() = runTest {
+        log(38700, LocalDate.of(2026, 8, 1), listOf(kevId, samId))
+        ratingRepository.rate(kevId, 38700, MediaType.MOVIE, RatingValue.UP)
+        ratingRepository.rate(samId, 38700, MediaType.MOVIE, RatingValue.DOWN)
+        // Sam also has an opinion on a title she isn't tagged as watching here — must not leak in.
+        ratingRepository.rate(samId, 12345, MediaType.MOVIE, RatingValue.UP)
+
+        val row = viewModel.uiState.first { it.rows.isNotEmpty() }.rows.first()
+
+        assertEquals(mapOf(kevId to RatingValue.UP, samId to RatingValue.DOWN), row.ratings)
+    }
+
+    /** PLAN.md §5b M3i item 2: an untagged/unrated title's row has no ratings at all — nothing to render. */
+    @Test
+    fun `a row with no ratings carries an empty ratings map`() = runTest {
+        log(38700, LocalDate.of(2026, 8, 1), listOf(kevId))
+
+        val row = viewModel.uiState.first { it.rows.isNotEmpty() }.rows.first()
+
+        assertTrue(row.ratings.isEmpty())
     }
 
     @Test

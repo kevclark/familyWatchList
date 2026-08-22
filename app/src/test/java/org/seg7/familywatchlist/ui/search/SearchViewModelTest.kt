@@ -238,6 +238,52 @@ class SearchViewModelTest {
         val state = viewModel.uiState.first { it.hasSearched }
 
         assertEquals(emptyList<String>(), state.results.map { it.title })
+        // PLAN.md §5b M3i item 4: this is exactly the scenario the age-cap-specific empty message
+        // targets — a genuine search, services subscribed, empty result, real cap set.
+        assertTrue("the only reason this query came back empty is the age cap", state.isPlausiblyHiddenByAgeRating)
+    }
+
+    /**
+     * PLAN.md §5b M3i item 4: the age-cap message must not fire for an uncapped profile — same
+     * empty-result shape as the test above, minus the cap, to isolate what actually flips it.
+     */
+    @Test
+    fun `the age-cap empty message never fires for an uncapped profile`() = runTest {
+        subscribeNetflixOnly()
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = """{"page":1,"results":[],"total_pages":1,"total_results":0}""") },
+            )
+        )
+
+        viewModel.onQueryChange("nonexistent")
+        viewModel.onSubmit()
+        val state = viewModel.uiState.first { it.hasSearched }
+
+        assertEquals(emptyList<String>(), state.results.map { it.title })
+        assertFalse(state.isPlausiblyHiddenByAgeRating)
+    }
+
+    /** PLAN.md §5b M3i item 4: "no services subscribed" keeps its own distinct message — the age-cap one must not also claim this case. */
+    @Test
+    fun `the age-cap empty message never fires when no services are subscribed`() = runTest {
+        val profileRepository = ProfileRepository(db.profileDao(), FakeClock(startMillis = 1_000L))
+        val cappedProfileId = profileRepository.addProfile("Capped Kid", "avatar", "12").getOrThrow()
+        buildViewModel(TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" }), profileId = cappedProfileId)
+        // No providers subscribed at all — SearchRepository never even reaches the network for
+        // this case (see hasSubscribedServices below), but the age-cap message must still defer
+        // to the "no services selected" one, not double up.
+        server.dispatcher = RoutingDispatcher(
+            mapOf(
+                "/search/multi" to { MockResponse(body = SINGLE_MOVIE_RESULT_JSON) },
+            )
+        )
+
+        viewModel.onQueryChange("paddington")
+        viewModel.onSubmit()
+        val state = viewModel.uiState.first { !it.hasSubscribedServices }
+
+        assertFalse(state.isPlausiblyHiddenByAgeRating)
     }
 
     @Test

@@ -275,6 +275,9 @@ class HomeViewModelTest {
         val state = viewModel(watchlistRepository, cappedProfile).uiState.first { it.popularMovies.isNotEmpty() }
 
         assertEquals(setOf(1002), state.popularMovies.map { it.tmdbId }.toSet())
+        // PLAN.md §5b M3i item 5: the same resolved cap that filtered these rows is also
+        // published on the state for the Home avatar badge.
+        assertEquals("12", state.ageRatingCap)
     }
 
     /**
@@ -310,6 +313,8 @@ class HomeViewModelTest {
         val state = viewModel(watchlistRepository).uiState.first { it.popularMovies.isNotEmpty() }
 
         assertEquals(setOf(1002, 1003), state.popularMovies.map { it.tmdbId }.toSet())
+        // PLAN.md §5b M3i item 5: no cap set -> nothing published for the avatar badge either.
+        assertEquals(null, state.ageRatingCap)
     }
 
     /**

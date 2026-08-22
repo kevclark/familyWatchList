@@ -15,6 +15,9 @@ class RatingRepository(
 ) {
     fun observeForProfile(profileId: Long): Flow<List<RatingEntity>> = ratingDao.observeForProfile(profileId)
 
+    /** PLAN.md §5b M3i item 2: every rating in the database — History resolves each row's tagged profiles' thumbs off this rather than one `observeForTitle` per row. */
+    fun observeAll(): Flow<List<RatingEntity>> = ratingDao.observeAll()
+
     suspend fun get(profileId: Long, tmdbId: Int, mediaType: MediaType): RatingEntity? =
         ratingDao.get(profileId, tmdbId, mediaType)
 

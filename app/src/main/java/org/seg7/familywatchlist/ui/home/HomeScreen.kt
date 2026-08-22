@@ -245,14 +245,27 @@ fun HomeScreen(
                 color = Accent,
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = "Refresh",
-                    tint = Chalk,
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clickableNoRipple(viewModel::refresh),
-                )
+                // PLAN.md §5b M3i item 3: refresh() genuinely fires either way, but nothing on
+                // screen used to indicate it ran — a spinner replacing the icon while it's in
+                // flight is enough (no toast). Reuses [HomeUiState.isLoading] (the discover
+                // half's flag, already true for the whole span of a tap-triggered refresh)
+                // rather than a second loading flag.
+                if (state.isLoading) {
+                    CircularProgressIndicator(
+                        color = Chalk,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(22.dp),
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "Refresh",
+                        tint = Chalk,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickableNoRipple(viewModel::refresh),
+                    )
+                }
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp),

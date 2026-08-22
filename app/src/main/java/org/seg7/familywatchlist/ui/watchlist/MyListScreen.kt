@@ -101,7 +101,9 @@ fun MyListScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterPill(
-                label = "Whole family",
+                // PLAN.md §5b M3i item 8: "Whole family" predates the literal Family profile and
+                // now collides with it in name — pure rename, mineOnly behaviour unchanged.
+                label = "Everyone",
                 selected = !state.mineOnly,
                 onClick = { viewModel.setMineOnly(false) },
             )
