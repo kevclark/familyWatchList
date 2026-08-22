@@ -87,14 +87,28 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
  * WebView has its own, separate in-page autoplay gate that a same-session Activity-level tap
  * doesn't automatically satisfy once control has passed into the embedded page.
  *
- * A [WebChromeClient] granting [PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID] is required too:
- * official trailers are monetized/DRM-protected content, and a bare `WebView` has no EME/Widevine
- * permission wired up the way Chrome grants it automatically — without this, YouTube's IFrame
- * Player fails with its own "Error 153, Video player configuration error" (confirmed on a real
- * device; the emulator has no Widevine hardware at all, so it can't be used to verify playback
- * either way). The grant is unconditional (no `request.origin` check) because this `WebView` only
- * ever loads a single fixed `youtube.com/embed/...` URL we construct ourselves — there's no
- * arbitrary/untrusted content that could request this permission.
+ * A [WebChromeClient] granting [PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID] is kept for
+ * DRM-protected trailer streams (a bare `WebView` has no EME/Widevine permission wired up the way
+ * Chrome grants it automatically) — but this alone does **not** fix YouTube's "Error 153, Video
+ * player configuration error", confirmed by Kev on a real Widevine-capable device. The actual
+ * cause: since late 2025 YouTube's embedded player strictly requires a valid `Referer` identifying
+ * the embedding page. Navigating the `WebView` directly to
+ * `youtube.com/embed/...` via [WebView.loadUrl] makes that URL the top-level document with no
+ * parent page at all, so there's no referrer for YouTube to check — hence Error 153, unrelated to
+ * DRM/EME. The fix: load a tiny local HTML wrapper via [WebView.loadDataWithBaseURL] containing a
+ * real `<iframe>` pointed at the embed URL. The iframe's own navigation then carries a genuine
+ * `Referer` derived from the wrapper page's origin. The base URL passed to
+ * `loadDataWithBaseURL` (`https://familywatchlist.app/`, chosen to read as this app's own origin;
+ * it doesn't need to resolve to anything, `loadDataWithBaseURL` never fetches it — it only needs
+ * to be a genuine `https://` origin string, not `null`/`about:blank`/`file://`, for the WebView to
+ * treat the page as having a legitimate origin) becomes the referrer's origin.
+ * `referrerpolicy="strict-origin-when-cross-origin"` on the iframe controls exactly what's sent:
+ * the base origin only, not the full wrapper URL/path.
+ *
+ * The [WebChromeClient] grant is unconditional (no `request.origin` check) because this `WebView`
+ * only ever loads content we construct ourselves (the wrapper HTML, whose only child navigation is
+ * the fixed `youtube.com/embed/...` URL) — there's no arbitrary/untrusted content that could
+ * request this permission.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -120,7 +134,24 @@ private fun TrailerWebView(youTubeKey: String) {
                         request.grant(arrayOf(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID))
                     }
                 }
-                loadUrl("https://www.youtube.com/embed/$youTubeKey?autoplay=1&playsinline=1")
+                val embedUrl = "https://www.youtube.com/embed/$youTubeKey?autoplay=1&playsinline=1"
+                val html = """
+                    <!DOCTYPE html>
+                    <html><head><style>body{margin:0;background:#000}iframe{width:100%;height:100%;border:0}</style></head>
+                    <body>
+                        <iframe src="$embedUrl"
+                                referrerpolicy="strict-origin-when-cross-origin"
+                                allow="autoplay; encrypted-media"
+                                frameborder="0"></iframe>
+                    </body></html>
+                """.trimIndent()
+                loadDataWithBaseURL(
+                    "https://familywatchlist.app/",
+                    html,
+                    "text/html",
+                    "UTF-8",
+                    null,
+                )
             }
         },
     )
