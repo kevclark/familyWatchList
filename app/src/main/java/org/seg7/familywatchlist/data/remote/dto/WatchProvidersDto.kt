@@ -14,6 +14,10 @@ data class CountryWatchProvidersDto(
     val link: String? = null,
     val flatrate: List<WatchProviderDto> = emptyList(),
     val free: List<WatchProviderDto> = emptyList(),
+    // M6 (PLAN.md §5 "Paid (rent/buy) titles" addendum): TMDB returns these in the same payload
+    // as flatrate/free, with provider name/logo only — never a price.
+    val rent: List<WatchProviderDto> = emptyList(),
+    val buy: List<WatchProviderDto> = emptyList(),
 )
 
 @Serializable

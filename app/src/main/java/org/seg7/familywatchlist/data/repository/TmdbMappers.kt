@@ -99,6 +99,15 @@ private fun WatchProvidersResponseDto?.toAvailability(
     return buildList {
         forRegion.flatrate.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FLATRATE, fetchedAt)) }
         forRegion.free.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.FREE, fetchedAt)) }
+        // PLAN.md §5's "Paid (rent/buy) titles" addendum (M6, Kev 2026-08-22): the same per-title
+        // `/watch/providers` response already carries `rent`/`buy` alongside `flatrate`/`free` —
+        // no new network call. These rows only ever widen [AvailabilityGate]'s Search/watchlist
+        // check and badge rendering; [RecommendationRepository.gatherCandidatePool] never reads
+        // this table at all (it filters candidates via `DiscoverRepository`'s
+        // `with_watch_monetization_types = "flatrate|free"` query param instead, left untouched),
+        // so persisting these rows cannot leak paid titles into Home/the recommender.
+        forRegion.rent.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.RENT, fetchedAt)) }
+        forRegion.buy.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.BUY, fetchedAt)) }
     }
 }
 

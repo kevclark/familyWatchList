@@ -12,8 +12,14 @@ enum class RatingValue { UP, NEUTRAL, DOWN }
 /** PLAN.md §2: WatchlistEntry.state. */
 enum class WatchlistState { ACTIVE, WATCHED, REMOVED }
 
-/** PLAN.md §2: ProviderAvailability.kind — TMDB watch/providers monetization type. */
-enum class ProviderKind { FLATRATE, FREE }
+/**
+ * PLAN.md §2: ProviderAvailability.kind — TMDB watch/providers monetization type. Stored as its
+ * TEXT `name` via [org.seg7.familywatchlist.data.local.Converters] (never an ordinal), so [BUY]/
+ * [RENT] (M6, Kev 2026-08-22 — PLAN.md §5's "Paid (rent/buy) titles" addendum) are safe to append
+ * here without a Room migration; appended rather than inserted to keep it that way for any future
+ * addition too.
+ */
+enum class ProviderKind { FLATRATE, FREE, BUY, RENT }
 
 /** PLAN.md §2: ShortlistEntry.state. */
 enum class ShortlistState { SUGGESTED, DISMISSED, WATCHED }
