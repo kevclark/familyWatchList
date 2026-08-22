@@ -1,8 +1,5 @@
 package org.seg7.familywatchlist.ui.details
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,13 +35,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -122,9 +121,11 @@ fun TitleDetailScreen(
         },
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val title = state.title
     val snackbarHostState = remember { SnackbarHostState() }
+    // M4a-2: in-app trailer playback state. `rememberSaveable` so a config change (rotation)
+    // while the trailer is open doesn't silently drop back to the details screen underneath.
+    var trailerVisible by rememberSaveable { mutableStateOf(false) }
 
     // PLAN.md §5a: a blocked ＋ My List tap (title not on a subscribed provider) surfaces as a
     // Snackbar rather than a silent no-op.
@@ -228,7 +229,7 @@ fun TitleDetailScreen(
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { context.openTrailer(title?.trailerKey) },
+                            onClick = { trailerVisible = true },
                             enabled = title?.trailerKey != null,
                             modifier = Modifier.weight(1f),
                             shape = MaterialTheme.shapes.small,
@@ -340,6 +341,14 @@ fun TitleDetailScreen(
         }
         SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
     }
+
+    // M4a-2: plays in-app via YouTube's IFrame Player embed instead of switching to the YouTube
+    // app/browser (see TrailerPlayerDialog kdoc for why). Only composed while visible, so its own
+    // dismiss (close button or back) simply removes it, leaving this screen exactly as it was.
+    val trailerKey = title?.trailerKey
+    if (trailerVisible && trailerKey != null) {
+        TrailerPlayerDialog(youTubeKey = trailerKey, onDismiss = { trailerVisible = false })
+    }
 }
 
 /** PLAN.md §2/§5: thumbs up / neutral / down for the active profile. */
@@ -435,23 +444,6 @@ private fun ChipFlow(items: List<String>) {
                     .padding(horizontal = 11.dp, vertical = 7.dp),
             )
         }
-    }
-}
-
-/**
- * PLAN.md §1: "Trailers: TMDB /videos → YouTube key → Intent to YouTube app/browser. Zero-
- * dependency v1." The app intent is tried first so the YouTube app handles it when installed;
- * the https URL is the fallback, and the whole thing is a no-op when there's no key (the button
- * is disabled in that case anyway).
- */
-private fun android.content.Context.openTrailer(youTubeKey: String?) {
-    if (youTubeKey.isNullOrBlank()) return
-    val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$youTubeKey"))
-    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$youTubeKey"))
-    try {
-        startActivity(appIntent)
-    } catch (_: ActivityNotFoundException) {
-        runCatching { startActivity(webIntent) }
     }
 }
 

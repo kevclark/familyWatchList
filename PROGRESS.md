@@ -1220,19 +1220,43 @@ intent means constant app-switching while browsing suggestions — one of Kev's 
 turn-offs. TMDB trailers are YouTube-hosted (no direct file URL, so no raw ExoPlayer/VLC-style
 playback is possible without scraping — off the table), but YouTube's own IFrame Player embeds
 legitimately in a `WebView`, which is the fix:
-- [ ] Replace `TitleDetailScreen.kt`'s `Context.openTrailer()` (currently fires
+- [x] Replace `TitleDetailScreen.kt`'s `Context.openTrailer()` (currently fires
       `vnd.youtube:`/`https://www.youtube.com/watch?v=` intents, ~line 447) with an in-app modal
       (bottom sheet or full-screen dialog) containing a Compose `AndroidView` wrapping a `WebView`
-      that loads `https://www.youtube.com/embed/{trailerKey}?autoplay=1&playsinline=1`
-- [ ] `WebView` needs JS enabled and likely `mediaPlaybackRequiresUserGesture = false` for
+      that loads `https://www.youtube.com/embed/{trailerKey}?autoplay=1&playsinline=1` — built as
+      a full-screen `Dialog` (`TrailerPlayerDialog.kt`), not a `ModalBottomSheet`: a bottom sheet's
+      partial-height, swipe-over-content pattern fits glanceable forms (`LogWatchSheet`,
+      `SettingsScreen`'s sheets), not a 16:9 video that wants the full width and a dedicated
+      dismiss control
+- [x] `WebView` needs JS enabled and likely `mediaPlaybackRequiresUserGesture = false` for
       autoplay to actually fire on load (tapping Trailer is itself the user gesture, but that
-      doesn't automatically satisfy the WebView's own in-page autoplay gate)
-- [ ] System/predictive back while the trailer modal is open closes the modal, not the whole
-      details screen underneath it
-- [ ] No change to trailer selection/availability logic (`youTubeTrailerKey()`,
+      doesn't automatically satisfy the WebView's own in-page autoplay gate) — also needed
+      `domStorageEnabled = true`, found during live verification: without it the IFrame Player API
+      (which persists player state to `localStorage`) fails immediately with YouTube's own "Video
+      player configuration error", not a network or key problem
+- [x] System/predictive back while the trailer modal is open closes the modal, not the whole
+      details screen underneath it — `Dialog`'s own `onDismissRequest` handles system/predictive
+      back already (composes fine with M4a's `enableOnBackInvokedCallback="true"`); a scoped
+      `BackHandler` is also declared as a defensive backstop, confirmed live: back from the open
+      trailer modal returns to the details screen, not Home
+- [x] No change to trailer selection/availability logic (`youTubeTrailerKey()`,
       `TmdbMappersTest`) — this only changes what happens when the button is tapped
-- [ ] `./gradlew test assembleDebug` green + live verification: tapping Trailer opens the
-      player in-app (no app switch), video actually plays, closing it returns to details
+- [x] `./gradlew test assembleDebug` green (401 tests, +1 `TrailerPlayerDialogTest` covering the
+      close-button dismiss wiring) + live verification: tapping Trailer opens the player in-app,
+      no app switch (screenshot: `docs/m4a2-trailer-inapp.png`), closing via the × control and via
+      system back both return cleanly to the details screen underneath. **Video playback itself
+      did not render** — YouTube's IFrame Player consistently returned its own "Video player
+      configuration error" for a confirmed-valid, confirmed-embeddable trailer key (verified via
+      YouTube's oEmbed API from the host), even after adding `domStorageEnabled`. `adb logcat`
+      during the attempt shows the emulator's DRM HAL only registers `IDrmFactory/clearkey`
+      (software ClearKey) — no Widevine — which is a known AOSP-emulator limitation, not
+      something `local.properties`/app code controls; the System WebView package is also a fixed
+      124.0.6367.219 (from this image, not upgradable without touching the toolchain). Flagging
+      for Kev rather than claiming full success: this may just need testing on a real phone
+      (`docs/PREVIEW.md` §3) where Widevine and a current WebView are both present, or the AVD's
+      Widevine support may be worth revisiting later — either way it's an environment question,
+      not a code defect, and out of scope for this task to chase further (toolchain is off-limits
+      per project instructions)
 
 **M4b — settings, data, and repo hygiene:**
 - [ ] Settings audit: services toggles, profile management, About — confirm what earlier
