@@ -1534,6 +1534,12 @@ Kotlin body now contains. The fix was real but literally never executed on his p
 - [x] Update/add a migration test proving `MIGRATION_8_9` specifically (not `7_8`) resets
       `fetchedAt`
 - [x] `./gradlew test assembleDebug` green
+- **Second confirmed case, 2026-08-22 later still:** "The Punisher: One Last Kill" (TMDB id
+  1439930), already on Kev's My List, shows dimmed with "not on any UK streaming services" —
+  live TMDB check confirms it's genuinely on Disney Plus (GB, flatrate) right now. Same
+  stale-empty-cache symptom as Central Intelligence, same fix. Include it in live verification
+  once `MIGRATION_8_9` actually ships and runs on Kev's phone — don't just re-check Central
+  Intelligence alone.
 
 **2. Trailer plays, but the video is much smaller than the player window in portrait.**
 `TrailerPlayerDialog.kt`'s HTML wrapper sets `iframe{width:100%;height:100%}` but never gives
@@ -1545,3 +1551,12 @@ renders small instead of filling the Compose-sized WebView container.
 - [x] `./gradlew test assembleDebug` green
 - [x] Live verification: trailer video genuinely fills the 16:9 player area in portrait, not
       just "opens without crashing"
+
+**3. Visible app version, so Kev can tell a fresh install actually changed (Kev, 2026-08-22).**
+- [x] `app/build.gradle.kts`: `versionName` set to SemVer `"0.1.0-alpha.1"` (was plain `"0.1.0"`
+      with no pre-release tag). Convention going forward: bump the alpha counter (`alpha.2`,
+      `alpha.3`, ...) on future builds sent to Kev's phone, so the number itself signals change.
+- [x] Settings → About now shows `Version ${BuildConfig.VERSION_NAME}` as its own row, right
+      after the existing attribution/disclaimer text (`ui/settings/SettingsScreen.kt`)
+- [ ] `./gradlew test assembleDebug` green (orchestrator will confirm once the concurrent
+      migration/CSS fix agent's own Gradle run finishes — avoiding daemon contention)
