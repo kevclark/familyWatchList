@@ -6,11 +6,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.dao.WatchlistItem
+import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
+import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
@@ -57,9 +60,26 @@ class MyListViewModel(
     private val activeProfileId: Long,
     userPreferencesRepository: UserPreferencesRepository,
     recommendationRepository: RecommendationRepository,
+    familyProfileRepository: FamilyProfileRepository,
 ) : ViewModel() {
 
     private val _mineOnly = MutableStateFlow(false)
+
+    // PLAN.md §4b (M3j/M3k): Family can now own watchlist entries (addedByProfileId ==
+    // FAMILY_PROFILE_SENTINEL_ID) but isn't a row in `profiles`, so `profileRepository.observeAll`
+    // never resolves it — mirrors HistoryViewModel's identical `familyFilterOption` pattern
+    // (see its kdoc) so "Added by" resolves Family's own name/avatar instead of rendering blank.
+    private val familyResolutionOption = familyProfileRepository.observe().map { family ->
+        family?.let {
+            ProfileEntity(
+                id = FAMILY_PROFILE_SENTINEL_ID,
+                name = it.profile.name,
+                avatarKey = it.profile.avatarKey,
+                ageRatingCap = null,
+                createdAt = it.profile.createdAt,
+            )
+        }
+    }
 
     // PLAN.md §5b M3i item 9: resolved once at construction — [activeProfileId] is fixed for the
     // lifetime of one MyListViewModel instance (the screen is keyed on it,
@@ -74,10 +94,11 @@ class MyListViewModel(
         // PLAN.md §7 M2f: live region Flow — see HomeViewModel.myList's kdoc for why.
         watchlistRepository.observeActiveItemsWithAvailability(userPreferencesRepository.region),
         profileRepository.observeAll(),
+        familyResolutionOption,
         _mineOnly,
         _ageRatingCap,
-    ) { items, profiles, mineOnly, ageRatingCap ->
-        val profilesById = profiles.associateBy { it.id }
+    ) { items, profiles, family, mineOnly, ageRatingCap ->
+        val profilesById = profiles.associateBy { it.id } + (family?.let { mapOf(it.id to it) } ?: emptyMap())
         val rows = items
             .filter { !mineOnly || it.item.addedByProfileId == activeProfileId }
             .map { MyListRow(item = it.item, addedBy = profilesById[it.item.addedByProfileId], isAvailable = it.isAvailable) }

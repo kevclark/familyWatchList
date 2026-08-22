@@ -54,6 +54,7 @@ class MyListViewModelTest {
     private lateinit var profileRepository: ProfileRepository
     private lateinit var userPreferencesRepository: UserPreferencesRepository
     private lateinit var recommendationRepository: RecommendationRepository
+    private lateinit var familyProfileRepository: FamilyProfileRepository
     private lateinit var clock: FakeClock
 
     private var kevId = 0L
@@ -75,7 +76,7 @@ class MyListViewModelTest {
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
-        val familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
+        familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
         recommendationRepository = RecommendationRepository(
             watchEventDao = db.watchEventDao(),
             ratingDao = db.ratingDao(),
@@ -115,7 +116,10 @@ class MyListViewModelTest {
     private fun viewModel(
         watchlist: WatchlistRepository = watchlistRepository,
         activeProfileId: Long = kevId,
-    ) = MyListViewModel(watchlist, profileRepository, activeProfileId, userPreferencesRepository, recommendationRepository)
+    ) = MyListViewModel(
+        watchlist, profileRepository, activeProfileId, userPreferencesRepository, recommendationRepository,
+        familyProfileRepository,
+    )
 
     @Test
     fun `the list is shared - it shows titles added by anyone by default`() = runTest {
@@ -133,6 +137,24 @@ class MyListViewModelTest {
 
         val row = viewModel().uiState.first { it.rows.isNotEmpty() }.rows.first()
         assertEquals("Sam", row.addedBy?.name)
+    }
+
+    /**
+     * PLAN.md §4b (M3k): Family isn't a row in `profiles`, so the row-resolution lookup used to
+     * miss it entirely (blank/generic "Added by" for items Family itself added) — mirrors
+     * HistoryViewModel's `familyFilterOption` fix from M3j. Real-profile resolution (Sam, above)
+     * must stay unaffected by threading this in.
+     */
+    @Test
+    fun `an item added by Family resolves Family's own name and avatar, once Family exists`() = runTest {
+        familyProfileRepository.save("Family", "avatar", listOf(kevId, samId)).getOrThrow()
+        watchlistRepository.add(38700, MediaType.MOVIE, org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID)
+
+        val row = viewModel().uiState.first { it.rows.isNotEmpty() }.rows.first()
+
+        assertEquals("Family", row.addedBy?.name)
+        assertEquals(org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID, row.addedBy?.id)
+        assertEquals("avatar", row.addedBy?.avatarKey)
     }
 
     @Test
