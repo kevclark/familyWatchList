@@ -1753,21 +1753,33 @@ our callback listens for. Per YouTube's own IFrame API docs, `playsinline` is pr
 *iOS Safari* concern (this app is Android-only) — so it may be doing little useful here and
 could be safe/low-risk to remove or make conditional.
 
-- [ ] Try removing `playsinline=1` from the embed URL (or making it conditional) as the primary
+- [x] Try removing `playsinline=1` from the embed URL (or making it conditional) as the primary
       fix attempt — check live whether this restores real `onShowCustomView`-based fullscreen
       on a device, and whether it introduces a *different* regression (e.g. video force-jumping
       to native fullscreen the moment autoplay starts, before any tap) — if so, that's a
       real trade-off to weigh, not silently accept
+      — done: `playsinline=1` dropped entirely (extracted to a testable `trailerEmbedUrl()`).
+      Checked for the autoplay-into-fullscreen regression on the emulator: none — autoplay still
+      starts inline in the normal 16:9 dialog, fullscreen still requires an explicit tap on
+      YouTube's own control. **Only verifiable as the real fix on Kev's phone, not from here.**
 - [ ] If that alone doesn't fix it, consider a JS-based fallback: listen for the
       `fullscreenchange` event on the wrapper page's document via `evaluateJavascript` +
       a `JavascriptInterface` bridge, and manually drive the Compose fullscreen overlay state
       from that event instead of relying solely on `onShowCustomView` firing — a more robust
       but more involved path, only worth it if the simpler fix doesn't hold up
-- [ ] **The emulator cannot validate this bug at all** — it already "passed" and clearly isn't
+      — not built: no evidence yet that the simple fix doesn't hold on real hardware; only worth
+      building if Kev's phone test shows it still doesn't fire `onShowCustomView`
+- [x] **The emulator cannot validate this bug at all** — it already "passed" and clearly isn't
       reproducing what Kev's phone does. Any fix needs Kev to actually reinstall and test on his
       real phone (via the laptop wireless-ADB path) before being considered confirmed — say so
       plainly in the report rather than declaring success from emulator testing alone
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: whatever's practical on the emulator (confirm no regression to the
+      — acknowledged throughout; real-device confirmation is explicitly still pending Kev.
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification: whatever's practical on the emulator (confirm no regression to the
       already-working emulator fullscreen path), but the real gate is Kev's own phone —
       report honestly that final confirmation is pending his test
+      — emulator regression-check done (`docs/m9-normal-playback.png`,
+      `docs/m9-fullscreen-still-works.png`): normal inline playback in both the pre-existing
+      16:9 dialog works, `onShowCustomView` still fires on fullscreen tap, two-stage back
+      (exit fullscreen → close dialog) still correct. **Real-device confirmation is pending
+      Kev's phone test — not something verifiable from this environment.**

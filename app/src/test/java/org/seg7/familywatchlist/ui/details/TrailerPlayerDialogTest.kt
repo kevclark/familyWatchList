@@ -3,6 +3,8 @@ package org.seg7.familywatchlist.ui.details
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -37,5 +39,20 @@ class TrailerPlayerDialogTest {
         composeRule.onNodeWithContentDescription("Close trailer").performClick()
 
         assertTrue(dismissed)
+    }
+
+    /**
+     * M9: the real-device fullscreen fix. `playsinline=1` was dropped from the embed URL because
+     * it tells the browser to keep video inline instead of handing off to native fullscreen —
+     * directly opposed to `onShowCustomView`, which only fires for a real fullscreen hand-off.
+     * Not itself proof the fix works on real hardware (that's a live-verification concern per the
+     * milestone brief) — just confirms the URL construction the fix actually depends on.
+     */
+    @Test
+    fun trailerEmbedUrl_hasAutoplayAndNoPlaysinline() {
+        val url = trailerEmbedUrl("dQw4w9WgXcQ")
+
+        assertEquals("https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1", url)
+        assertFalse(url.contains("playsinline"))
     }
 }
