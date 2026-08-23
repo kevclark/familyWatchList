@@ -201,6 +201,14 @@ fun HomeScreen(
                     )
                 }
             }
+            // M10: below the "2+ selected" threshold the row stays exactly as it always has —
+            // nothing at all, the correct default state, not an error/empty state. At 2+
+            // selected there are now two distinct outcomes to render rather than one: a real
+            // blend, or (PROGRESS.md M10) an explanatory empty state for a combination that
+            // genuinely has nothing left in common — never silently nothing, which is
+            // indistinguishable from "you haven't picked 2 people yet". [familyNightLoading]
+            // withholds the empty-state message during the debounce/network window so a fresh
+            // chip tap doesn't flash it before real results land.
             if (state.familyNightSelectedIds.size >= 2 && state.familyNightTitles.isNotEmpty()) {
                 item(key = "family-night-row") {
                     PosterCarousel(
@@ -215,6 +223,10 @@ fun HomeScreen(
                             onLongPress = { onLongPressDismiss(title) },
                         )
                     }
+                }
+            } else if (state.familyNightSelectedIds.size >= 2 && !state.familyNightLoading) {
+                item(key = "family-night-empty") {
+                    FamilyNightEmptyState()
                 }
             }
 
@@ -647,6 +659,34 @@ private fun FamilyNightChipRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * PROGRESS.md M10: the "2+ selected, blend genuinely computed to zero" outcome for the Family
+ * Night row — previously this rendered nothing at all, indistinguishable from "you haven't
+ * picked 2 people yet". Same shell [ForYouRow]'s "Building your picks" empty state uses
+ * (a [SectionHeader] over a rounded [InkRaised] panel) rather than inventing a new empty-state
+ * treatment for this one row.
+ */
+@Composable
+private fun FamilyNightEmptyState() {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(title = "Family Night")
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.Gutter)
+                .clip(MaterialTheme.shapes.medium)
+                .background(InkRaised)
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+        ) {
+            Text(
+                text = "Nothing left that works for everyone selected right now.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ChalkMuted,
+            )
         }
     }
 }

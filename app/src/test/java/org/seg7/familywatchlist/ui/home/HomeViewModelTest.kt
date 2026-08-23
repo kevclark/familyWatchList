@@ -524,6 +524,68 @@ class HomeViewModelTest {
     }
 
     /**
+     * PROGRESS.md M10: Kev's confirmed-live root cause — with nothing subscribed and neither
+     * profile carrying an UP rating, [org.seg7.familywatchlist.data.repository.RecommendationRepository.refreshFamilyShortlist]'s
+     * candidate pool is genuinely empty (no exception, `runCatching`'s `onFailure` never fires —
+     * this is real code, not a network mock gap: `DiscoverRepository` short-circuits to empty
+     * with zero subscribed services per PLAN.md §7 M2e, so `server.requestCount` stays 0
+     * throughout). Before this fix [HomeScreen] rendered nothing at all for this outcome,
+     * indistinguishable from "fewer than 2 selected". The fix is a state-level distinction
+     * ([HomeUiState.familyNightSelectedIds] size >= 2, [HomeUiState.familyNightTitles] empty,
+     * [HomeUiState.familyNightLoading] false) that [HomeScreen] uses to render its explanatory
+     * empty state instead — proven here at the state layer per PLAN.md's testing conventions
+     * for this ViewModel (Compose rendering itself has no test harness in this codebase).
+     */
+    @Test
+    fun `2+ selected profiles with a genuinely empty ad-hoc blend surface a distinct empty-but-computed state, not just an empty list`() = runTest {
+        val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
+        val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
+        val vm = viewModel(watchlistRepository)
+        vm.uiState.first { it.familyNightProfiles.size == 2 }
+
+        vm.toggleFamilyNightProfile(a)
+        vm.toggleFamilyNightProfile(b)
+        val finalState = vm.uiState.first {
+            it.familyNightSelectedIds == setOf(a, b) && !it.familyNightLoading
+        }
+
+        assertTrue(finalState.familyNightSelectedIds.size >= 2)
+        assertTrue(finalState.familyNightTitles.isEmpty())
+        assertFalse(finalState.familyNightLoading)
+        // Confirms this is genuinely "computed to zero", not "never computed" — no subscribed
+        // service and no UP rating means the whole candidate pool is empty before any network
+        // call would even be attempted.
+        assertEquals(0, server.requestCount)
+    }
+
+    /**
+     * PROGRESS.md M10 regression guard: the fewer-than-2-selected case must render exactly as it
+     * did before this fix — no row, no empty-state message, nothing. [HomeScreen]'s empty-state
+     * branch is only reachable once [HomeUiState.familyNightSelectedIds] has 2+ entries; this
+     * pins the state that branch reads so a future change can't accidentally widen it to fire on
+     * a single selection too.
+     */
+    @Test
+    fun `fewer than 2 selected stays the plain empty default state, never the new empty-state message`() = runTest {
+        val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
+        profileRepository.addProfile("B", "avatar", null).getOrThrow()
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
+        val vm = viewModel(watchlistRepository)
+        vm.uiState.first { it.familyNightProfiles.size == 2 }
+
+        vm.toggleFamilyNightProfile(a)
+        val finalState = vm.uiState.first { it.familyNightSelectedIds == setOf(a) }
+
+        assertTrue(finalState.familyNightSelectedIds.size < 2)
+        assertTrue(finalState.familyNightTitles.isEmpty())
+        assertFalse(finalState.familyNightLoading)
+        assertEquals(0, server.requestCount)
+    }
+
+    /**
      * PLAN.md §4b (M3j, supersedes M3d): when [org.seg7.familywatchlist.ui.ActiveProfile] is
      * [org.seg7.familywatchlist.ui.ActiveProfile.Family], Home's For You/hero must read the
      * *persisted* [FAMILY_SCOPE_KEY] shortlist — not a per-profile scope key keyed off the

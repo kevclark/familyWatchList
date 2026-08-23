@@ -131,6 +131,12 @@ class HomeViewModel(
         profileRepository.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _familyNightSelection = MutableStateFlow<Set<Long>>(emptySet())
     private val _familyNightTitles = MutableStateFlow<List<TitleEntity>>(emptyList())
+    // M10: true for the span between the debounce firing (2+ selected) and the ad-hoc blend
+    // landing (success or failure) — HomeScreen uses this to withhold the "genuinely empty"
+    // message while a result is still in flight, so a fresh chip tap doesn't flash "nothing
+    // works for everyone" for the split second before real results arrive. False whenever fewer
+    // than 2 are selected — there's no computation to be "in flight" for that case.
+    private val _familyNightLoading = MutableStateFlow(false)
     private val familyNightTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     // PLAN.md §5b M3i items 5 and 9: the active profile's (or Family's strictest-member) age cap
@@ -196,14 +202,15 @@ class HomeViewModel(
         val profiles: List<ProfileEntity>,
         val selectedIds: Set<Long>,
         val titles: List<TitleEntity>,
+        val isLoading: Boolean,
     )
 
     val uiState: StateFlow<HomeUiState> = combine(
         combine(myList, _discover, forYouShortlist, _coldStart, _ageRatingCap) { list, discover, shortlist, coldStart, ageRatingCap ->
             HomeCore(list, discover, shortlist, coldStart, ageRatingCap)
         },
-        combine(familyNightProfiles, _familyNightSelection, _familyNightTitles) { profiles, selectedIds, titles ->
-            FamilyNightState(profiles, selectedIds, titles)
+        combine(familyNightProfiles, _familyNightSelection, _familyNightTitles, _familyNightLoading) { profiles, selectedIds, titles, isLoading ->
+            FamilyNightState(profiles, selectedIds, titles, isLoading)
         },
         _dismissedKeys,
     ) { core, family, dismissed ->
@@ -233,6 +240,7 @@ class HomeViewModel(
             familyNightProfiles = family.profiles,
             familyNightSelectedIds = family.selectedIds,
             familyNightTitles = family.titles.withoutDismissed(),
+            familyNightLoading = family.isLoading,
             // PLAN.md §4's 2026-08-19 design note, revised by M3g's "Cold-start Home treatment":
             // the top-scored personalised pick, not raw popularity — falling back to the popular
             // pick only while a *warm* profile's first shortlist is still computing. A cold-start
@@ -259,8 +267,13 @@ class HomeViewModel(
                 // condition, but this is the load-bearing gate (not just a UI nicety).
                 if (selected.size < 2) {
                     _familyNightTitles.value = emptyList()
+                    _familyNightLoading.value = false
                     return@collect
                 }
+                // M10: flagged for the span of the actual blend computation below — see
+                // [_familyNightLoading]'s kdoc for why HomeScreen needs this (distinguishing
+                // "still computing" from "computed, genuinely zero results").
+                _familyNightLoading.value = true
                 runCatching {
                     val region = userPreferencesRepository.region.first()
                     val slider = FamilyBlendSlider(userPreferencesRepository.familyBlendSlider.first())
@@ -274,6 +287,7 @@ class HomeViewModel(
                     entries.sortedByDescending { it.score }.mapNotNull { byKey[it.tmdbId to it.mediaType] }
                 }.onSuccess { _familyNightTitles.value = it }
                     .onFailure { _familyNightTitles.value = emptyList() }
+                _familyNightLoading.value = false
             }
         }
     }
@@ -424,6 +438,8 @@ data class HomeUiState(
     val familyNightSelectedIds: Set<Long> = emptySet(),
     /** The ad-hoc, non-persisted blend for [familyNightSelectedIds] — only ever non-empty once 2+ are selected. */
     val familyNightTitles: List<TitleEntity> = emptyList(),
+    /** M10: true while [familyNightTitles] is being (re)computed for the current selection — see [HomeViewModel]'s `_familyNightLoading` kdoc. */
+    val familyNightLoading: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val hasSubscribedServices: Boolean = false,
