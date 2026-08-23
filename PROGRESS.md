@@ -1600,6 +1600,13 @@ Kev wants to honour that this app was heavily built with AI — a dedicated Abou
 Settings showing the version plus real development stats: prompt count, cumulative dev time,
 and a breakdown by which Claude model did which kind of work.
 
+**Standing maintenance rule (Kev, 2026-08-23): at the completion of each major milestone,
+re-derive and update `BuildStats.kt`'s numbers** (prompts, cumulative dev time, per-model
+breakdown) the same way the original 2026-08-22 snapshot was built — mining the actual session
+transcripts, not estimating. Bump the snapshot date shown in the UI at the same time. Treat this
+as part of "done" for a major milestone, alongside the usual `versionName` alpha-counter bump —
+both are static build-time facts that go stale unless someone actually updates them.
+
 **Data source and nature — read before building.** This data lives entirely outside the app's
 own domain (Room, TMDB, user data) — it describes *how the app itself was built*, mined from
 this project's Claude Code session transcripts, the same way the M5 stats artifact
