@@ -1953,23 +1953,35 @@ just built changes that: it has exact, deterministic Compose-driven enter/exit p
 places system bars already get hidden/restored), so an orientation lock can now be scoped
 precisely to the manual-fullscreen window with no ambiguity about when it starts/ends.
 
-- [ ] On entering manual fullscreen (`isManualFullscreen` → true): request landscape via
+- [x] On entering manual fullscreen (`isManualFullscreen` → true): request landscape via
       `activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE` (or
       `SCREEN_ORIENTATION_SENSOR_LANDSCAPE` if reversible/either-landscape-direction is
-      preferable — implementation's call, document which and why)
-- [ ] On exiting (back, close, or dialog dismissal while still in manual fullscreen — cover all
+      preferable — implementation's call, document which and why). Chose
+      `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`: forces landscape but tracks whichever landscape
+      direction the device is actually held in, rather than pinning one specific direction and
+      risking a visual flip for a phone held reverse-landscape.
+- [x] On exiting (back, close, or dialog dismissal while still in manual fullscreen — cover all
       exit paths, not just the button): restore the original orientation
       (`SCREEN_ORIENTATION_UNSPECIFIED`, or explicitly save/restore whatever the Activity's
       orientation was before locking, if that's more robust) — reuse the exact same
       enter/exit lifecycle points already wired for the system-bar hide/show, don't invent a
-      second one
-- [ ] `android:configChanges="orientation|screenSize|screenLayout"` was already added to
+      second one. Implemented as `savedOrientation` captured before locking and restored in the
+      same `DisposableEffect(isManualFullscreen, ...)`'s `onDispose`, alongside the existing
+      bar-hide/restore logic — no second lifecycle hook added.
+- [x] `android:configChanges="orientation|screenSize|screenLayout"` was already added to
       `MainActivity` in M8 (for physical-rotation support) — confirm this still plays correctly
       with programmatically setting `requestedOrientation` (it should: configChanges prevents
       Activity recreation either way, whether the orientation change is user- or app-driven) —
-      verify live rather than assume
-- [ ] Live verification: enter manual fullscreen from portrait, confirm it actually rotates to
+      verify live rather than assume. Verified live: same Activity PID (2360) throughout, no
+      onCreate/onDestroy/onStop lifecycle events logged during the toggle, trailer playback
+      continued uninterrupted across the fullscreen enter/exit — no recreation occurred.
+- [x] Live verification: enter manual fullscreen from portrait, confirm it actually rotates to
       landscape automatically (not just "now allows" landscape — actually forces it); exit
       (back or close), confirm it returns to portrait; confirm the details screen underneath
-      never gets stuck in landscape after the dialog closes
-- [ ] `./gradlew test assembleDebug` green
+      never gets stuck in landscape after the dialog closes. Confirmed via `dumpsys window
+      displays` (`mCurrentAppOrientation` flips `SCREEN_ORIENTATION_SENSOR_LANDSCAPE` on entry,
+      `SCREEN_ORIENTATION_UNSPECIFIED` on exit) and screenshots for both the icon-toggle and
+      back-key exit paths, plus the two-stage-back full dialog close; details screen underneath
+      confirmed portrait and unstuck in all cases. Screenshot:
+      `docs/m9-landscape-lock-active.png`.
+- [x] `./gradlew test assembleDebug` green
