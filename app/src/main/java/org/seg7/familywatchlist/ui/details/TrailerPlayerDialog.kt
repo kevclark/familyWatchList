@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -133,6 +134,28 @@ import org.seg7.familywatchlist.ui.theme.Ink
  * coexist); native wins if it somehow fires while manual fullscreen is active (same "more real"
  * precedence as above), but the manual toggle itself works independently of both Fullscreen-API
  * paths and doesn't require either to be active or inactive.
+ *
+ * M9 addendum: manual fullscreen also locks the screen to landscape while active, via
+ * `Activity.requestedOrientation`. `SCREEN_ORIENTATION_SENSOR_LANDSCAPE` was chosen over the
+ * plain `SCREEN_ORIENTATION_LANDSCAPE` constant: the latter pins one specific landscape direction
+ * (whichever the device's natural/reverse mapping happens to define as "landscape"), which can
+ * force a phone held reverse-landscape to visually flip when fullscreen is entered; the sensor
+ * variant still forces landscape *orientation* (never leaves the user in portrait) but tracks
+ * whichever landscape direction the device is actually being held in, matching how every other
+ * video app's forced-landscape behaves. Reuses the exact same `DisposableEffect(isManualFullscreen,
+ * ...)` below that already hides/restores the system bars — not a second lifecycle hook — so
+ * orientation is requested/restored at exactly the same enter/exit points: the fullscreen toggle
+ * icon, the two-stage back handler's manual-fullscreen-exit branch (both of which flip
+ * `isManualFullscreen` and are read by this same effect), and the dialog leaving composition
+ * entirely while still in manual fullscreen (the effect's own `onDispose`, keyed on the captured
+ * `wasManualFullscreen` for the same re-entrancy reason documented below). The Activity's
+ * orientation prior to entering is captured (`requestedOrientation` at effect-start, not a fixed
+ * `UNSPECIFIED`) and restored verbatim on exit, so this doesn't clobber any orientation lock the
+ * rest of the app might independently be holding when the trailer dialog happens to open (none
+ * exists as of M9, but this is more robust than assuming so). `MainActivity`'s existing
+ * `android:configChanges="orientation|screenSize|screenLayout"` (added in M8 for physical-rotation
+ * support) means this programmatic orientation change, like a user-driven physical rotation,
+ * doesn't recreate the Activity — confirmed live (see the M9 report).
  */
 @Composable
 fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
@@ -229,6 +252,12 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
             val savedWidth = dialogWindow?.attributes?.width
             val savedHeight = dialogWindow?.attributes?.height
             var savedFitInsetsTypes = 0
+            // M9 addendum: landscape lock, scoped to this same effect — see the class doc comment
+            // above for why SCREEN_ORIENTATION_SENSOR_LANDSCAPE and why this lifecycle point.
+            // Captured (not a fixed UNSPECIFIED) so exit restores whatever orientation lock was
+            // actually in place before entering, rather than assuming there wasn't one.
+            val activity = view.context.findActivity()
+            val savedOrientation = activity?.requestedOrientation
             // M9: captured here rather than re-reading `isManualFullscreen` inside `onDispose`
             // below — by the time this *same* effect instance is torn down (because
             // `isManualFullscreen` flipped back to `false`, which is exactly the key change that
@@ -238,6 +267,7 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
             // after exiting manual fullscreen via back, exactly this bug.
             val wasManualFullscreen = isManualFullscreen
             if (isManualFullscreen) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 activityWindow?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
                 dialogWindow?.let { win ->
                     WindowCompat.setDecorFitsSystemWindows(win, false)
@@ -266,6 +296,8 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
             }
             onDispose {
                 if (wasManualFullscreen) {
+                    activity?.requestedOrientation =
+                        savedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                     activityWindow?.let { WindowCompat.setDecorFitsSystemWindows(it, true) }
                     dialogWindow?.let { win ->
                         WindowInsetsControllerCompat(win, view).show(WindowInsetsCompat.Type.systemBars())
