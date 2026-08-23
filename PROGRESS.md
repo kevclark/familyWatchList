@@ -2045,3 +2045,71 @@ silently rendering nothing.**
       app stopped first), which reproduces the exact "genuinely empty candidate pool, zero
       network calls, no exception" condition `HomeViewModelTest`'s new fixture also covers, then
       selected both chips in the running app. Confirmed live: `docs/m10-family-night-empty-state.png`.
+
+## M11 — Two real gaps in shared recommendation code, found via Family Night testing
+(Kev, 2026-08-23)
+
+Investigating Kev's report of "suggestions way above the age cap" and an unavailable-in-UK
+title ("Mexicali") appearing in the Family Night blend surfaced two genuine bugs in
+`RecommendationRepository.kt`'s **shared** candidate-gathering/scoring code — shared by
+`refreshProfileShortlist` (every profile's regular persisted "For You" shortlist) and
+`refreshFamilyShortlist` (both the ad-hoc chip-row blend and Family's own persisted shortlist).
+**Not Family-Night-specific — this affects every personalized recommendation surface.**
+
+**Gap 1 — uncertain-certification titles not excluded for capped viewers here.**
+`scoreCandidates` (line ~463) calls `FamilyBlend.isOverCap(title.certification, ageCap)` —
+correct mechanism, but this is the standard "unknown certification ≠ unsafe" rule. M3h
+(PLAN.md/PROGRESS.md, 2026-08-21) deliberately tightened this to "unknown = unsafe" specifically
+for capped profiles, but scoped that fix ONLY to the Popular row / cold-start hero
+(`DiscoverRepository`'s path) — `scoreCandidates` here was never covered by that audit. Same
+class of gap M3h already fixed elsewhere, just a different call site that got missed.
+
+- [ ] Apply the same M3h rule here: for a non-null `ageCap`, require *confirmed* certification
+      at-or-under the cap — exclude both over-cap AND unknown-certification titles. Uncapped
+      profiles (`ageCap == null`) unaffected. Reuse the exact shared check M3h already built
+      (`FamilyBlend`/wherever the Popular-row fix lives) — do not write a second implementation.
+
+**Gap 2 — recommendation-sourced candidates bypass UK availability filtering entirely.**
+`gatherCandidatePool` (line ~420) builds its pool from three sources: `discoverMovies`/
+`discoverTv` (correctly region/subscription-gated, per M6's own guarantee that this stays
+`flatrate|free` on subscribed GB providers) — but also `recommendationStubs`, sourced from
+TMDB's `/movie|tv/{id}/recommendations` endpoint, which has **no region/availability concept at
+all**. Nothing filters `recommendationStubs` by actual GB availability before scoring — this is
+exactly how "Mexicali" (confirmed by Kev as flagged "not available in the UK" on its own detail
+screen) got suggested at all.
+
+- [ ] `recommendationStubs` need the same availability check Search/watchlist already use
+      (`AvailabilityGate`/`isAvailableOnSubscribedProvider` — reuse it, don't reinvent) applied
+      before they're merged into the candidate pool, or filtered out during `scoreCandidates`
+      alongside the age-cap check. Note this may need a provider-availability fetch/cache-check
+      per candidate (same pattern Search already does for progressive availability resolution) —
+      check `SearchRepository.kt`'s existing "search-then-check" pattern for the reusable
+      mechanism rather than building a new one.
+- [ ] Audit whether `discoverMovies`/`discoverTv`-sourced candidates could also go stale (TTL
+      expiry) in a way that lets an availability change slip through unnoticed — probably out of
+      scope for this milestone if the existing 7-day TTL/refresh mechanism already covers it, but
+      confirm rather than assume.
+
+**Minor, same investigation — Family Night flicker.** Deselecting/reselecting rapidly shows the
+new M10 empty-state message for under a second before the row disappears again. Likely a
+sequencing/debounce artifact from rapid toggle events processing in a queue rather than a real
+data bug — lower priority than the two safety/correctness gaps above, but worth a look while in
+this code. Don't let this block or complicate the fix for gaps 1/2 above.
+
+- [ ] Investigate the flicker — check whether `familyNightTrigger`'s plain `.debounce().collect`
+      (not `collectLatest`) is processing a queue of stale toggle events sequentially rather than
+      cancelling superseded ones; `collectLatest` may be the more correct operator here if so.
+
+**Testing (this touches shared, safety-relevant code — treat accordingly):**
+- [ ] Regression tests proving Home's regular "For You" shortlist (`refreshProfileShortlist`)
+      is provably unaffected in cases it was already correct, and provably fixed for both gaps
+      where it wasn't
+- [ ] Tests proving the ad-hoc Family Night blend excludes both over-cap and uncertain-
+      certification titles for a capped combination
+- [ ] Tests proving a title with no UK availability (or only via `recommendations`, not
+      `discover`) never appears in either recommendation path
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification — this is data/logic, not platform-specific, so the emulator should be
+      sufficient (unlike the trailer fullscreen saga): reproduce a scenario with a known
+      over-cap/uncertain-certification title and a known UK-unavailable title in the candidate
+      pool, confirm neither appears in Family Night or For You after the fix
