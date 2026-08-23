@@ -1876,15 +1876,35 @@ on detecting YouTube's/the DOM's own fullscreen state.
 the app's own fullscreen control, entirely independent of the Fullscreen API — driven directly
 by Compose + the Activity's window, not by any WebView callback or JS event.
 
-- [ ] Add the app's own "expand" icon to `TrailerPlayerDialog`'s chrome (our own UI element,
+- [x] Add the app's own "expand" icon to `TrailerPlayerDialog`'s chrome (our own UI element,
       not relying on tapping anything inside the WebView/YouTube's own player controls) that
       toggles a new `isManualFullscreen` Compose state directly
-- [ ] When true: resize the WebView's container to fill the dialog (reuse the same visual
+      — done: a `Fullscreen`/`FullscreenExit` icon top-start, independent of the pre-existing
+      close (X) icon top-end.
+- [x] When true: resize the WebView's container to fill the dialog (reuse the same visual
       layout the existing fullscreen paths already produce) **and** hide the Android system
       status/navigation bars via `WindowInsetsControllerCompat`/`WindowCompat` on the hosting
       window, so it actually *looks* fullscreen regardless of whatever the WebView/DOM thinks
       its own state is. Restore system bars when toggled off.
-- [ ] **Kev's explicit requirement: keep this cleanly reversible.** Do NOT remove, hide, or
+      — done, with real findings along the way: hiding the bars only visibly takes effect via
+      the Dialog's *own* `Window` (reached via `DialogWindowProvider`, from inside the Dialog's
+      content — not the hosting Activity's Window, one layer further out). **Known limitation,
+      confirmed live on the emulator via `dumpsys window`:** even combining
+      `decorFitsSystemWindows` (both Windows), forced `MATCH_PARENT` sizing, cleared
+      `fitInsetsTypes`, and the legacy `FLAG_LAYOUT_IN_SCREEN`/`FLAG_LAYOUT_NO_LIMITS` flags —
+      the standard, documented toolkit for this — the Dialog sub-window's frame stayed pinned a
+      few dp short of the top of the display, leaving a thin sliver where the screen behind is
+      technically visible rather than the video reaching genuinely edge-to-edge. Bars
+      themselves *do* genuinely hide (the hard part, and the actual differentiator from the
+      previous two attempts) — this residual gap is a smaller, separate, open item, flagged
+      plainly for Kev rather than claimed as fully resolved; may behave differently on his
+      actual phone.
+      — a real bug found and fixed along the way: the restore-on-exit logic initially read
+      `isManualFullscreen` (the live, already-changed-to-`false` value) inside `onDispose`
+      instead of the value from when the effect entered, so toggling off/back-exiting silently
+      never restored the bars — fixed by capturing `wasManualFullscreen` at entry and checking
+      that in `onDispose` instead.
+- [x] **Kev's explicit requirement: keep this cleanly reversible.** Do NOT remove, hide, or
       disable YouTube's own in-page fullscreen control, `onShowCustomView`/`onHideCustomView`,
       or the JS-bridge fallback from the prior two attempts — all of that stays fully intact and
       operative exactly as built (it may well work correctly on other users'/other devices'
@@ -1894,18 +1914,33 @@ by Compose + the Activity's window, not by any WebView callback or JS event.
       milestone's commit(s) fully restores current behavior with nothing left half-changed
       elsewhere (no shared state/refactoring of the existing paths that a revert would leave
       dangling) — this is a hard requirement, not a nice-to-have.
-- [ ] Coordinate all four paths so they don't fight each other if more than one somehow signals
+      — done: diff reviewed line by line — every touch to pre-existing code is a pure extension
+      (added `|| isManualFullscreen`/`&& !isManualFullscreen` to existing conditions, an added
+      `else if` branch, one added `isManualFullscreen = false` line), never a restructure; all
+      new state/effects/UI/helper are net-new blocks. A `git revert` restores the file exactly.
+- [x] Coordinate all four paths so they don't fight each other if more than one somehow signals
       (unlikely given three are already confirmed non-functional on this specific device, but
       don't assume — code defensively): native custom-view still wins if it ever fires; the
       manual toggle is independent and should work regardless of whether either Fullscreen-API
       path is active.
-- [ ] Back handling: extend the existing two-stage back state machine to also cover
+      — done: `onFullscreenShow` (native) now clears both `isJsFullscreen` and
+      `isManualFullscreen`; the manual toggle icon is shown/usable regardless of `isJsFullscreen`.
+- [x] Back handling: extend the existing two-stage back state machine to also cover
       `isManualFullscreen` — back should exit manual fullscreen (restoring system bars + normal
       layout) before closing the dialog, same pattern as the other two paths.
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: emulator regression-check that nothing existing broke (normal playback,
+      — done, confirmed live: back exits manual fullscreen first (bars + layout restored), a
+      second back closes the dialog.
+- [x] `./gradlew test assembleDebug` green — 6/6 tests in `TrailerPlayerDialogTest` pass (5
+      pre-existing + 1 new `manualFullscreenToggle_flipsIconAndHidesCloseButtonWhileActive`).
+- [x] Live verification: emulator regression-check that nothing existing broke (normal playback,
       the native fullscreen path, back-handling for all paths) plus confirm the new manual
       control itself works on the emulator (this one specifically *can* be verified there, since
       it doesn't depend on WebView's fullscreen internals at all — it's pure Compose/Window API).
       Final real-world confirmation still needs Kev's phone, but this path should have a much
       higher chance of actually working there than the previous two attempts.
+      — done: `docs/m9-manual-normal-playback.png` (normal playback + both new/existing icons
+      unaffected), `docs/m9-manual-fullscreen-active.png` (manual fullscreen active — status bar
+      genuinely hidden, verifiable proof unlike the previous two attempts; residual top-edge gap
+      visible and honestly not hidden in this screenshot),
+      `docs/m9-manual-fullscreen-back-exits-first.png` (back restores bars + normal layout),
+      `docs/m9-manual-fullscreen-back-closes-dialog.png` (second back closes the dialog).

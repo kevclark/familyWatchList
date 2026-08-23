@@ -1,5 +1,6 @@
 package org.seg7.familywatchlist.ui.details
 
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
@@ -85,5 +86,35 @@ class TrailerPlayerDialogTest {
     @Test
     fun exitFullscreenJs_callsTheRealFullscreenApiExitMethod() {
         assertEquals("document.exitFullscreen();", exitFullscreenJs())
+    }
+
+    /**
+     * M9: the app's own manual fullscreen toggle — the fourth, WebView/Fullscreen-API-independent
+     * path. This covers the purely-Compose-state half of it (icon toggling, close button hiding
+     * while manual fullscreen is active): the actual system-bar-hiding via
+     * [androidx.core.view.WindowInsetsControllerCompat] is real-Window-API territory, not
+     * meaningfully unit-testable, and is covered by live emulator verification instead (see the
+     * milestone brief).
+     */
+    @Test
+    fun manualFullscreenToggle_flipsIconAndHidesCloseButtonWhileActive() {
+        composeRule.setContent {
+            FamilyWatchListTheme {
+                TrailerPlayerDialog(youTubeKey = "dQw4w9WgXcQ", onDismiss = {})
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Enter fullscreen").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Close trailer").assertIsDisplayed()
+
+        composeRule.onNodeWithContentDescription("Enter fullscreen").performClick()
+
+        composeRule.onNodeWithContentDescription("Exit fullscreen").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Close trailer").assertDoesNotExist()
+
+        composeRule.onNodeWithContentDescription("Exit fullscreen").performClick()
+
+        composeRule.onNodeWithContentDescription("Enter fullscreen").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Close trailer").assertIsDisplayed()
     }
 }
