@@ -1647,3 +1647,42 @@ joined against each background agent's own recorded model, for accuracy — use 
 - [x] Live verification: navigate Settings → About, confirm everything renders correctly
       (existing TMDB/JustWatch attribution still present and correct after the move, version
       shown, AI-transparency stats shown)
+
+## M8 — Trailer supports physical rotation to landscape (Kev, 2026-08-23)
+
+The earlier fullscreen fix deliberately skipped *forcing* landscape on fullscreen-tap (real risk
+of leaking the lock into the details screen underneath, same Activity). Kev's actual ask is
+narrower and lower-risk: if he **physically rotates the phone** while the trailer is open, it
+should reflow to landscape properly, the way essentially every video player does — not force a
+rotation, just not break when one happens.
+
+**Confirmed via manifest check: nothing currently locks orientation** — `AndroidManifest.xml`
+has no `android:screenOrientation` on `MainActivity`. The likely real problem is the opposite of
+a lock: without `android:configChanges` covering orientation, Android's default behaviour on a
+rotation is to **destroy and recreate the Activity** — which would blow away the trailer
+dialog's Compose state and very likely reload the WebView/YouTube embed from scratch (losing
+playback position, a jarring "it just closed" experience), not smoothly reflow.
+
+**Scope, deliberately narrow:** make the trailer *specifically* survive and adapt to rotation
+cleanly. Making the rest of the app (Home, Search, etc.) genuinely landscape-designed is a much
+bigger, separate task — nothing else has landscape-specific layout consideration yet — and is
+explicitly NOT part of this milestone.
+
+- [ ] Add `android:configChanges="orientation|screenSize|screenLayout"` to `MainActivity` in
+      `AndroidManifest.xml` so rotation doesn't destroy/recreate the Activity (and therefore
+      doesn't blow away the trailer dialog's state or force-reload the WebView) — check whether
+      this needs to be scoped somehow to only matter while the trailer's open, or whether
+      handling it app-wide is fine/harmless given nothing else currently depends on
+      orientation-triggered recreation (likely fine, but verify nothing relies on it, e.g. no
+      screen currently reads configuration changes to reset transient state)
+- [ ] Confirm/adjust `TrailerPlayerDialog`'s layout so the player sensibly fills more of a
+      landscape frame rather than staying pinned to a portrait-derived 16:9 box computed off a
+      narrower width — the fullscreen overlay path (already `fillMaxSize`) may already handle
+      this fine; the *normal* (non-fullscreen) embed's sizing is the part likely worth adjusting
+- [ ] Live verification: open a trailer in portrait, physically rotate the phone/emulator to
+      landscape mid-playback, confirm it reflows smoothly (video keeps playing, no reload/reset,
+      no dialog dismissal) and looks sensible filling the wider frame; rotate back to portrait,
+      confirm it also reflows back cleanly
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Explicitly out of scope, note if raised again separately: landscape layouts for the rest
+      of the app (Home, Search, title details, etc.)
