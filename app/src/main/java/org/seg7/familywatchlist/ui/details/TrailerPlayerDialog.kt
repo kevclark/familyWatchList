@@ -1,11 +1,15 @@
 package org.seg7.familywatchlist.ui.details
 
 import android.annotation.SuppressLint
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -70,11 +74,43 @@ import org.seg7.familywatchlist.ui.theme.Ink
  * calls the Fullscreen API — is wired from [TrailerWebView] up into [fullscreenView]/
  * [fullscreenCallback] state held here, so this composable can render either the normal 16:9
  * embed or a full-size overlay showing YouTube's own fullscreen `View` on top of it.
+ *
+ * M9: `onShowCustomView` is confirmed (two rounds of real-device testing, `playsinline=1` removal
+ * ruled out as the cause) to simply never fire on at least one real device, even though the page's
+ * JS does successfully enter the Fullscreen API (confirmed via screenshot: YouTube's own in-page
+ * fullscreen CSS layout appears, just without Android's native fullscreen surface). Rather than
+ * keep chasing why the native hook doesn't fire there, [isJsFullscreen] is a second, independent
+ * signal for the same "user tapped YouTube's fullscreen control" event, driven entirely from JS:
+ * [TrailerWebView] injects a `fullscreenchange` listener on the wrapper page's own top-level
+ * `document` (see [fullscreenListenerJs]) and bridges it to [onJsFullscreenChange] below. Per the
+ * Fullscreen API spec, a same-origin ancestor document receives `fullscreenchange` (with its own
+ * `document.fullscreenElement` set to the nested iframe) whenever a descendant — here, the
+ * cross-origin YouTube iframe — enters/exits fullscreen; this is standard behaviour, independent
+ * of whatever WebView/Chromium quirk suppresses `onShowCustomView` specifically on some devices.
+ *
+ * Unlike the native path, there's no native fullscreen `View` to swap in for [isJsFullscreen] —
+ * nothing ever called `onShowCustomView`, so there's nothing to receive. Instead the *existing*
+ * `TrailerWebView` `AndroidView` (the same WebView instance already showing the embed — it's
+ * never recreated) simply gets resized from the normal letterboxed 16:9 box to `fillMaxSize()`,
+ * below.
+ *
+ * The two paths are coordinated so only one is ever "the" active fullscreen mechanism: entering
+ * JS-fullscreen is a no-op if native `fullscreenView` is already showing (native wins — it's the
+ * more "real" one, confirmed correct on the emulator), and if `onShowCustomView` ever does fire
+ * while [isJsFullscreen] is true (e.g. a device where both mechanisms happen to work), the native
+ * path immediately clears it — see the `onFullscreenShow` lambda passed to `TrailerWebView` below.
  */
 @Composable
 fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
     var fullscreenView by remember { mutableStateOf<View?>(null) }
     var fullscreenCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+    // M9: JS-bridge fallback fullscreen state — see the class doc comment above for why this
+    // exists alongside fullscreenView/fullscreenCallback rather than replacing them.
+    var isJsFullscreen by remember { mutableStateOf(false) }
+    // Set once by TrailerWebView's factory to a lambda that calls document.exitFullscreen() on
+    // the live WebView instance, so back/close can keep the page's own DOM fullscreen state in
+    // sync with what Compose is showing (M9 §5).
+    var exitJsFullscreenFn by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     // rememberUpdatedState so the single BackHandler below always reads current fullscreen state
     // without needing to unregister/re-register its callback on every fullscreenView change.
@@ -83,6 +119,9 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
             fullscreenCallback?.onCustomViewHidden()
             fullscreenView = null
             fullscreenCallback = null
+        } else if (isJsFullscreen) {
+            exitJsFullscreenFn?.invoke()
+            isJsFullscreen = false
         } else {
             onDismiss()
         }
@@ -105,17 +144,30 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
         // Ink background full-dialog coverage, so the letterboxed bars either side/above-below
         // read as deliberate rather than leaving the scrim showing through.
         Box(modifier = Modifier.fillMaxSize().background(Ink)) {
+            // M9: TrailerWebView is called from this single call site regardless of
+            // isJsFullscreen — only the wrapping Box's Modifier below changes between the
+            // letterboxed 16:9 box and fillMaxSize(). Branching to *different* call sites (e.g.
+            // separate if/else blocks each containing their own TrailerWebView call) would make
+            // Compose tear down and recreate the AndroidView/WebView on every fullscreen toggle,
+            // reloading the page and restarting playback — exactly what reusing "the existing
+            // WebView instance" (per the M9 design) means avoiding.
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val targetWidth = minOf(maxWidth, maxHeight * 16f / 9f)
-                Box(
-                    modifier = Modifier
+                val playerModifier = if (isJsFullscreen) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier
                         .align(Alignment.Center)
                         .width(targetWidth)
-                        .aspectRatio(16f / 9f),
-                ) {
+                        .aspectRatio(16f / 9f)
+                }
+                Box(modifier = playerModifier) {
                     TrailerWebView(
                         youTubeKey = youTubeKey,
                         onFullscreenShow = { view, callback ->
+                            // Native path wins if both signal: clear any JS-driven fullscreen
+                            // state so the real onShowCustomView overlay is the one visible.
+                            isJsFullscreen = false
                             fullscreenView = view
                             fullscreenCallback = callback
                         },
@@ -123,10 +175,19 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
                             fullscreenView = null
                             fullscreenCallback = null
                         },
+                        onJsFullscreenChange = { entered ->
+                            if (entered) {
+                                // No-op if native custom view is already showing — native wins.
+                                if (fullscreenView == null) isJsFullscreen = true
+                            } else {
+                                isJsFullscreen = false
+                            }
+                        },
+                        onExitFullscreenJsReady = { exitFn -> exitJsFullscreenFn = exitFn },
                     )
                 }
             }
-            if (fullscreenView == null) {
+            if (fullscreenView == null && !isJsFullscreen) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -196,6 +257,14 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
  * `onFullscreenShow`/`onFullscreenHide` lambdas so [TrailerPlayerDialog] — which owns the
  * Compose-side fullscreen state — can swap in YouTube's own fullscreen `View` as an overlay.
  *
+ * M9: `onShowCustomView` is confirmed to never fire on at least one real device. As a fallback
+ * that doesn't depend on it, [FullscreenJsBridge] plus [fullscreenListenerJs] (injected via
+ * `onPageFinished`) independently detect the same "entered/exited fullscreen" moment straight
+ * from the wrapper page's own DOM and forward it through `onJsFullscreenChange`.
+ * `onExitFullscreenJsReady` hands [TrailerPlayerDialog] a closure over this exact `WebView`
+ * instance so it can call `document.exitFullscreen()` from the back/close path without this
+ * composable needing to expose the `WebView` itself.
+ *
  * M9: the embed URL previously carried `playsinline=1`. That parameter's whole purpose is telling
  * the *browser*, not just iOS Safari specifically, to keep video playback inline and never hand
  * off to a native/system fullscreen surface — directly opposed to what [onShowCustomView] needs
@@ -219,16 +288,78 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
 internal fun trailerEmbedUrl(youTubeKey: String): String =
     "https://www.youtube.com/embed/$youTubeKey?autoplay=1"
 
+/** Name the wrapper page's injected JS uses to reach [FullscreenJsBridge] via [WebView.addJavascriptInterface]. */
+internal const val FULLSCREEN_JS_BRIDGE_NAME = "FwlFullscreenBridge"
+
+/**
+ * M9: the JS half of the fullscreen fallback. Injected into the wrapper page (not the YouTube
+ * iframe itself — that's cross-origin, its `document` isn't reachable from here) once it's
+ * finished loading. Listens for `fullscreenchange` on the wrapper's own top-level `document`:
+ * per the Fullscreen API spec, a same-origin ancestor document receives this event (with its own
+ * `document.fullscreenElement` set to the nested iframe) whenever a descendant frame — here, the
+ * YouTube iframe — enters or exits fullscreen, regardless of which document actually called
+ * `requestFullscreen()`. That makes it a reliable, standards-based signal independent of whatever
+ * WebView/Chromium-build quirk suppresses [WebChromeClient.onShowCustomView] on some real
+ * devices. Extracted to a top-level function (rather than an inline string in [TrailerWebView])
+ * so the exact script is independently unit-testable without a live `WebView`.
+ */
+internal fun fullscreenListenerJs(bridgeName: String = FULLSCREEN_JS_BRIDGE_NAME): String = """
+    (function() {
+        document.addEventListener('fullscreenchange', function() {
+            if (document.fullscreenElement) {
+                $bridgeName.onEnterFullscreen();
+            } else {
+                $bridgeName.onExitFullscreen();
+            }
+        });
+    })();
+""".trimIndent()
+
+/** M9: JS run from the back/close path to keep the wrapper page's own DOM fullscreen state in
+ * sync with what Compose is showing (§5 of the M9 design) — otherwise the *next* fullscreen tap
+ * could behave oddly if the page still thinks it's in fullscreen. `document.exitFullscreen()` is
+ * a no-op (rejects a promise nobody's awaiting) if the page isn't actually in fullscreen, so it's
+ * safe to call unconditionally whenever the JS-fallback path is being torn down.
+ */
+internal fun exitFullscreenJs(): String = "document.exitFullscreen();"
+
+/**
+ * M9: bridges the wrapper page's `fullscreenchange` listener (see [fullscreenListenerJs]) to
+ * Kotlin via [android.webkit.WebView.addJavascriptInterface]. Per the `@JavascriptInterface`
+ * contract, [onEnterFullscreen]/[onExitFullscreen] are invoked on a background thread owned by
+ * the WebView, never the main thread — so both marshal onto the main thread via [Handler] before
+ * touching any Compose state, since [onEnter]/[onExit] end up setting `mutableStateOf` values in
+ * [TrailerPlayerDialog].
+ */
+private class FullscreenJsBridge(
+    private val onEnter: () -> Unit,
+    private val onExit: () -> Unit,
+) {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @JavascriptInterface
+    fun onEnterFullscreen() {
+        mainHandler.post { onEnter() }
+    }
+
+    @JavascriptInterface
+    fun onExitFullscreen() {
+        mainHandler.post { onExit() }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun TrailerWebView(
     youTubeKey: String,
     onFullscreenShow: (View, WebChromeClient.CustomViewCallback) -> Unit,
     onFullscreenHide: () -> Unit,
+    onJsFullscreenChange: (Boolean) -> Unit,
+    onExitFullscreenJsReady: (() -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
     AndroidView(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxSize(),
         factory = {
             WebView(context).apply {
                 layoutParams = ViewGroup.LayoutParams(
@@ -242,6 +373,14 @@ private fun TrailerWebView(
                 // "Video player configuration error", not a network or key problem.
                 settings.domStorageEnabled = true
                 setBackgroundColor(android.graphics.Color.BLACK)
+                addJavascriptInterface(
+                    FullscreenJsBridge(
+                        onEnter = { onJsFullscreenChange(true) },
+                        onExit = { onJsFullscreenChange(false) },
+                    ),
+                    FULLSCREEN_JS_BRIDGE_NAME,
+                )
+                onExitFullscreenJsReady { evaluateJavascript(exitFullscreenJs(), null) }
                 webChromeClient = object : WebChromeClient() {
                     override fun onPermissionRequest(request: PermissionRequest) {
                         request.grant(arrayOf(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID))
@@ -253,6 +392,16 @@ private fun TrailerWebView(
 
                     override fun onHideCustomView() {
                         onFullscreenHide()
+                    }
+                }
+                webViewClient = object : WebViewClient() {
+                    // M9: injected only after the wrapper page (not the cross-origin YouTube
+                    // iframe within it) has finished loading, so `document` below refers to the
+                    // wrapper's own top-level document — the one this app authored via
+                    // loadDataWithBaseURL, and the one the JavascriptInterface bridge is attached
+                    // to.
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        view.evaluateJavascript(fullscreenListenerJs(), null)
                     }
                 }
                 val embedUrl = trailerEmbedUrl(youTubeKey)

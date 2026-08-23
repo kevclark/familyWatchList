@@ -1811,3 +1811,53 @@ could be safe/low-risk to remove or make conditional.
       16:9 dialog works, `onShowCustomView` still fires on fullscreen tap, two-stage back
       (exit fullscreen → close dialog) still correct. **Real-device confirmation is pending
       Kev's phone test — not something verifiable from this environment.**
+
+### M9 JS-bridge fallback — implemented (2026-08-23)
+
+The design above is now built in `TrailerPlayerDialog.kt`:
+
+- [x] `fullscreenchange` listener injected into the wrapper page's own `document` via
+      `evaluateJavascript` from `WebViewClient.onPageFinished` (`fullscreenListenerJs()`,
+      extracted to a top-level function for unit testing).
+- [x] `FullscreenJsBridge`, a `@JavascriptInterface`-annotated class added via
+      `addJavascriptInterface`, with `onEnterFullscreen()`/`onExitFullscreen()` — both marshal
+      onto the main thread via `Handler(Looper.getMainLooper())` before touching Compose state
+      (per-spec, these fire on a WebView-owned background thread).
+- [x] New Compose state `isJsFullscreen` (+ `exitJsFullscreenFn`, a closure over the live
+      `WebView` for `document.exitFullscreen()`) alongside the existing `fullscreenView`/
+      `fullscreenCallback` state. The *same* `TrailerWebView` `AndroidView` call site is reused
+      for both the normal letterboxed 16:9 box and the fullscreen fill — only the wrapping
+      `Modifier` changes — specifically to avoid Compose tearing down/recreating the WebView
+      (which would reload the page and restart playback) on every fullscreen toggle.
+- [x] Native wins if both signal: entering JS-fullscreen is a no-op when `fullscreenView` is
+      already showing; native firing while `isJsFullscreen` is true clears it immediately.
+- [x] Two-stage back (`onBackPressed`) extended to branch on `isJsFullscreen` third, calling
+      `document.exitFullscreen()` via the stored closure before clearing state, so the page's
+      own DOM fullscreen state stays in sync with what Compose is showing.
+- [x] `./gradlew test assembleDebug` green — 5/5 tests in `TrailerPlayerDialogTest` pass
+      (`trailerEmbedUrl`, `fullscreenListenerJs` ×2, `exitFullscreenJs`, close-button dismiss).
+- [x] Emulator regression-check: normal playback, `onShowCustomView`-driven fullscreen, and
+      two-stage back all still correct after the change
+      (`docs/m9-jsbridge-normal-playback.png`, `docs/m9-jsbridge-fullscreen-still-works.png`,
+      `docs/m9-jsbridge-back-exits-fullscreen.png`, `docs/m9-jsbridge-back-closes-dialog.png`).
+- [x] Emulator diagnostic (temporary logging, not committed): confirmed the JS bridge *can* fire
+      correctly and independently of the native path — one capture showed
+      `native onShowCustomView fired` followed ~1s later by `JS bridge onEnterFullscreen fired`,
+      and symmetrically on exit — proving the injected listener, the bridge, and the
+      main-thread marshalling all work end-to-end on this WebView build. **However**, with
+      `onShowCustomView` deliberately stubbed out (simulating Kev's phone, where it never fires),
+      the JS bridge did **not** reliably fire even though blink's own fullscreen request still
+      completed (confirmed via the native callback still being invoked) — across three separate
+      attempts, the `fullscreenchange` listener on the wrapper document fired zero times without
+      native also being live. This is a genuine open question, not swept under the rug: it's
+      possible acknowledging the request via `onShowCustomView`/`CustomViewCallback` is what lets
+      Chromium's WebView build actually commit the underlying fullscreen DOM state on this
+      emulator, in which case the JS-only path may not reliably fire on Kev's phone either. Only
+      his phone can settle this — flagged clearly for Kev below.
+- [ ] **Real-device confirmation from Kev still required** — this is the actual test of whether
+      the fallback helps at all. Given the emulator diagnostic above, there's a real chance it
+      doesn't (if YouTube's fallback CSS layout on his phone never calls `requestFullscreen()` at
+      all, no `fullscreenchange` event fires anywhere, native or JS). If Kev confirms it still
+      doesn't work, the next fallback would have to detect the *absence* of both signals
+      (e.g. a timeout after tapping near where the fullscreen control renders) rather than relying
+      on either Fullscreen-API-based mechanism.

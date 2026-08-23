@@ -55,4 +55,35 @@ class TrailerPlayerDialogTest {
         assertEquals("https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1", url)
         assertFalse(url.contains("playsinline"))
     }
+
+    /**
+     * M9: the JS-bridge fullscreen fallback. `onShowCustomView` is confirmed to never fire on at
+     * least one real device, so this listens for `fullscreenchange` on the wrapper page's own
+     * document instead (per the Fullscreen API spec, a same-origin ancestor document receives
+     * this event when a nested cross-origin iframe — the YouTube embed — enters/exits
+     * fullscreen). These assertions cover the JS-string-construction piece, which is genuinely
+     * unit-testable; the live WebView behaviour itself isn't (see the milestone brief).
+     */
+    @Test
+    fun fullscreenListenerJs_dispatchesToNamedBridgeOnBothEdges() {
+        val js = fullscreenListenerJs("FwlFullscreenBridge")
+
+        assertTrue(js.contains("addEventListener('fullscreenchange'"))
+        assertTrue(js.contains("document.fullscreenElement"))
+        assertTrue(js.contains("FwlFullscreenBridge.onEnterFullscreen();"))
+        assertTrue(js.contains("FwlFullscreenBridge.onExitFullscreen();"))
+    }
+
+    @Test
+    fun fullscreenListenerJs_defaultsToTheBridgeNameActuallyRegistered() {
+        val js = fullscreenListenerJs()
+
+        assertTrue(js.contains("$FULLSCREEN_JS_BRIDGE_NAME.onEnterFullscreen();"))
+        assertTrue(js.contains("$FULLSCREEN_JS_BRIDGE_NAME.onExitFullscreen();"))
+    }
+
+    @Test
+    fun exitFullscreenJs_callsTheRealFullscreenApiExitMethod() {
+        assertEquals("document.exitFullscreen();", exitFullscreenJs())
+    }
 }
