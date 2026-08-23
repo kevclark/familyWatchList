@@ -1944,3 +1944,32 @@ by Compose + the Activity's window, not by any WebView callback or JS event.
       visible and honestly not hidden in this screenshot),
       `docs/m9-manual-fullscreen-back-exits-first.png` (back restores bars + normal layout),
       `docs/m9-manual-fullscreen-back-closes-dialog.png` (second back closes the dialog).
+
+**M9 addendum — lock landscape during manual fullscreen (Kev, 2026-08-23).** M8 deliberately
+skipped forcing orientation on fullscreen-tap because there was no clean, deterministic scope
+for it (physical rotation is user-driven, not app-driven, and the risk was leaking a forced
+orientation into the details screen underneath — same Activity). The manual fullscreen control
+just built changes that: it has exact, deterministic Compose-driven enter/exit points (the same
+places system bars already get hidden/restored), so an orientation lock can now be scoped
+precisely to the manual-fullscreen window with no ambiguity about when it starts/ends.
+
+- [ ] On entering manual fullscreen (`isManualFullscreen` → true): request landscape via
+      `activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE` (or
+      `SCREEN_ORIENTATION_SENSOR_LANDSCAPE` if reversible/either-landscape-direction is
+      preferable — implementation's call, document which and why)
+- [ ] On exiting (back, close, or dialog dismissal while still in manual fullscreen — cover all
+      exit paths, not just the button): restore the original orientation
+      (`SCREEN_ORIENTATION_UNSPECIFIED`, or explicitly save/restore whatever the Activity's
+      orientation was before locking, if that's more robust) — reuse the exact same
+      enter/exit lifecycle points already wired for the system-bar hide/show, don't invent a
+      second one
+- [ ] `android:configChanges="orientation|screenSize|screenLayout"` was already added to
+      `MainActivity` in M8 (for physical-rotation support) — confirm this still plays correctly
+      with programmatically setting `requestedOrientation` (it should: configChanges prevents
+      Activity recreation either way, whether the orientation change is user- or app-driven) —
+      verify live rather than assume
+- [ ] Live verification: enter manual fullscreen from portrait, confirm it actually rotates to
+      landscape automatically (not just "now allows" landscape — actually forces it); exit
+      (back or close), confirm it returns to portrait; confirm the details screen underneath
+      never gets stuck in landscape after the dialog closes
+- [ ] `./gradlew test assembleDebug` green
