@@ -2139,3 +2139,42 @@ this code. Don't let this block or complicate the fix for gaps 1/2 above.
       screenshots at `docs/m11-foryou-capped-gap1-gap2-excluded.png` and
       `docs/m11-familynight-adhoc-blend-gap1-gap2-excluded.png`. Emulator shut down with
       `adb emu kill` after.
+
+**The `collectLatest` fix did not resolve the flicker — real device retest, 2026-08-23.** Kev
+confirmed on alpha.9: deselecting/reselecting a profile still flashes the empty-state message,
+then it disappears again, then ~7-8 seconds later the real Family Night row finally appears.
+Root cause now precisely identified (was previously just a plausible guess, not confirmed — see
+the honest caveat this was flagged with earlier):
+
+`toggleFamilyNightProfile` (`HomeViewModel.kt`, ~line 307) updates `_familyNightSelection`
+**synchronously** the instant a chip is tapped, but `_familyNightLoading` is only set `true`
+**later**, inside the debounced collector — i.e. only after `FAMILY_NIGHT_DEBOUNCE_MS` has
+already elapsed. Between those two moments, `selectedIds.size >= 2` is already true but
+`familyNightLoading` is still `false` (stale from before the reselect) — exactly the window
+where the M10 empty-state condition (`selectedIds.size >= 2 && !familyNightLoading`) briefly
+evaluates true and flashes the message, before the debounce fires, sets loading, and hides it
+again for the genuine ~7-8s computation. Two separate things to fix:
+
+- [ ] **Close the timing gap.** Set `_familyNightLoading.value = true` **synchronously** in
+      `toggleFamilyNightProfile` itself whenever the resulting selection size is `>= 2` (not only
+      later inside the debounced collector) — and `false` immediately when it drops below 2.
+      This closes the window entirely rather than narrowing it, since the loading flag now
+      changes in lockstep with the selection itself.
+- [ ] **The ~7-8 second wait is real, not itself a bug** (live TMDB calls for this uncached
+      ad-hoc path — likely modestly slower than before given M11 now runs a per-candidate
+      availability check uniformly) — **but it's a genuine usability issue as Kev flagged**: right
+      now the row is simply absent for that whole span with no feedback at all. Add a visible
+      loading indicator (a small spinner, or brief text like "Finding a pick for everyone…") in
+      the Family Night section while `familyNightLoading` is true and `selectedIds.size >= 2` —
+      reuse whatever loading-indicator visual convention already exists elsewhere in this app
+      (Home's refresh spinner from M3i, or the shell `ForYouRow`'s own loading state uses) rather
+      than inventing a new one.
+- [ ] Tests: state renders the loading indicator (not the empty-state message, not nothing) the
+      instant selection changes to 2+ before results land; regression test that the `< 2
+      selected` case is still exactly "no row at all"; regression that the empty-state message
+      from M10 still correctly shows once loading genuinely completes with zero results (not
+      permanently hidden by this fix)
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification — **actually reproduce Kev's exact rapid deselect/reselect sequence**
+      this time (not just a seeded-DB scenario check), confirm the flash is genuinely gone and a
+      visible loading state shows for the real computation span instead
