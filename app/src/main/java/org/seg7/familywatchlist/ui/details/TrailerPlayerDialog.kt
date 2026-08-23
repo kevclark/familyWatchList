@@ -508,9 +508,19 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
  * M9: extracted so the URL YouTube actually gets built with is independently unit-testable
  * (JVM, no `WebView`) without depending on the composable factory lambda executing. Deliberately
  * no `playsinline=1` — see the doc comment above [TrailerWebView] for why.
+ *
+ * `fs=0` (M9, Kev 2026-08-23): YouTube's own in-player fullscreen button is confirmed broken on
+ * (at least) Kev's real device — it pauses playback and falls back to an in-page resize instead
+ * of real fullscreen, confusingly sitting right next to the app's own working fullscreen control
+ * (`isManualFullscreen` above). `fs=0` is YouTube's own official IFrame Player parameter for
+ * removing that button from their controls entirely — not a CSS/DOM hack — so there's only one
+ * fullscreen control on screen, and it's the one that actually works. The three broken paths
+ * (`onShowCustomView`, the JS bridge, `PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID`) stay in
+ * the code untouched, per Kev's reversibility requirement — this only hides YouTube's *own*
+ * button, it doesn't remove any of the app's own handling of it if it ever does fire elsewhere.
  */
 internal fun trailerEmbedUrl(youTubeKey: String): String =
-    "https://www.youtube.com/embed/$youTubeKey?autoplay=1"
+    "https://www.youtube.com/embed/$youTubeKey?autoplay=1&fs=0"
 
 /** Name the wrapper page's injected JS uses to reach [FullscreenJsBridge] via [WebView.addJavascriptInterface]. */
 internal const val FULLSCREEN_JS_BRIDGE_NAME = "FwlFullscreenBridge"
