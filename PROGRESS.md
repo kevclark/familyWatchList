@@ -1996,3 +1996,38 @@ mechanism never touches YouTube's own player JS at all (unlike the native/JS-bri
 YouTube's own code was pausing as part of its broken fallback behavior). M9 is done —
 three failed attempts (DRM permission, `playsinline` removal, JS bridge) and one that worked
 (app-owned manual control), all preserved in the codebase per Kev's reversibility requirement.
+
+## M10 — Family Night shows nothing when the ad-hoc blend is genuinely empty (Kev, 2026-08-23)
+
+Selecting 2+ people in "Who's watching tonight?" produces no visible change at all — no
+"Family Night" row appears. Root cause confirmed via `adb logcat` (empty output, no
+exception/error) — `HomeViewModel.kt`'s `familyNightTrigger` collector runs the ad-hoc blend
+inside `runCatching { ... }.onFailure { _familyNightTitles.value = emptyList() }`, but nothing
+threw; the blend genuinely returned zero scored entries for the combination Kev tried. Most
+likely cause (not separately confirmed, but consistent with the empty-with-no-error result):
+after real filtering (already-watched/listed/dismissed titles, age-cap), nothing eligible was
+left for that specific pairing — a legitimate empty result, just never communicated to the user.
+Kev's own call, matches the finding exactly: **show an explanatory empty state instead of
+silently rendering nothing.**
+
+- [ ] `HomeScreen.kt`: when `familyNightSelectedIds.size >= 2` but `familyNightTitles.isEmpty()`
+      (currently the row just doesn't render at all in this case — check the exact conditional,
+      `state.familyNightSelectedIds.size >= 2 && state.familyNightTitles.isNotEmpty()`), show a
+      "Family Night" row/section anyway with a brief explanatory message instead of hiding it
+      entirely — something like "Nothing left that works for everyone selected right now" —
+      your call on exact wording, keep it short and match the app's existing empty-state copy
+      conventions (Search's "no services selected"/"nothing available" states,
+      `HomeViewModel`'s cold-start intro copy) rather than inventing a new tone
+- [ ] Distinguish this from the `< 2 selected` case, which should stay exactly as today (no row
+      at all, that's the correct default state, not an error/empty state)
+- [ ] Consider (implementation's call, don't over-build) whether `HomeUiState` needs a distinct
+      "computed but empty" vs "not yet computed for this selection" signal, or whether checking
+      `selectedIds.size >= 2 && titles.isEmpty() && !isLoading`-equivalent is sufficient — avoid
+      flashing the empty-state message during the debounce/network-fetch window before results
+      arrive
+- [ ] Tests: state renders the empty-message row correctly when 2+ selected with zero results,
+      and does NOT render anything when fewer than 2 are selected (regression)
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: reproduce Kev's actual scenario if possible (or a fixture-equivalent —
+      2+ profiles selected with a combined pool that filters to zero) and confirm the new
+      message actually appears instead of nothing
