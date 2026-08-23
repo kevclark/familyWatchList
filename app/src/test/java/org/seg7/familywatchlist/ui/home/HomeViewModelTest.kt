@@ -541,6 +541,41 @@ class HomeViewModelTest {
     }
 
     /**
+     * PROGRESS.md M11 (real-device flicker retest, 2026-08-23): Kev's confirmed root cause was a
+     * timing gap between [HomeViewModel.toggleFamilyNightProfile] updating the selection
+     * synchronously and [HomeUiState.familyNightLoading] only flipping `true` later, inside the
+     * debounced `familyNightTrigger` collector — a window where `selectedIds.size >= 2` was
+     * already true but `familyNightLoading` was still stale-`false`, which is exactly the window
+     * [HomeScreen]'s M10 empty-state condition (`selectedIds.size >= 2 && !familyNightLoading`)
+     * used to (wrongly) evaluate true in, flashing the empty-state message before the debounce
+     * fired. This proves the fix at the state layer (Compose rendering has no test harness in
+     * this codebase, per this file's other state-layer proofs): the instant the second profile is
+     * selected — well before [HomeViewModel.Companion.FAMILY_NIGHT_DEBOUNCE_MS] elapses or any
+     * network call happens — [HomeUiState.familyNightLoading] must already be `true` with
+     * [HomeUiState.familyNightTitles] still empty. That's the exact state
+     * [HomeScreen]'s new loading-indicator branch (checked *before* the empty-state branch) reads.
+     */
+    @Test
+    fun `selecting the second profile flips familyNightLoading true synchronously, before the debounced blend computation lands`() = runTest {
+        val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
+        val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
+        val vm = viewModel(watchlistRepository)
+        vm.uiState.first { it.familyNightProfiles.size == 2 }
+
+        vm.toggleFamilyNightProfile(a)
+        vm.toggleFamilyNightProfile(b)
+
+        val justSelected = vm.uiState.first { it.familyNightSelectedIds == setOf(a, b) }
+        assertTrue(justSelected.familyNightLoading)
+        assertTrue(justSelected.familyNightTitles.isEmpty())
+        // Confirms this really is the pre-debounce instant, not the computation's result having
+        // already landed — no request has been sent yet.
+        assertEquals(0, server.requestCount)
+    }
+
+    /**
      * PROGRESS.md M10: Kev's confirmed-live root cause — with nothing subscribed and neither
      * profile carrying an UP rating, [org.seg7.familywatchlist.data.repository.RecommendationRepository.refreshFamilyShortlist]'s
      * candidate pool is genuinely empty (no exception, `runCatching`'s `onFailure` never fires —
