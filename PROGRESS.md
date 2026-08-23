@@ -1668,21 +1668,46 @@ cleanly. Making the rest of the app (Home, Search, etc.) genuinely landscape-des
 bigger, separate task — nothing else has landscape-specific layout consideration yet — and is
 explicitly NOT part of this milestone.
 
-- [ ] Add `android:configChanges="orientation|screenSize|screenLayout"` to `MainActivity` in
+- [x] Add `android:configChanges="orientation|screenSize|screenLayout"` to `MainActivity` in
       `AndroidManifest.xml` so rotation doesn't destroy/recreate the Activity (and therefore
       doesn't blow away the trailer dialog's state or force-reload the WebView) — check whether
       this needs to be scoped somehow to only matter while the trailer's open, or whether
       handling it app-wide is fine/harmless given nothing else currently depends on
       orientation-triggered recreation (likely fine, but verify nothing relies on it, e.g. no
       screen currently reads configuration changes to reset transient state)
-- [ ] Confirm/adjust `TrailerPlayerDialog`'s layout so the player sensibly fills more of a
+      — verified app-wide is fine: grepped the codebase for `onConfigurationChanged` /
+      `screenOrientation`, found nothing, so no screen currently depends on config-change
+      Activity recreation to reset state.
+- [x] Confirm/adjust `TrailerPlayerDialog`'s layout so the player sensibly fills more of a
       landscape frame rather than staying pinned to a portrait-derived 16:9 box computed off a
       narrower width — the fullscreen overlay path (already `fillMaxSize`) may already handle
       this fine; the *normal* (non-fullscreen) embed's sizing is the part likely worth adjusting
-- [ ] Live verification: open a trailer in portrait, physically rotate the phone/emulator to
+      — outer container changed from `fillMaxWidth` (wrap-height) to `fillMaxSize`, with a
+      `BoxWithConstraints` picking `minOf(maxWidth, maxHeight * 16/9)` as the embed's width before
+      applying `aspectRatio(16f/9f)`, so the 16:9 box is bound by whichever dimension is tighter
+      (width in portrait, height in landscape) instead of always deriving off width alone — a
+      width-only box in landscape could otherwise ask for more height than the screen has.
+- [x] Live verification: open a trailer in portrait, physically rotate the phone/emulator to
       landscape mid-playback, confirm it reflows smoothly (video keeps playing, no reload/reset,
       no dialog dismissal) and looks sensible filling the wider frame; rotate back to portrait,
       confirm it also reflows back cleanly
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Explicitly out of scope, note if raised again separately: landscape layouts for the rest
-      of the app (Home, Search, title details, etc.)
+      — done on `family_test` emulator (`-gpu swangle`, GLES renderer confirmed via
+      `dumpsys SurfaceFlinger`) via `adb shell settings put system user_rotation`. Opened the
+      Reacher trailer, confirmed playback progressing (0:00 → 0:28 across the rotate), rotated to
+      landscape: video kept playing uninterrupted (visibly a later scene, not a reload back to
+      0:00), dialog stayed open, letterboxed sensibly with bars left/right instead of the
+      old width-derived box overflowing screen height. Rotated back to portrait: reflowed
+      cleanly back to the letterboxed-top/bottom 16:9 box, same continuous playback position.
+      Also sanity-checked YouTube's own fullscreen toggle in both orientations (tap the
+      in-player expand icon): portrait fullscreen fills more of the screen, landscape fullscreen
+      fills edge-to-edge with no letterbox bars; back exits fullscreen back to the normal
+      letterboxed player (position preserved) in both orientations, a second back dismisses the
+      dialog — the two-stage back state machine from the earlier fullscreen fix is unaffected by
+      the configChanges addition. Screenshots: `docs/m8-trailer-portrait.png`,
+      `docs/m8-trailer-landscape.png`, `docs/m8-trailer-back-to-portrait.png`,
+      `docs/m8-trailer-fullscreen-portrait.png`, `docs/m8-trailer-fullscreen-landscape.png`.
+- [x] `./gradlew test assembleDebug` green
+- [x] Explicitly out of scope, note if raised again separately: landscape layouts for the rest
+      of the app (Home, Search, title details, etc.) — confirmed still out of scope: with the
+      trailer dialog dismissed while the emulator was still in landscape, the details screen
+      underneath rendered exactly as before (no landscape-specific layout), as expected.

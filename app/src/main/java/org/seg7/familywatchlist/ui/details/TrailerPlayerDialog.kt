@@ -9,11 +9,13 @@ import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -94,19 +96,35 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false),
     ) {
         BackHandler(onBack = { onBackPressed.value() })
-        Box(modifier = Modifier.fillMaxWidth().background(Ink)) {
-            Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                TrailerWebView(
-                    youTubeKey = youTubeKey,
-                    onFullscreenShow = { view, callback ->
-                        fullscreenView = view
-                        fullscreenCallback = callback
-                    },
-                    onFullscreenHide = {
-                        fullscreenView = null
-                        fullscreenCallback = null
-                    },
-                )
+        // M8: fillMaxSize (not fillMaxWidth) + BoxWithConstraints below so the 16:9 embed is
+        // letterboxed against whichever dimension is tighter. In portrait the screen is narrower
+        // than it is tall, so width is the binding constraint (as it always was); in landscape
+        // the screen is wider than a 16:9 box computed off full width would be tall, so height
+        // becomes the binding constraint instead — without this a width-derived box in landscape
+        // could ask for more height than the screen has. The outer Box.fillMaxSize also gives the
+        // Ink background full-dialog coverage, so the letterboxed bars either side/above-below
+        // read as deliberate rather than leaving the scrim showing through.
+        Box(modifier = Modifier.fillMaxSize().background(Ink)) {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val targetWidth = minOf(maxWidth, maxHeight * 16f / 9f)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .width(targetWidth)
+                        .aspectRatio(16f / 9f),
+                ) {
+                    TrailerWebView(
+                        youTubeKey = youTubeKey,
+                        onFullscreenShow = { view, callback ->
+                            fullscreenView = view
+                            fullscreenCallback = callback
+                        },
+                        onFullscreenHide = {
+                            fullscreenView = null
+                            fullscreenCallback = null
+                        },
+                    )
+                }
             }
             if (fullscreenView == null) {
                 Box(

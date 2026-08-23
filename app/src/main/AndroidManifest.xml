@@ -22,7 +22,14 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.FamilyWatchList">
+            android:theme="@style/Theme.FamilyWatchList"
+            android:configChanges="orientation|screenSize|screenLayout">
+            <!-- M8: nothing else in the app depends on orientation-triggered Activity
+                 recreation (no onConfigurationChanged/screenOrientation elsewhere) - this only
+                 exists so a physical rotation while TrailerPlayerDialog is open reflows the
+                 WebView/Compose state in place instead of tearing the Activity down and
+                 reloading the YouTube embed from scratch. -->
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
