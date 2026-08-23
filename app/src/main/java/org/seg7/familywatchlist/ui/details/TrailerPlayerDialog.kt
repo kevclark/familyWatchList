@@ -1,10 +1,15 @@
 package org.seg7.familywatchlist.ui.details
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -23,8 +28,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -36,10 +44,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
 import org.seg7.familywatchlist.ui.theme.Chalk
 import org.seg7.familywatchlist.ui.theme.Dimens
@@ -99,6 +112,27 @@ import org.seg7.familywatchlist.ui.theme.Ink
  * more "real" one, confirmed correct on the emulator), and if `onShowCustomView` ever does fire
  * while [isJsFullscreen] is true (e.g. a device where both mechanisms happen to work), the native
  * path immediately clears it — see the `onFullscreenShow` lambda passed to `TrailerWebView` below.
+ *
+ * M9 (confirmed 2026-08-23): both of the above — the native hook *and* the standards-based JS
+ * `fullscreenchange` fallback — turned out to fail identically on Kev's real phone, which strongly
+ * suggests that WebView build's browser engine never actually completes the underlying Fullscreen
+ * API request at all. Chasing a third detection mechanism for the same broken signal isn't
+ * worthwhile, so [isManualFullscreen] instead sidesteps the Fullscreen API entirely: it's driven
+ * directly by the app's own "expand" icon (not by anything inside the WebView/YouTube's own
+ * controls), and resizes the same `TrailerWebView` to fill the dialog exactly like [isJsFullscreen]
+ * does, plus hides the real Android system status/navigation bars via
+ * [androidx.core.view.WindowInsetsControllerCompat] on the *Dialog's own* `Window` (reached via
+ * [androidx.compose.ui.window.DialogWindowProvider] from inside the Dialog's own content, not the
+ * hosting Activity's — confirmed live that's the Window that actually controls visible system bar
+ * rendering here, since it's the topmost one on screen), combined with
+ * `DialogProperties.decorFitsSystemWindows = false` while manual fullscreen is active, so Compose's
+ * own `Dialog` layout stops reserving system-bar-sized space and the video genuinely fills the
+ * freed-up area instead of leaving a gap — so it looks and behaves fullscreen regardless of
+ * whatever the WebView/DOM's own fullscreen state is (or isn't).
+ * This is purely additive alongside the other three paths (native/JS-bridge/manual all still
+ * coexist); native wins if it somehow fires while manual fullscreen is active (same "more real"
+ * precedence as above), but the manual toggle itself works independently of both Fullscreen-API
+ * paths and doesn't require either to be active or inactive.
  */
 @Composable
 fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
@@ -111,6 +145,10 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
     // the live WebView instance, so back/close can keep the page's own DOM fullscreen state in
     // sync with what Compose is showing (M9 §5).
     var exitJsFullscreenFn by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // M9: the app's own fullscreen control, entirely independent of the Fullscreen API/WebView —
+    // see the class doc comment above for why this exists as a fourth path alongside the other
+    // three rather than replacing any of them.
+    var isManualFullscreen by remember { mutableStateOf(false) }
 
     // rememberUpdatedState so the single BackHandler below always reads current fullscreen state
     // without needing to unregister/re-register its callback on every fullscreenView change.
@@ -122,6 +160,8 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
         } else if (isJsFullscreen) {
             exitJsFullscreenFn?.invoke()
             isJsFullscreen = false
+        } else if (isManualFullscreen) {
+            isManualFullscreen = false
         } else {
             onDismiss()
         }
@@ -131,10 +171,119 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         // dismissOnBackPress = false: the Dialog's own default back handling would unconditionally
         // dismiss (see the two-stage back explanation above) — BackHandler below owns back
-        // handling instead.
-        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false),
+        // handling instead. decorFitsSystemWindows is tied to isManualFullscreen (see the
+        // DisposableEffect below) so the Dialog's own layout only stops reserving system-bar space
+        // while manual fullscreen is actually active, leaving normal/other-fullscreen-path layout
+        // untouched.
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = false,
+            decorFitsSystemWindows = !isManualFullscreen,
+        ),
     ) {
         BackHandler(onBack = { onBackPressed.value() })
+
+        // M9: hides/restores the real Android system status/navigation bars for
+        // isManualFullscreen — the mechanism the previous two (Fullscreen-API-based) attempts
+        // never got to, since this doesn't depend on the WebView/DOM telling us anything. Keyed
+        // on isManualFullscreen so toggling it off restores the bars immediately (the old
+        // effect's onDispose runs before the new one starts), and also restores them if the
+        // dialog itself is dismissed/leaves composition while manual fullscreen is still active.
+        //
+        // Deliberately placed *inside* the Dialog's own content lambda (not in the outer
+        // composable body above): [LocalView.current] here resolves to the Dialog's own
+        // `AndroidComposeView`, whose parent is the actual [DialogWindowProvider] exposing the
+        // Dialog's own `Window` — confirmed live this is the Window that actually controls
+        // visible system bar rendering, since it's the topmost one on screen (calling this from
+        // the outer body instead resolves to the *Activity's* Window/view tree, one layer too far
+        // out — confirmed live that hiding bars there alone doesn't visibly take effect once the
+        // Dialog's own `decorFitsSystemWindows` has also been turned off, since the still-visible,
+        // topmost Dialog Window's own bar-visibility request wins).
+        val view = LocalView.current
+        val dialogWindow = remember(view) { (view.parent as? DialogWindowProvider)?.window }
+        // M9: also set on the Activity's own Window in case the Dialog sub-window's frame is
+        // computed relative to it — plausible given how TYPE_APPLICATION sub-windows work, though
+        // `dumpsys window` showed the Activity's Window frame was already full-display on this
+        // emulator, so this alone isn't what's pinning the Dialog's own frame short (see the
+        // honest result noted in the comment below). Harmless to keep either way.
+        val activityWindow = remember(view) { view.context.findActivity()?.window }
+        DisposableEffect(isManualFullscreen, dialogWindow, activityWindow) {
+            // M9: everything below (decorFitsSystemWindows on both Windows, forcing this Window's
+            // WindowManager.LayoutParams to MATCH_PARENT instead of Compose's own WRAP_CONTENT-
+            // driven sizing, clearing `fitInsetsTypes`, and the legacy FLAG_LAYOUT_IN_SCREEN/
+            // FLAG_LAYOUT_NO_LIMITS flags) is the standard, documented toolkit for getting a
+            // Window's real frame to span the full display rather than the inset-excluding
+            // "stable" content area. **Known limitation, confirmed live on this emulator**: even
+            // with all of it applied, `dumpsys window` still reported this Dialog sub-window's
+            // frame pinned a few dp short of the top of the display (`parent=[0,136]-[1080,2400]`
+            // on a 1080x2400 display), leaving a thin sliver at the very top where whatever's
+            // behind the dialog is technically visible, rather than the video extending
+            // genuinely edge-to-edge there — a real, open gap between this and a pixel-perfect
+            // result, most likely specific to how this WindowManager version positions
+            // `TYPE_APPLICATION` dialog sub-windows once they request hidden system bars. Left in
+            // as the correct, standards-based approach (harmless if inert on a given build) rather
+            // than reverted, since it may behave differently — or resolve this cleanly — on
+            // Kev's phone; flagged plainly in the M9 report rather than claimed as fully fixed.
+            // The previous width/height (Compose's own `WRAP_CONTENT` sizing) is restored on
+            // dispose either way, so none of this lingers into the Dialog's normal sizing.
+            val savedWidth = dialogWindow?.attributes?.width
+            val savedHeight = dialogWindow?.attributes?.height
+            var savedFitInsetsTypes = 0
+            // M9: captured here rather than re-reading `isManualFullscreen` inside `onDispose`
+            // below — by the time this *same* effect instance is torn down (because
+            // `isManualFullscreen` flipped back to `false`, which is exactly the key change that
+            // triggers disposal), the outer `isManualFullscreen` `var` has *already* changed to
+            // `false`, so `onDispose { if (isManualFullscreen) ... }` would silently skip its own
+            // cleanup — confirmed live: bars stayed hidden and the Window flags stayed applied
+            // after exiting manual fullscreen via back, exactly this bug.
+            val wasManualFullscreen = isManualFullscreen
+            if (isManualFullscreen) {
+                activityWindow?.let { WindowCompat.setDecorFitsSystemWindows(it, false) }
+                dialogWindow?.let { win ->
+                    WindowCompat.setDecorFitsSystemWindows(win, false)
+                    win.setLayout(
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                        WindowManager.LayoutParams.MATCH_PARENT,
+                    )
+                    // The legacy, pre-Insets-API flags for "don't constrain this window's frame to
+                    // the stable content area" — part of the standard toolkit noted in the comment
+                    // above, alongside decorFitsSystemWindows/fitInsetsTypes/MATCH_PARENT; see that
+                    // comment for the honest result (a small residual gap remained on this emulator
+                    // regardless).
+                    win.addFlags(
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    )
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        savedFitInsetsTypes = win.attributes.fitInsetsTypes
+                        win.attributes = win.attributes.apply { setFitInsetsTypes(0) }
+                    }
+                    val controller = WindowInsetsControllerCompat(win, view)
+                    controller.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    controller.hide(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+            onDispose {
+                if (wasManualFullscreen) {
+                    activityWindow?.let { WindowCompat.setDecorFitsSystemWindows(it, true) }
+                    dialogWindow?.let { win ->
+                        WindowInsetsControllerCompat(win, view).show(WindowInsetsCompat.Type.systemBars())
+                        WindowCompat.setDecorFitsSystemWindows(win, true)
+                        win.clearFlags(
+                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        )
+                        if (savedWidth != null && savedHeight != null) {
+                            win.setLayout(savedWidth, savedHeight)
+                        }
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            win.attributes = win.attributes.apply { setFitInsetsTypes(savedFitInsetsTypes) }
+                        }
+                    }
+                }
+            }
+        }
         // M8: fillMaxSize (not fillMaxWidth) + BoxWithConstraints below so the 16:9 embed is
         // letterboxed against whichever dimension is tighter. In portrait the screen is narrower
         // than it is tall, so width is the binding constraint (as it always was); in landscape
@@ -153,7 +302,7 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
             // WebView instance" (per the M9 design) means avoiding.
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val targetWidth = minOf(maxWidth, maxHeight * 16f / 9f)
-                val playerModifier = if (isJsFullscreen) {
+                val playerModifier = if (isJsFullscreen || isManualFullscreen) {
                     Modifier.fillMaxSize()
                 } else {
                     Modifier
@@ -165,9 +314,13 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
                     TrailerWebView(
                         youTubeKey = youTubeKey,
                         onFullscreenShow = { view, callback ->
-                            // Native path wins if both signal: clear any JS-driven fullscreen
-                            // state so the real onShowCustomView overlay is the one visible.
+                            // Native path wins if any other signal is also active: clear any
+                            // JS-driven or manual fullscreen state so the real onShowCustomView
+                            // overlay is the one visible. Defensive, not expected in practice —
+                            // onShowCustomView is confirmed not to fire at all on the device that
+                            // motivated isManualFullscreen, but code for the case anyway per M9 §4.
                             isJsFullscreen = false
+                            isManualFullscreen = false
                             fullscreenView = view
                             fullscreenCallback = callback
                         },
@@ -187,7 +340,32 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
                     )
                 }
             }
-            if (fullscreenView == null && !isJsFullscreen) {
+            // M9: this app's own fullscreen toggle — visible whenever the native onShowCustomView
+            // overlay isn't showing (that overlay covers the whole dialog itself, so this control
+            // wouldn't be reachable/visible underneath it anyway). Deliberately *not* gated on
+            // isJsFullscreen: per the M9 design this path works independently of either
+            // Fullscreen-API path, including the case where isJsFullscreen has resized the video
+            // but — per the bug this milestone exists to work around — never actually hidden the
+            // system status bar, so tapping this can still fix that on top of the JS path.
+            if (fullscreenView == null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(Dimens.Gutter)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x800B0B0D))
+                        .clickableNoRipple { isManualFullscreen = !isManualFullscreen },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (isManualFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                        contentDescription = if (isManualFullscreen) "Exit fullscreen" else "Enter fullscreen",
+                        tint = Chalk,
+                    )
+                }
+            }
+            if (fullscreenView == null && !isJsFullscreen && !isManualFullscreen) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -214,6 +392,20 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * M9: [LocalView]'s `context` is typically a wrapped `ContextThemeWrapper` around the hosting
+ * Activity's `Context`, not the `Activity` itself — needed to reach the Activity's `Window` (see
+ * the [DisposableEffect] above for why both it and the Dialog's own Window are needed). Standard
+ * Compose pattern for this (no existing precedent for it elsewhere in this codebase): unwrap
+ * [ContextWrapper] layers until an [Activity] turns up, or `null` if none does (e.g. a
+ * non-Activity host).
+ */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 /**
