@@ -23,6 +23,7 @@ import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.remote.TmdbClient
+import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
@@ -85,6 +86,7 @@ class MyListViewModelTest {
             titleRepository = titleRepository,
             discoverRepository = discoverRepository,
             providerRepository = providerRepository,
+            availabilityGate = AvailabilityGate(titleRepository, providerRepository),
             profileRepository = profileRepository,
             profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
             familyProfileRepository = familyProfileRepository,

@@ -67,6 +67,29 @@ object FamilyBlend {
     }
 
     /**
+     * PLAN.md §4/§8 (M3h, widened in M11): the "unknown = unsafe" variant of [isOverCap], for
+     * paths where a candidate's certification may not have been fetched yet at all — TMDB's
+     * `/discover` and `/recommendations` stubs carry no certification data, so [isOverCap]'s
+     * default "unknown certification never excludes" would let an unrated-so-far title reach a
+     * capped viewer completely unfiltered. M3h built this rule first as a private
+     * `TitleEntity.survivesAgeCap` extension scoped only to
+     * [org.seg7.familywatchlist.ui.home.HomeViewModel]'s Popular row / cold-start hero; M11 found
+     * the exact same gap in [org.seg7.familywatchlist.data.repository.RecommendationRepository]'s
+     * shared `scoreCandidates` (used by both the regular per-profile "For You" shortlist and the
+     * Family Night blend) and pulled the rule out here so both call sites — and any future one —
+     * share one implementation instead of two independently-maintained copies of "is this
+     * confirmed safe for this cap".
+     *
+     * True (safe to show) when [cap] is null (no cap set — completely unaffected, matching
+     * [isOverCap]'s own null-cap short-circuit) **or** [certification] is non-null and not over
+     * [cap] per [isOverCap]. False whenever [cap] is set and [certification] is null/unrecognised
+     * — the one behavioural difference from [isOverCap], which stays exactly as permissive as
+     * before for every caller that hasn't opted into this stricter variant.
+     */
+    fun isConfirmedUnderCap(certification: String?, cap: String?): Boolean =
+        cap == null || (certification != null && !isOverCap(certification, cap))
+
+    /**
      * PLAN.md §4: "apply the strictest ageRatingCap among them." Null means "no cap" for that
      * profile and never tightens the result; an unrecognised (non-UK-cert) string is ignored for
      * ranking purposes rather than crashing, since it can't be compared — real GB certifications

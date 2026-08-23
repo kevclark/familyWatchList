@@ -27,13 +27,20 @@ import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
  * this title BUY/RENT, with no FLATRATE/FREE option at all" — used by Search/details/My List UI
  * to show "Rent/Buy" instead of implying it's included with a subscription.
  *
- * **This class is never called by [RecommendationRepository.gatherCandidatePool]** — the
- * recommender's whole candidate pool comes from [DiscoverRepository]'s `/discover` (filtered
- * TMDB-side by the untouched `with_watch_monetization_types = "flatrate|free"`) and
- * `/recommendations`, neither of which reads `provider_availability` at all. So widening this
- * gate's *own* resolution set (by persisting BUY/RENT rows) has no path back into Home's
- * Popular/For You rows or the recommender's scoring — see
- * [RecommendationRepositoryTest]'s M6 regression test, which proves it rather than just asserting it.
+ * **Historical note (superseded by M11):** until M11, [RecommendationRepository] never called
+ * this class at all — its whole candidate pool came from [DiscoverRepository]'s `/discover`
+ * (filtered TMDB-side by the untouched `with_watch_monetization_types = "flatrate|free"`) and
+ * `/recommendations`, and *neither* code path read `provider_availability`. That turned out to
+ * be a real gap, not a safe simplification: `/recommendations` has no region/availability
+ * concept at all, so a UK-unavailable title could reach a candidate pool through it unfiltered
+ * (confirmed live: "Mexicali"). M11 closed this — [RecommendationRepository.scoreCandidates] now
+ * runs every surviving candidate (both `/discover`- and `/recommendations`-sourced; see its own
+ * kdoc for why checking `/discover`-sourced candidates too is a deliberate, harmless choice, not
+ * scope creep) through [isAvailableOnSubscribedProvider] — the same instance, same method,
+ * Search already used — before it's eligible for scoring at all. The BUY/RENT-widening story
+ * above is otherwise unaffected: [RecommendationRepositoryTest]'s M6 regression test still proves
+ * that widening *which kinds count as available* doesn't change candidate selection, now against
+ * a repository that *does* call this gate for every one of its candidates.
  */
 class AvailabilityGate(
     private val titleRepository: TitleRepository,

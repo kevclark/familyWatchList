@@ -116,6 +116,7 @@ class SearchViewModelTest {
             titleRepository = titleRepository,
             discoverRepository = discoverRepository,
             providerRepository = providerRepository,
+            availabilityGate = gate,
             profileRepository = profileRepository,
             profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
             familyProfileRepository = familyProfileRepository,

@@ -20,14 +20,17 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.AttrType
+import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
 import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.recommend.RecommenderSpec
 import org.seg7.familywatchlist.data.recommend.SliderSettings
 import org.seg7.familywatchlist.data.remote.TmdbClient
+import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
@@ -90,6 +93,7 @@ class TunePicksViewModelTest {
             titleRepository = titleRepository,
             discoverRepository = discoverRepository,
             providerRepository = providerRepository,
+            availabilityGate = AvailabilityGate(titleRepository, providerRepository),
             profileRepository = profileRepository,
             profileSlidersRepository = profileSlidersRepository,
             familyProfileRepository = familyProfileRepository,
@@ -387,6 +391,19 @@ class TunePicksViewModelTest {
         val kevId = profileRepository.addProfile("Kev", "avatar", null).getOrThrow()
         val samId = profileRepository.addProfile("Sam", "avatar", null).getOrThrow()
         familyProfileRepository.save("Family", "avatar", listOf(kevId, samId)).getOrThrow()
+        // M11: RecommendationRepository.scoreCandidates now also requires
+        // AvailabilityGate.isAvailableOnSubscribedProvider to pass — subscribe a fixture provider
+        // (matched by candidate 7000's own watch/providers response below) and pre-seed its
+        // /discover pages as cached-empty so this stays a pure /recommendations-driven fixture,
+        // same trick as RecommendationRepositoryTest's seedEmptyDiscoverCache.
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
+            (1..org.seg7.familywatchlist.data.repository.RecommendationRepository.CANDIDATE_PAGES).forEach { page ->
+                db.discoverCacheDao().upsertAll(
+                    listOf(DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis())),
+                )
+            }
+        }
         // Past FAMILY_PROFILE_SENTINEL_ID's own cold-start threshold — mirrors
         // RecommendationRepositoryTest.seedWarmFamily exactly, including its *mixed* Comedy(4)/
         // Drama(1) genre split (never all-one-genre): PLAN.md §4's IDF damping fully zeroes an
@@ -429,7 +446,7 @@ class TunePicksViewModelTest {
                   "credits": {"cast": [], "crew": []},
                   "keywords": {"keywords": []},
                   "videos": {"results": []},
-                  "watch/providers": {"results": {}},
+                  "watch/providers": {"results": {"GB": {"flatrate": [{"provider_id": 8, "provider_name": "Netflix"}]}}},
                   "release_dates": {"results": []}
                 }
                 """.trimIndent(),

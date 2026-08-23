@@ -18,6 +18,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
+import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
 import org.seg7.familywatchlist.data.local.entity.FamilyProfileEntity
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProfileEntity
@@ -27,6 +28,7 @@ import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.remote.TmdbClient
+import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
@@ -97,6 +99,7 @@ class HomeViewModelTest {
             titleRepository = titleRepository,
             discoverRepository = discoverRepository,
             providerRepository = providerRepository,
+            availabilityGate = AvailabilityGate(titleRepository, providerRepository),
             profileRepository = profileRepository,
             profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao()),
             familyProfileRepository = familyProfileRepository,
@@ -473,6 +476,20 @@ class HomeViewModelTest {
         val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
         val c = profileRepository.addProfile("C", "avatar", null).getOrThrow()
         db.ratingDao().upsert(RatingEntity(b, 1, MediaType.MOVIE, RatingValue.UP, clock.current))
+        // M11: RecommendationRepository.scoreCandidates now also requires
+        // AvailabilityGate.isAvailableOnSubscribedProvider to pass — subscribe a fixture provider
+        // (matched by candidate 999's own watch/providers response below) and pre-seed its
+        // /discover pages as cached-empty so this stays a pure /recommendations-driven fixture
+        // (the "nothing subscribed" comment further down still holds for the *transient* A+C
+        // selection's request count, just not for whether B's candidate can ever be available).
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
+            (1..RecommendationRepository.CANDIDATE_PAGES).forEach { page ->
+                db.discoverCacheDao().upsertAll(
+                    listOf(DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis())),
+                )
+            }
+        }
         server.enqueue(
             MockResponse(
                 body = """
@@ -485,7 +502,7 @@ class HomeViewModelTest {
                 body = """
                     {"id":999,"title":"Family Pick","release_date":"2026-08-01","runtime":100,"vote_average":8.0,"vote_count":500,"popularity":50.0,
                      "genres":[{"id":35,"name":"Comedy"}],"credits":{"cast":[],"crew":[]},"keywords":{"keywords":[]},"videos":{"results":[]},
-                     "watch/providers":{"results":{}},
+                     "watch/providers":{"results":{"GB":{"flatrate":[{"provider_id":8,"provider_name":"Netflix"}]}}},
                      "release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"PG","type":3,"release_date":"2026-08-01T00:00:00.000Z"}]}]}}
                 """.trimIndent()
             )
@@ -501,8 +518,8 @@ class HomeViewModelTest {
         assertEquals(setOf(a), vm.uiState.first { it.familyNightSelectedIds == setOf(a) }.familyNightSelectedIds)
         assertEquals(0, server.requestCount)
 
-        // A + C (neither carries the UP rating that drives the recommendation candidate, and
-        // nothing is subscribed) then swap C for B — all before ever awaiting anything, so the
+        // A + C (neither carries the UP rating that drives the recommendation candidate) then
+        // swap C for B — all before ever awaiting anything, so the
         // debounce coalesces every toggle here into a single compute of whatever the selection
         // is once we finally await it: {A, B}. Waiting on the *titles* actually appearing (not
         // just the selection updating) forces a real wait for refreshFamilyShortlist's full
