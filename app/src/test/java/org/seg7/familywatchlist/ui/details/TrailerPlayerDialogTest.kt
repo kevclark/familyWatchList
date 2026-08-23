@@ -53,7 +53,7 @@ class TrailerPlayerDialogTest {
     fun trailerEmbedUrl_hasAutoplayAndNoPlaysinline() {
         val url = trailerEmbedUrl("dQw4w9WgXcQ")
 
-        assertEquals("https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1", url)
+        assertEquals("https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1&fs=0", url)
         assertFalse(url.contains("playsinline"))
     }
 
