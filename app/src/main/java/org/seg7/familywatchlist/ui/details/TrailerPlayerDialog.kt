@@ -195,7 +195,30 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
  * page's JS successfully enters/exits fullscreen. Both callbacks are forwarded to the
  * `onFullscreenShow`/`onFullscreenHide` lambdas so [TrailerPlayerDialog] — which owns the
  * Compose-side fullscreen state — can swap in YouTube's own fullscreen `View` as an overlay.
+ *
+ * M9: the embed URL previously carried `playsinline=1`. That parameter's whole purpose is telling
+ * the *browser*, not just iOS Safari specifically, to keep video playback inline and never hand
+ * off to a native/system fullscreen surface — directly opposed to what [onShowCustomView] needs
+ * (it only fires when the page's JS actually invokes the real Fullscreen API instead of an
+ * in-page CSS resize). On the emulator's WebView/Chromium build this had no visible effect and
+ * `onShowCustomView` fired anyway, but on Kev's real phone it didn't: tapping YouTube's fullscreen
+ * control there paused playback and resized the video in place while the status bar stayed
+ * visible — YouTube's in-page CSS fallback, not real fullscreen. `playsinline` is documented by
+ * YouTube itself as primarily an iOS Safari concern; this app is Android-only, so it's dropped
+ * here rather than made conditional. Checked for the opposite regression this risks — Android
+ * doesn't auto-invoke fullscreen just because `autoplay=1` fires; entering fullscreen still
+ * requires the page's JS to call the Fullscreen API, which YouTube's player only does from an
+ * explicit user tap on its own fullscreen control — confirmed live on the emulator: autoplay
+ * starts inline in the normal 16:9 dialog, no forced fullscreen jump.
  */
+/**
+ * M9: extracted so the URL YouTube actually gets built with is independently unit-testable
+ * (JVM, no `WebView`) without depending on the composable factory lambda executing. Deliberately
+ * no `playsinline=1` — see the doc comment above [TrailerWebView] for why.
+ */
+internal fun trailerEmbedUrl(youTubeKey: String): String =
+    "https://www.youtube.com/embed/$youTubeKey?autoplay=1"
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun TrailerWebView(
@@ -232,7 +255,7 @@ private fun TrailerWebView(
                         onFullscreenHide()
                     }
                 }
-                val embedUrl = "https://www.youtube.com/embed/$youTubeKey?autoplay=1&playsinline=1"
+                val embedUrl = trailerEmbedUrl(youTubeKey)
                 val html = """
                     <!DOCTYPE html>
                     <html><head><style>html,body{height:100%;width:100%;margin:0;padding:0;background:#000}iframe{width:100%;height:100%;border:0}</style></head>
