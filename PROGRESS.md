@@ -1567,25 +1567,32 @@ side, regardless of anything Android does. Separately, `TrailerWebView`'s `WebCh
 overrides `onPermissionRequest` — there's no `onShowCustomView`/`onHideCustomView`, which is the
 callback Android's WebView actually needs to present a real fullscreen view when a page's JS
 successfully requests one. Both are needed; either alone isn't enough.
-- [ ] Add `allow="fullscreen"` (alongside the existing `autoplay; encrypted-media`) to the
-      `<iframe>` tag in `TrailerWebView`'s HTML wrapper
-- [ ] Implement `onShowCustomView(view, callback)`/`onHideCustomView()` on the `WebChromeClient`
-      — standard pattern: add the provided `View` full-screen over the WebView (e.g. into the
-      Activity's content root, or an overlay within the existing `Dialog`), hide the normal
-      WebView content while it's showing, remove it and restore on `onHideCustomView`. Check
-      whether Android's predictive-back/manifest `enableOnBackInvokedCallback` handling (M4a)
-      needs anything special so back-while-fullscreen exits fullscreen first rather than closing
-      the whole trailer dialog in one step — natural expectation is back button exits fullscreen,
-      a second back closes the dialog.
-- [ ] Consider (implementation's call, not mandatory) whether entering fullscreen should also
-      request landscape orientation for the activity, matching standard video-fullscreen UX, and
-      correctly restore portrait on exit — don't over-build this if it adds real complexity/risk,
-      a simple "just bigger, still portrait" fullscreen is an acceptable v1 if landscape handling
-      turns out messy
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: tap YouTube's own fullscreen control inside the trailer player and
-      confirm it actually goes fullscreen, and that back/close correctly exits fullscreen first
-      before closing the dialog entirely
+- [x] Added `fullscreen` to the `<iframe>`'s `allow` list *and* the legacy boolean
+      `allowfullscreen` attribute (belt and braces — confirmed live via WebView console log
+      `"Allow attribute will take precedence over 'allowfullscreen'"`, so both are honoured,
+      whichever a given Chromium/WebView build checks) in `TrailerWebView`'s HTML wrapper
+- [x] Implemented `onShowCustomView(view, callback)`/`onHideCustomView()` on the
+      `WebChromeClient`, forwarded up to `TrailerPlayerDialog` via new `onFullscreenShow`/
+      `onFullscreenHide` params on `TrailerWebView`. `TrailerPlayerDialog` holds the fullscreen
+      `View`/`CustomViewCallback` as Compose state and renders either the normal 16:9 embed or a
+      `fillMaxSize` `AndroidView` overlay showing the fullscreen `View` on top of it — no reach
+      into the host Activity's window needed, it's all within the existing `Dialog`.
+      Back-while-fullscreen: `DialogProperties(dismissOnBackPress = false)` (the Dialog's default
+      `true` unconditionally dismissed even mid-fullscreen — confirmed live) plus a single
+      `BackHandler` that branches on current fullscreen state via `rememberUpdatedState` — first
+      back exits fullscreen, second back closes the dialog. Confirmed live end-to-end.
+- [x] Landscape orientation: considered, not implemented. `MainActivity`/manifest have no existing
+      orientation-locking to build on, and forcing landscape only during WebView fullscreen would
+      mean either locking the whole Activity's orientation (affecting the details screen
+      underneath once the dialog closes, since it's the same Activity, not a separate one) or a
+      more surgical per-window approach not worth the risk for a nice-to-have — portrait-but-bigger
+      fullscreen (YouTube's IFrame Player fills the overlay either way) is the shipped v1.
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification: tapped YouTube's own fullscreen control inside the trailer player on a
+      real emulator (swangle GPU) — confirmed it genuinely goes fullscreen (screenshots:
+      `docs/fullscreen-fix-before.png`, `docs/fullscreen-fix-active.png`), first back exits
+      fullscreen back to the normal player (`docs/fullscreen-fix-after-back.png`, not the whole
+      dialog), second back closes the trailer dialog entirely back to the details screen.
 
 ## M7 — In-app "About this build" AI-transparency screen (Kev, 2026-08-22)
 

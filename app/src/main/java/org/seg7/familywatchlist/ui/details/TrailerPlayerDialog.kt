@@ -1,6 +1,7 @@
 package org.seg7.familywatchlist.ui.details
 
 import android.annotation.SuppressLint
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -9,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,6 +19,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,36 +53,85 @@ import org.seg7.familywatchlist.ui.theme.Ink
  * = false)` lets the dialog's content fill the screen instead of Dialog's default wrap-content
  * width.
  *
- * Back handling: [Dialog] already intercepts system/predictive back and calls [onDismiss] by
- * default (its own `onDismissRequest`), which composes fine with the manifest's
- * `enableOnBackInvokedCallback="true"` from M4a — no separate `BackHandler` is needed for the
- * dismiss itself. It's still declared here (scoped to this composable, i.e. only while the
- * dialog is in composition) purely as a defensive backstop matching PROGRESS.md's ask that back
- * closes *only* the modal, not the details screen underneath; since the caller unconditionally
- * removes this composable from composition on dismiss, both mechanisms agree.
+ * Back handling: originally [Dialog]'s own `dismissOnBackPress` (default `true`) intercepted
+ * system/predictive back and called [onDismiss] directly at the Android level — fine for a
+ * single-stage dismiss, but presenting a real fullscreen `View` (below) needs a two-stage back:
+ * exit fullscreen first, close the dialog on a second press. `dismissOnBackPress = false` turns
+ * off the Dialog's own handling and hands back entirely to the single [BackHandler] below, which
+ * branches on `fullscreenView` at call time (via [onBackPressed], a [rememberUpdatedState] so the
+ * handler always reads current state without needing to re-register). Confirmed live on a real
+ * emulator for the full sequence: fullscreen → back exits fullscreen back to the normal 16:9
+ * player → back again closes the dialog.
+ *
+ * Fullscreen (YouTube's own on-screen control, not this app's UI): the [WebChromeClient] callback
+ * pair `onShowCustomView`/`onHideCustomView` — the standard Android hook for a WebView page that
+ * calls the Fullscreen API — is wired from [TrailerWebView] up into [fullscreenView]/
+ * [fullscreenCallback] state held here, so this composable can render either the normal 16:9
+ * embed or a full-size overlay showing YouTube's own fullscreen `View` on top of it.
  */
 @Composable
 fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
-    BackHandler(onBack = onDismiss)
+    var fullscreenView by remember { mutableStateOf<View?>(null) }
+    var fullscreenCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+
+    // rememberUpdatedState so the single BackHandler below always reads current fullscreen state
+    // without needing to unregister/re-register its callback on every fullscreenView change.
+    val onBackPressed = rememberUpdatedState<() -> Unit> {
+        if (fullscreenView != null) {
+            fullscreenCallback?.onCustomViewHidden()
+            fullscreenView = null
+            fullscreenCallback = null
+        } else {
+            onDismiss()
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        // dismissOnBackPress = false: the Dialog's own default back handling would unconditionally
+        // dismiss (see the two-stage back explanation above) — BackHandler below owns back
+        // handling instead.
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false),
     ) {
+        BackHandler(onBack = { onBackPressed.value() })
         Box(modifier = Modifier.fillMaxWidth().background(Ink)) {
             Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                TrailerWebView(youTubeKey = youTubeKey)
+                TrailerWebView(
+                    youTubeKey = youTubeKey,
+                    onFullscreenShow = { view, callback ->
+                        fullscreenView = view
+                        fullscreenCallback = callback
+                    },
+                    onFullscreenHide = {
+                        fullscreenView = null
+                        fullscreenCallback = null
+                    },
+                )
             }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(Dimens.Gutter)
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x800B0B0D))
-                    .clickableNoRipple(onDismiss),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Filled.Close, contentDescription = "Close trailer", tint = Chalk)
+            if (fullscreenView == null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(Dimens.Gutter)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x800B0B0D))
+                        .clickableNoRipple(onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close trailer", tint = Chalk)
+                }
+            }
+            fullscreenView?.let { view ->
+                key(view) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize().background(Color.Black),
+                        factory = {
+                            (view.parent as? ViewGroup)?.removeView(view)
+                            view
+                        },
+                    )
+                }
             }
         }
     }
@@ -109,10 +166,25 @@ fun TrailerPlayerDialog(youTubeKey: String, onDismiss: () -> Unit) {
  * only ever loads content we construct ourselves (the wrapper HTML, whose only child navigation is
  * the fixed `youtube.com/embed/...` URL) — there's no arbitrary/untrusted content that could
  * request this permission.
+ *
+ * Fullscreen: a nested `<iframe>` can't call the Fullscreen API at all unless its parent page
+ * explicitly permits it, so the iframe carries both `fullscreen` in its `allow` list (the modern
+ * Permissions-Policy-based mechanism) *and* the legacy boolean `allowfullscreen` attribute (still
+ * what some Chromium/WebView versions check) — belt and braces, since which one a given
+ * WebView-backing Chromium build honours isn't guaranteed. That only grants the *browser-side*
+ * permission to request fullscreen; presenting it is Android's job via
+ * [WebChromeClient.onShowCustomView]/[WebChromeClient.onHideCustomView], which fire when the
+ * page's JS successfully enters/exits fullscreen. Both callbacks are forwarded to the
+ * `onFullscreenShow`/`onFullscreenHide` lambdas so [TrailerPlayerDialog] — which owns the
+ * Compose-side fullscreen state — can swap in YouTube's own fullscreen `View` as an overlay.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun TrailerWebView(youTubeKey: String) {
+private fun TrailerWebView(
+    youTubeKey: String,
+    onFullscreenShow: (View, WebChromeClient.CustomViewCallback) -> Unit,
+    onFullscreenHide: () -> Unit,
+) {
     val context = LocalContext.current
     AndroidView(
         modifier = Modifier.fillMaxWidth(),
@@ -133,6 +205,14 @@ private fun TrailerWebView(youTubeKey: String) {
                     override fun onPermissionRequest(request: PermissionRequest) {
                         request.grant(arrayOf(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID))
                     }
+
+                    override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                        onFullscreenShow(view, callback)
+                    }
+
+                    override fun onHideCustomView() {
+                        onFullscreenHide()
+                    }
                 }
                 val embedUrl = "https://www.youtube.com/embed/$youTubeKey?autoplay=1&playsinline=1"
                 val html = """
@@ -141,7 +221,8 @@ private fun TrailerWebView(youTubeKey: String) {
                     <body>
                         <iframe src="$embedUrl"
                                 referrerpolicy="strict-origin-when-cross-origin"
-                                allow="autoplay; encrypted-media"
+                                allow="autoplay; encrypted-media; fullscreen"
+                                allowfullscreen
                                 frameborder="0"></iframe>
                     </body></html>
                 """.trimIndent()
