@@ -1730,3 +1730,44 @@ reaches our `onShowCustomView` handling at all. **Not investigated further tonig
 couldn't get a screenshot across (Android phone, no Claude installed there; on laptop, not his
 iOS phone). Needs a screenshot/screen recording of the actual icons involved before attempting
 another fix — don't guess at this one blind.
+
+## M9 — Real-device-only fullscreen fallback: `onShowCustomView` never fires on Kev's phone
+(Kev, 2026-08-23, with screenshots this time)
+
+Screenshots confirmed (not two icons, one): tapping the single "opposing arrows" control pauses
+playback and resizes the video within its existing box — **but the Android status bar (time,
+battery, signal icons) stays visible throughout**, proving real Android fullscreen never
+engages. What's showing is YouTube's own in-page CSS fallback layout, not our
+`onShowCustomView` overlay — confirmed working correctly on the emulator, so this is a genuine
+real-device-only divergence, most likely a WebView/Chromium build difference between the
+emulator and Kev's phone.
+
+**Leading hypothesis (investigated via code read + web research before any fix attempted, per
+Kev's "dig first, no fixes until I say so" instruction):** the embed URL includes
+`playsinline=1` (`TrailerPlayerDialog.kt`'s `TrailerWebView`). That parameter's whole purpose is
+telling mobile browsers "don't take over native video fullscreen, keep it inline" — which is in
+direct tension with `onShowCustomView`, Android's callback specifically for that native-video-
+fullscreen-takeover mechanism. On some WebView/Chromium builds this can make YouTube's
+fullscreen button fall back to an in-page resize instead of calling the real Fullscreen API path
+our callback listens for. Per YouTube's own IFrame API docs, `playsinline` is primarily an
+*iOS Safari* concern (this app is Android-only) — so it may be doing little useful here and
+could be safe/low-risk to remove or make conditional.
+
+- [ ] Try removing `playsinline=1` from the embed URL (or making it conditional) as the primary
+      fix attempt — check live whether this restores real `onShowCustomView`-based fullscreen
+      on a device, and whether it introduces a *different* regression (e.g. video force-jumping
+      to native fullscreen the moment autoplay starts, before any tap) — if so, that's a
+      real trade-off to weigh, not silently accept
+- [ ] If that alone doesn't fix it, consider a JS-based fallback: listen for the
+      `fullscreenchange` event on the wrapper page's document via `evaluateJavascript` +
+      a `JavascriptInterface` bridge, and manually drive the Compose fullscreen overlay state
+      from that event instead of relying solely on `onShowCustomView` firing — a more robust
+      but more involved path, only worth it if the simpler fix doesn't hold up
+- [ ] **The emulator cannot validate this bug at all** — it already "passed" and clearly isn't
+      reproducing what Kev's phone does. Any fix needs Kev to actually reinstall and test on his
+      real phone (via the laptop wireless-ADB path) before being considered confirmed — say so
+      plainly in the report rather than declaring success from emulator testing alone
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: whatever's practical on the emulator (confirm no regression to the
+      already-working emulator fullscreen path), but the real gate is Kev's own phone —
+      report honestly that final confirmation is pending his test
