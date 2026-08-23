@@ -2064,10 +2064,14 @@ for capped profiles, but scoped that fix ONLY to the Popular row / cold-start he
 (`DiscoverRepository`'s path) — `scoreCandidates` here was never covered by that audit. Same
 class of gap M3h already fixed elsewhere, just a different call site that got missed.
 
-- [ ] Apply the same M3h rule here: for a non-null `ageCap`, require *confirmed* certification
+- [x] Apply the same M3h rule here: for a non-null `ageCap`, require *confirmed* certification
       at-or-under the cap — exclude both over-cap AND unknown-certification titles. Uncapped
       profiles (`ageCap == null`) unaffected. Reuse the exact shared check M3h already built
       (`FamilyBlend`/wherever the Popular-row fix lives) — do not write a second implementation.
+      **Done:** M3h's rule had only ever been built as a private `HomeViewModel.survivesAgeCap`
+      extension, not actually shared — pulled it out into `FamilyBlend.isConfirmedUnderCap`
+      (M3h's exact logic, unchanged) so `RecommendationRepository.scoreCandidates` and
+      `HomeViewModel` both call the one implementation now.
 
 **Gap 2 — recommendation-sourced candidates bypass UK availability filtering entirely.**
 `gatherCandidatePool` (line ~420) builds its pool from three sources: `discoverMovies`/
@@ -2078,17 +2082,27 @@ all**. Nothing filters `recommendationStubs` by actual GB availability before sc
 exactly how "Mexicali" (confirmed by Kev as flagged "not available in the UK" on its own detail
 screen) got suggested at all.
 
-- [ ] `recommendationStubs` need the same availability check Search/watchlist already use
+- [x] `recommendationStubs` need the same availability check Search/watchlist already use
       (`AvailabilityGate`/`isAvailableOnSubscribedProvider` — reuse it, don't reinvent) applied
       before they're merged into the candidate pool, or filtered out during `scoreCandidates`
       alongside the age-cap check. Note this may need a provider-availability fetch/cache-check
       per candidate (same pattern Search already does for progressive availability resolution) —
       check `SearchRepository.kt`'s existing "search-then-check" pattern for the reusable
       mechanism rather than building a new one.
-- [ ] Audit whether `discoverMovies`/`discoverTv`-sourced candidates could also go stale (TTL
+      **Done:** filtered in `scoreCandidates`, right after the age-cap check — both checks need
+      the same `ensureFresh` detail fetch, and by that point watched/listed/dismissed candidates
+      are already gone, so nothing pays for an availability check it didn't need. Applied
+      uniformly to every candidate (not just `recommendationStubs`) rather than threading source
+      provenance through `TitleKey` — a `/discover`-sourced candidate re-checking is a redundant
+      cache read, not a behavioural change, and this closes the audit item below for free.
+- [x] Audit whether `discoverMovies`/`discoverTv`-sourced candidates could also go stale (TTL
       expiry) in a way that lets an availability change slip through unnoticed — probably out of
       scope for this milestone if the existing 7-day TTL/refresh mechanism already covers it, but
       confirm rather than assume.
+      **Confirmed, and now doubly covered:** `scoreCandidates`'s uniform availability check (above)
+      means every candidate — `/discover`- or `/recommendations`-sourced — gets a real
+      `AvailabilityGate` check against current `provider_availability` state every refresh, not
+      just a trust-the-TTL assumption.
 
 **Minor, same investigation — Family Night flicker.** Deselecting/reselecting rapidly shows the
 new M10 empty-state message for under a second before the row disappears again. Likely a
@@ -2096,20 +2110,32 @@ sequencing/debounce artifact from rapid toggle events processing in a queue rath
 data bug — lower priority than the two safety/correctness gaps above, but worth a look while in
 this code. Don't let this block or complicate the fix for gaps 1/2 above.
 
-- [ ] Investigate the flicker — check whether `familyNightTrigger`'s plain `.debounce().collect`
+- [x] Investigate the flicker — check whether `familyNightTrigger`'s plain `.debounce().collect`
       (not `collectLatest`) is processing a queue of stale toggle events sequentially rather than
       cancelling superseded ones; `collectLatest` may be the more correct operator here if so.
+      **Done:** switched to `collectLatest` — a newer trigger now cancels an in-flight iteration
+      instead of letting an already-superseded selection's computation run to completion and
+      briefly overwrite the row with the M10 empty-state message.
 
 **Testing (this touches shared, safety-relevant code — treat accordingly):**
-- [ ] Regression tests proving Home's regular "For You" shortlist (`refreshProfileShortlist`)
+- [x] Regression tests proving Home's regular "For You" shortlist (`refreshProfileShortlist`)
       is provably unaffected in cases it was already correct, and provably fixed for both gaps
       where it wasn't
-- [ ] Tests proving the ad-hoc Family Night blend excludes both over-cap and uncertain-
+- [x] Tests proving the ad-hoc Family Night blend excludes both over-cap and uncertain-
       certification titles for a capped combination
-- [ ] Tests proving a title with no UK availability (or only via `recommendations`, not
+- [x] Tests proving a title with no UK availability (or only via `recommendations`, not
       `discover`) never appears in either recommendation path
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification — this is data/logic, not platform-specific, so the emulator should be
+- [x] `./gradlew test assembleDebug` green (441 unit tests, 0 failures)
+- [x] Live verification — this is data/logic, not platform-specific, so the emulator should be
       sufficient (unlike the trailer fullscreen saga): reproduce a scenario with a known
       over-cap/uncertain-certification title and a known UK-unavailable title in the candidate
       pool, confirm neither appears in Family Night or For You after the fix
+      **Done, on `family_test` (`-gpu swangle`, verified ANGLE/Vulkan renderer live):** seeded a
+      capped ("12") profile directly via `run-as sqlite3`, plus three fabricated recommendation
+      candidates never reachable via `/discover` — an unconfirmed-certification title, a
+      confirmed-PG title with zero `provider_availability` rows (the "Mexicali" shape), and a
+      confirmed-PG/available control. Both the regular "For You" row and the ad-hoc Family Night
+      chip-row blend (Kid + a second profile selected) showed *only* the control candidate —
+      screenshots at `docs/m11-foryou-capped-gap1-gap2-excluded.png` and
+      `docs/m11-familynight-adhoc-blend-gap1-gap2-excluded.png`. Emulator shut down with
+      `adb emu kill` after.
