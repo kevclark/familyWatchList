@@ -1985,3 +1985,14 @@ precisely to the manual-fullscreen window with no ambiguity about when it starts
       confirmed portrait and unstuck in all cases. Screenshot:
       `docs/m9-landscape-lock-active.png`.
 - [x] `./gradlew test assembleDebug` green
+
+**M9 confirmed working on Kev's real phone, 2026-08-23.** Initial report of "no change, status
+bar still visible" turned out to be tapping the wrong icon — YouTube's own (still-broken) native
+fullscreen control out of habit from the earlier failed attempts, not the new app-owned one
+(top-start, separate from YouTube's UI). Once he tapped the correct icon: confirmed working —
+real fullscreen, status bar hidden, landscape auto-rotate all functioning. **Bonus, unplanned
+fix:** the earlier "tapping fullscreen pauses playback" symptom is also gone, since this
+mechanism never touches YouTube's own player JS at all (unlike the native/JS-bridge paths, which
+YouTube's own code was pausing as part of its broken fallback behavior). M9 is done —
+three failed attempts (DRM permission, `playsinline` removal, JS bridge) and one that worked
+(app-owned manual control), all preserved in the codebase per Kev's reversibility requirement.
