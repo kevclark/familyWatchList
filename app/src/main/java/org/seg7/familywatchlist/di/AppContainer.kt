@@ -140,6 +140,7 @@ class AppContainer(context: Context) {
             titleRepository = titleRepository,
             discoverRepository = discoverRepository,
             providerRepository = providerRepository,
+            availabilityGate = availabilityGate,
             profileRepository = profileRepository,
             profileSlidersRepository = profileSlidersRepository,
             familyProfileRepository = familyProfileRepository,

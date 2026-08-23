@@ -4,6 +4,7 @@ import java.time.Duration
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -18,10 +19,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.AttrType
+import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
-import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
-import org.seg7.familywatchlist.data.local.entity.ProviderKind
+import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
 import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
@@ -41,10 +42,24 @@ import org.seg7.familywatchlist.testutil.buildInMemoryDb
 /**
  * PLAN.md §4/§4a's orchestration layer — exclusions (watched/listed/dismissed/age-cap), cold
  * start, and persistence. Deliberately not re-proving the scoring math itself (that's
- * `data/recommend`'s job, covered by its own fixture tests); a zero-subscribed-provider setup
- * skips the `/discover` pages entirely (PLAN.md §7 M2e precedent — no network call at all with
- * nothing subscribed) so each test controls its candidate pool purely through one
- * `/recommendations` response, keeping the MockWebServer scripting small and exact.
+ * `data/recommend`'s job, covered by its own fixture tests).
+ *
+ * **M11 setup change:** before M11, a zero-subscribed-provider setup skipped the `/discover`
+ * pages entirely (PLAN.md §7 M2e precedent) *and* let every `/recommendations` candidate through
+ * unconditionally (the gap M11 fixed) — so this suite ran with literally nothing subscribed,
+ * controlling its candidate pool purely through `/recommendations` responses. M11 makes
+ * [org.seg7.familywatchlist.data.repository.AvailabilityGate.isAvailableOnSubscribedProvider]
+ * (correctly) require *something* subscribed before *any* candidate — `/discover` or
+ * `/recommendations` — can pass, so [setUp] now subscribes one fixture provider
+ * ([SUBSCRIBED_PROVIDER_ID]) by default. To keep this suite's `/discover`-skipping property
+ * (still desirable — most tests want to control their pool purely via `/recommendations`,
+ * unrelated to this milestone), [setUp] also pre-seeds an empty discover-cache row per
+ * `/discover` query [RecommendationRepository.gatherCandidatePool] would otherwise issue for that
+ * one subscribed provider, so those pages resolve as "cached, empty" instead of a real network
+ * call — see [seedEmptyDiscoverCache]. [movieDetailJson] defaults its `watch/providers` payload
+ * to that same subscribed provider so every existing "candidate survives" test keeps working
+ * unchanged; tests that want the M11 unavailable-candidate case pass `providerId = null` (or an
+ * unsubscribed id) explicitly.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -58,6 +73,9 @@ class RecommendationRepositoryTest {
     private lateinit var familyProfileRepository: FamilyProfileRepository
 
     private val today: LocalDate = LocalDate.of(2026, 8, 20)
+
+    /** M11: the one provider [setUp] subscribes by default — see the class kdoc's "M11 setup change". */
+    private val SUBSCRIBED_PROVIDER_ID = 8
 
     @Before
     fun setUp() {
@@ -83,6 +101,7 @@ class RecommendationRepositoryTest {
         val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
+        val availabilityGate = AvailabilityGate(titleRepository, providerRepository)
         profileRepository = ProfileRepository(db.profileDao(), clock)
         profileSlidersRepository = ProfileSlidersRepository(db.profileSlidersDao())
         familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
@@ -95,18 +114,53 @@ class RecommendationRepositoryTest {
             titleRepository = titleRepository,
             discoverRepository = discoverRepository,
             providerRepository = providerRepository,
+            availabilityGate = availabilityGate,
             profileRepository = profileRepository,
             profileSlidersRepository = profileSlidersRepository,
             familyProfileRepository = familyProfileRepository,
             shortlistDao = db.shortlistDao(),
             clock = clock,
         )
+
+        // M11: see the class kdoc's "M11 setup change" — subscribe one fixture provider so
+        // AvailabilityGate has something to resolve "available" against, and pre-seed its
+        // /discover pages as cached-empty so that subscription doesn't turn into 12 real network
+        // calls this suite never scripts for.
+        runBlocking {
+            db.providerDao().upsertAll(listOf(ProviderEntity(SUBSCRIBED_PROVIDER_ID, "Netflix", null, subscribed = true, displayPriority = 1)))
+            seedEmptyDiscoverCache(listOf(SUBSCRIBED_PROVIDER_ID))
+        }
     }
 
     @After
     fun tearDown() {
         server.close()
         db.close()
+    }
+
+    /**
+     * M11: pre-seeds a "cached, empty" `discover_cache` row for every `/discover` page
+     * [RecommendationRepository.gatherCandidatePool] would issue for [providerIds] (movie + tv,
+     * pages 1..[RecommendationRepository.CANDIDATE_PAGES]) — subscribing a provider makes
+     * `gatherCandidatePool` call `DiscoverRepository.discoverMovies`/`discoverTv` for real
+     * (they only short-circuit with *zero* providers subscribed), and this suite doesn't script
+     * MockWebServer responses for those calls. `tmdbId = -1` deliberately matches no real
+     * [org.seg7.familywatchlist.data.local.entity.TitleEntity] row, so
+     * `DiscoverRepository`'s cache-hit path resolves to an empty list without ever touching the
+     * network — see [DiscoverCacheEntity]'s kdoc for the cache's actual read path. The queryHash
+     * format (`"$endpoint:${providerIds.sorted().joinToString(",")}:$region:$page"`) replicates
+     * `DiscoverRepository`'s own private `queryHash` — there's no public seam to reuse it
+     * directly, so this is intentionally kept in exact lockstep with that private function; a
+     * change to the hash format there would need the same change made here.
+     */
+    private suspend fun seedEmptyDiscoverCache(providerIds: List<Int>, region: String = "GB") {
+        val now = clock.nowMillis()
+        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
+            (1..RecommendationRepository.CANDIDATE_PAGES).forEach { page ->
+                val queryHash = "$endpoint:${providerIds.sorted().joinToString(",")}:$region:$page"
+                db.discoverCacheDao().upsertAll(listOf(DiscoverCacheEntity(queryHash, tmdbId = -1, mediaType, ord = 0, fetchedAt = now)))
+            }
+        }
     }
 
     /**
@@ -306,46 +360,164 @@ class RecommendationRepositoryTest {
     }
 
     /**
-     * M6 regression (PLAN.md §5 "Paid (rent/buy) titles" addendum, Kev's highest-risk callout):
-     * the recommender's candidate pool must be provably unaffected by widening
-     * `provider_availability` to also persist BUY/RENT rows. Proven two ways in one test:
-     *  1. [RecommendationRepository]'s constructor takes no [AvailabilityGate] at all — there is
-     *     no shared helper for a BUY/RENT-widened Search/watchlist check to leak through, because
-     *     this class never calls the gate in the first place (structural proof, not just this
-     *     test's behaviour).
-     *  2. Even with a BUY/RENT-only `provider_availability` row already sitting in Room for this
-     *     candidate before the refresh runs (exactly what a prior Search hit on this same title
-     *     — post-M6 — would have left behind), the candidate is scored and shortlisted completely
-     *     normally: `provider_availability`'s *content* has zero influence on whether a
-     *     `/recommendations`-sourced candidate is included, so persisting more kinds into that
-     *     table cannot change this outcome. (Candidate *selection* itself is governed solely by
-     *     [DiscoverRepository]'s untouched `with_watch_monetization_types=flatrate|free` —
-     *     covered separately in `DiscoverRepositoryTest`.)
+     * M6 regression (PLAN.md §5 "Paid (rent/buy) titles" addendum, Kev's highest-risk callout),
+     * **updated by M11** now that [RecommendationRepository] genuinely does call [AvailabilityGate]
+     * (M11 gap 2 — it didn't before, which is what the old version of this test's "structural
+     * proof" #1 relied on; that half of the claim no longer holds and has been removed rather than
+     * left stale). What this still proves: a candidate whose *only* subscribed-provider
+     * availability is BUY/RENT (no FLATRATE/FREE at all) is scored and shortlisted completely
+     * normally — M6's "BUY/RENT counts equally" rule, exercised through
+     * [AvailabilityGate.isAvailableOnSubscribedProvider] itself now that M11 wired it in, rather
+     * than through an unreachable pre-seeded Room row (the old version's manual
+     * `providerAvailabilityDao` seed never actually reached [scoreCandidates] — the real detail
+     * fetch below unconditionally replaces `provider_availability` for a stub-only title, so the
+     * seed was silently overwritten before this class had a code path that would've read it
+     * anyway). Provider 2 is deliberately *subscribed* here — M11's fix requires a subscribed
+     * provider before anything can pass — with a RENT-only GB entry in the detail response.
      */
     @Test
     fun `M6 regression -- a candidate with only BUY-RENT provider_availability rows is scored normally, unaffected by the paid widening`() = runTest {
         val id = seedWarmProfile()
-        // Simulates what M6's widened TmdbMappers would have already persisted for this title
-        // from an earlier, unrelated Search hit — BUY/RENT only, no FLATRATE/FREE at all.
-        db.providerAvailabilityDao().upsertAll(
-            listOf(
-                ProviderAvailabilityEntity(
-                    tmdbId = 999,
-                    mediaType = MediaType.MOVIE,
-                    providerId = 2,
-                    kind = ProviderKind.RENT,
-                    fetchedAt = clock.nowMillis(),
+        db.providerDao().upsertAll(listOf(ProviderEntity(2, "Apple TV", null, subscribed = true, displayPriority = 2)))
+        seedEmptyDiscoverCache(listOf(SUBSCRIBED_PROVIDER_ID, 2)) // now two subscribed providers -> a different /discover query hash than setUp's own seed
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Great Match")))
+        server.enqueue(
+            MockResponse(
+                body = movieDetailJson(
+                    id = 999, title = "Great Match", genreId = 35, genreName = "Comedy", certification = "PG",
+                    providerId = 2, providerKind = "rent",
                 ),
             ),
         )
-        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Great Match")))
-        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Great Match", genreId = 35, genreName = "Comedy", certification = "PG")))
 
         val entries = repo.refreshProfileShortlist(id, region = "GB")
 
         assertEquals(1, entries.size)
         assertEquals(999, entries.single().tmdbId)
         assertEquals(ShortlistState.SUGGESTED, entries.single().state)
+    }
+
+    // --- M11 gap 1: uncertain-certification titles excluded for capped viewers (FamilyBlend.isConfirmedUnderCap) ---
+
+    /**
+     * M11 gap 1 (regression for a real bug: "suggestions way above the age cap"). Before this
+     * fix, [RecommendationRepository]'s `scoreCandidates` called [FamilyBlend.isOverCap] directly
+     * — "unknown certification never excludes" — so a `/recommendations`-sourced candidate TMDB
+     * has no GB certification on file for could reach a capped profile's regular "For You"
+     * shortlist completely unfiltered, exactly as though it had passed a real check. [certification]
+     * `null` here (via [movieDetailJson]) is the genuine "TMDB really doesn't know" shape, not a
+     * network failure — the detail fetch itself succeeds.
+     */
+    @Test
+    fun `M11 gap 1 -- a candidate with unconfirmed certification is excluded from a capped profile's regular For You shortlist`() = runTest {
+        val id = seedWarmProfile(ageRatingCap = "12")
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Uncertain Cert")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Uncertain Cert", genreId = 35, genreName = "Comedy", certification = null)))
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(emptyList<ShortlistEntryEntity>(), entries)
+    }
+
+    /**
+     * The other half of M11 gap 1's guarantee (matching M3h's own): an *uncapped* profile is
+     * completely unaffected by this fix — the exact same unconfirmed-certification candidate that
+     * gap 1's test above excludes for a capped profile must still be scored and shortlisted
+     * normally here, proving [FamilyBlend.isConfirmedUnderCap]'s `cap == null` short-circuit is
+     * wired correctly at this call site (not just proven in isolation by `FamilyBlendTest`).
+     */
+    @Test
+    fun `M11 gap 1 -- the same unconfirmed-certification candidate is unaffected for an uncapped profile`() = runTest {
+        val id = seedWarmProfile(ageRatingCap = null)
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Uncertain Cert")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Uncertain Cert", genreId = 35, genreName = "Comedy", certification = null)))
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(listOf(999), entries.map { it.tmdbId })
+    }
+
+    /**
+     * M11 gap 1, the ad-hoc Family Night blend specifically (the surface the live bug report was
+     * actually about): a capped combination must exclude *both* an over-cap candidate (already
+     * covered pre-M11 via [FamilyBlend.isOverCap]) *and* an unconfirmed-certification one (the gap)
+     * from the who's-watching chip row's blend, not just from a persisted shortlist. `cappedMember`
+     * and `uncappedMember` share the same UP-rated title (both built via [seedWarmProfile]), so
+     * exactly one `/recommendations` call returns both candidates; [FamilyBlend.strictestCap]
+     * resolves the pair's effective cap to `"12"`, over which both 910 (rated "18") and 920
+     * (unconfirmed) must be excluded.
+     */
+    @Test
+    fun `M11 gap 1 -- refreshFamilyShortlist (ad-hoc blend) excludes both an over-cap and an uncertain-certification candidate for a capped combination`() = runTest {
+        val cappedMember = seedWarmProfile(ageRatingCap = "12", name = "Kid")
+        val uncappedMember = seedWarmProfile(ageRatingCap = null, name = "Adult")
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(listOf(910, 920))))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 910, title = "Too Old", genreId = 35, genreName = "Comedy", certification = "18")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 920, title = "Uncertain Cert", genreId = 35, genreName = "Comedy", certification = null)))
+
+        val entries = repo.refreshFamilyShortlist(listOf(cappedMember, uncappedMember), region = "GB", FamilyBlendSlider.DEFAULT, persist = false)
+
+        assertEquals(emptyList<ShortlistEntryEntity>(), entries)
+    }
+
+    // --- M11 gap 2: recommendation-sourced candidates with no UK provider availability excluded (AvailabilityGate) ---
+
+    /**
+     * M11 gap 2 (regression for a real bug, confirmed live: "Mexicali" — flagged unavailable in
+     * the UK on its own detail screen — still got suggested). [999] is reachable *only* via
+     * `/recommendations` in this fixture (never via `/discover`, which this suite's setup skips —
+     * see the class kdoc), with `providerId = null` in its detail response — TMDB's genuine
+     * "no GB provider availability at all" shape, exactly what a title unavailable in the UK looks
+     * like once detail-fetched. Proven against the regular per-profile "For You" path.
+     */
+    @Test
+    fun `M11 gap 2 -- a candidate reachable only via recommendations, with no UK provider availability, is excluded from the regular For You shortlist`() = runTest {
+        val id = seedWarmProfile()
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Mexicali")))
+        server.enqueue(
+            MockResponse(body = movieDetailJson(id = 999, title = "Mexicali", genreId = 35, genreName = "Comedy", certification = "PG", providerId = null)),
+        )
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(emptyList<ShortlistEntryEntity>(), entries)
+    }
+
+    /** The same M11 gap 2 fixture as above, proven against the ad-hoc Family Night blend — the surface the live bug report was actually about. */
+    @Test
+    fun `M11 gap 2 -- the same UK-unavailable, recommendations-only candidate is excluded from the ad-hoc Family Night blend`() = runTest {
+        val a = seedWarmProfile()
+        val b = seedWarmProfile()
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Mexicali")))
+        server.enqueue(
+            MockResponse(body = movieDetailJson(id = 999, title = "Mexicali", genreId = 35, genreName = "Comedy", certification = "PG", providerId = null)),
+        )
+
+        val entries = repo.refreshFamilyShortlist(listOf(a, b), region = "GB", FamilyBlendSlider.DEFAULT, persist = false)
+
+        assertEquals(emptyList<ShortlistEntryEntity>(), entries)
+    }
+
+    /**
+     * M11 gap 2's other side, so the fix isn't provably "reject everything": a candidate that
+     * *does* have GB availability, but only on a provider the family doesn't subscribe to, must
+     * also be excluded — [AvailabilityGate.isAvailableOnSubscribedProvider]'s "available" means
+     * "available on something we actually pay for", not just "available somewhere in the UK".
+     * Provider 99 is deliberately never subscribed in this suite.
+     */
+    @Test
+    fun `M11 gap 2 -- a candidate available in the UK, but not on any subscribed provider, is still excluded`() = runTest {
+        val id = seedWarmProfile()
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Elsewhere")))
+        server.enqueue(
+            MockResponse(
+                body = movieDetailJson(id = 999, title = "Elsewhere", genreId = 35, genreName = "Comedy", certification = "PG", providerId = 99),
+            ),
+        )
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(emptyList<ShortlistEntryEntity>(), entries)
     }
 
     /**
@@ -607,6 +779,10 @@ class RecommendationRepositoryTest {
         assertEquals(30, profileSlidersRepository.getSuggestionCount(id))
 
         clock.advanceBy(Duration.ofDays(8).toMillis()) // past the 24h /recommendations cache TTL and into a new week
+        // M11: 8 days also expires this suite's seeded-empty /discover cache (24h TTL, same as
+        // /recommendations) — re-seed so the second refresh's now-non-empty-provider discover
+        // calls still resolve from cache rather than hitting the (unscripted) network.
+        seedEmptyDiscoverCache(listOf(SUBSCRIBED_PROVIDER_ID))
 
         val recoveredPool = (6000 until 6035).toList() // 35 eligible, comfortably above the requested 30
         server.enqueue(MockResponse(body = recommendationsJsonMulti(recoveredPool)))
@@ -819,7 +995,31 @@ class RecommendationRepositoryTest {
         }
     """.trimIndent()
 
-    private fun movieDetailJson(id: Int, title: String, genreId: Int, genreName: String, certification: String) = """
+    /**
+     * [certification] `null` produces a GB `release_dates` entry with no certification at all —
+     * TMDB's real "genuinely no certification on file" shape — for M11's "uncertain
+     * certification" fixtures; a blank string in that slot maps to `null` too
+     * ([org.seg7.familywatchlist.data.repository.TmdbMappers]' `gbCertification`), which this
+     * uses rather than omitting the GB entry entirely (either shape produces the same
+     * `certification = null` result once mapped).
+     *
+     * [providerId]/[providerKind] (M11) default to [SUBSCRIBED_PROVIDER_ID]/`"flatrate"` — a
+     * subscribed, included-with-subscription GB provider — so every pre-M11 call site here
+     * (which never set these) keeps landing on an *available* candidate unchanged. Pass
+     * [providerId] `null` for a title with zero GB provider availability at all (M11's "reachable
+     * only via /recommendations, unavailable in the UK" fixture); pass an id that isn't
+     * [SUBSCRIBED_PROVIDER_ID] for "available, but not on anything this family actually pays
+     * for" (also excluded, same check).
+     */
+    private fun movieDetailJson(
+        id: Int,
+        title: String,
+        genreId: Int,
+        genreName: String,
+        certification: String?,
+        providerId: Int? = SUBSCRIBED_PROVIDER_ID,
+        providerKind: String = "flatrate",
+    ) = """
         {
           "id": $id,
           "title": "$title",
@@ -832,12 +1032,19 @@ class RecommendationRepositoryTest {
           "credits": {"cast": [], "crew": []},
           "keywords": {"keywords": []},
           "videos": {"results": []},
-          "watch/providers": {"results": {}},
+          "watch/providers": {"results": ${gbProvidersJson(providerId, providerKind)}},
           "release_dates": {
             "results": [
-              {"iso_3166_1": "GB", "release_dates": [{"certification": "$certification", "type": 3, "release_date": "2026-08-01T00:00:00.000Z"}]}
+              {"iso_3166_1": "GB", "release_dates": [{"certification": "${certification ?: ""}", "type": 3, "release_date": "2026-08-01T00:00:00.000Z"}]}
             ]
           }
         }
     """.trimIndent()
+
+    private fun gbProvidersJson(providerId: Int?, kind: String): String =
+        if (providerId == null) {
+            "{}"
+        } else {
+            """{"GB": {"$kind": [{"provider_id": $providerId, "provider_name": "Provider $providerId"}]}}"""
+        }
 }

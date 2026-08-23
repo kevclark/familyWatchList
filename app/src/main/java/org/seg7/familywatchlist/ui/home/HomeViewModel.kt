@@ -407,9 +407,14 @@ class HomeViewModel(
      * cap; an uncapped profile ([cap] null) is completely unaffected (short-circuits true before
      * touching certification at all — zero behavioural change for the common case). No new network
      * calls: this only narrows which already-fetched candidates qualify for display.
+     *
+     * M11: the rule itself now lives in [FamilyBlend.isConfirmedUnderCap] — pulled out once
+     * [org.seg7.familywatchlist.data.repository.RecommendationRepository]'s `scoreCandidates`
+     * needed the exact same "unknown = unsafe" behaviour — this is a thin delegate kept for the
+     * `TitleEntity` receiver call sites below.
      */
     private fun TitleEntity.survivesAgeCap(cap: String?): Boolean =
-        cap == null || (certification != null && !FamilyBlend.isOverCap(certification, cap))
+        FamilyBlend.isConfirmedUnderCap(certification, cap)
 
     private data class DiscoverState(
         val movies: List<TitleEntity> = emptyList(),

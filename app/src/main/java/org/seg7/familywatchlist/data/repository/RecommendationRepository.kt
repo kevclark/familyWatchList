@@ -77,6 +77,7 @@ class RecommendationRepository(
     private val titleRepository: TitleRepository,
     private val discoverRepository: DiscoverRepository,
     private val providerRepository: ProviderRepository,
+    private val availabilityGate: AvailabilityGate,
     private val profileRepository: ProfileRepository,
     private val profileSlidersRepository: ProfileSlidersRepository,
     private val familyProfileRepository: FamilyProfileRepository,
@@ -416,6 +417,15 @@ class RecommendationRepository(
      * titles across the given profiles. Excludes titles already watched by any of [profileIds]
      * and anything currently on the shared ACTIVE Want-to-Watch list (PLAN.md §4: "Listed titles
      * are excluded from shortlist candidates — you already know about them").
+     *
+     * Availability filtering for the `/recommendations`-sourced half of this pool (M11 — see
+     * [scoreCandidates]'s kdoc) deliberately does *not* happen here: it needs a real detail fetch
+     * ([TitleRepository.ensureFresh]) the same way the age-cap check does, and this function is
+     * specifically the cheap, network-light filtering pass (watched/listed dedup) that every
+     * candidate goes through *before* anything that might touch the network — doing the
+     * availability check here too would mean a dismissed/already-watched/already-listed
+     * candidate's detail gets needlessly fetched before [excludeDismissed]/this function's own
+     * watched/listed filter ever gets a chance to drop it for free.
      */
     private suspend fun gatherCandidatePool(profileIds: List<Long>, region: String): List<TitleKey> {
         val subscribed = providerRepository.getSubscribedIds()
@@ -458,7 +468,40 @@ class RecommendationRepository(
 
     /**
      * PLAN.md §4: detail-fetches (offline-first via [TitleRepository.ensureFresh]) each
-     * candidate, drops anything over [ageCap], and scores the rest against [vector].
+     * candidate, drops anything over [ageCap] (or, for a capped profile, anything with
+     * unconfirmed certification data — M11, see [FamilyBlend.isConfirmedUnderCap]), and scores
+     * the rest against [vector].
+     *
+     * **M11 safety fix:** this used to call [FamilyBlend.isOverCap] directly, the "unknown
+     * certification never excludes" default — correct for an *already-scored* title (this
+     * function always detail-fetches via [TitleRepository.ensureFresh] just above, so
+     * `title.certification` reflects TMDB's real answer, not a bare `/discover`/`/recommendations`
+     * stub), but M3h established (for the same reason, at the Popular-row/cold-start-hero call
+     * site) that "unknown" still has to mean "exclude" for a *capped* profile specifically — TMDB
+     * genuinely has no certification on file for plenty of titles, and treating that as "safe" is
+     * the wrong default the moment a cap actually applies. [FamilyBlend.isConfirmedUnderCap] is
+     * the exact same shared rule M3h built (pulled out to `FamilyBlend` by this milestone so both
+     * call sites — and Home's — share one implementation); an uncapped profile ([ageCap] null) is
+     * completely unaffected, matching M3h's own guarantee.
+     *
+     * **M11 gap 2:** also drops anything that fails [AvailabilityGate.isAvailableOnSubscribedProvider]
+     * — [gatherCandidatePool]'s `movieStubs`/`tvStubs` (from [DiscoverRepository.discoverMovies]/
+     * `discoverTv`) are already correctly region/subscription-gated TMDB-side
+     * (`with_watch_monetization_types=flatrate|free`, M6's own guarantee), but its
+     * `recommendationStubs` (from TMDB's `/movie|tv/{id}/recommendations`) have **no region or
+     * availability concept at all** — before this fix, a title with zero UK streaming
+     * availability (confirmed live: "Mexicali", flagged unavailable on its own detail screen)
+     * could still reach a capped or uncapped viewer purely because it was TMDB-similar to
+     * something rated UP. Checked here, alongside the age-cap check, rather than in
+     * [gatherCandidatePool]: both checks need this same [TitleRepository.ensureFresh] call
+     * ([AvailabilityGate] reuses it, so this is a cache hit, not a second network round trip),
+     * and by this point [pool] has already had watched/listed ([gatherCandidatePool]) and
+     * dismissed ([excludeDismissed]) candidates removed — so a candidate that would've been
+     * excluded anyway never pays for an availability check at all. Applied uniformly to every
+     * candidate regardless of source (not just `recommendationStubs`): re-checking an
+     * already-gated `/discover` candidate is a redundant cache read, not a behavioural change,
+     * and this also closes the "could `/discover` candidates go stale between fetch and
+     * scoring" question flagged during M11's audit — same mechanism, same fix, for free.
      */
     private suspend fun scoreCandidates(
         pool: List<TitleKey>,
@@ -470,7 +513,8 @@ class RecommendationRepository(
     ): List<ScoredCandidate> {
         return pool.mapNotNull { key ->
             val title = titleRepository.ensureFresh(key.tmdbId, key.mediaType, region)
-            if (FamilyBlend.isOverCap(title.certification, ageCap)) return@mapNotNull null
+            if (!FamilyBlend.isConfirmedUnderCap(title.certification, ageCap)) return@mapNotNull null
+            if (!availabilityGate.isAvailableOnSubscribedProvider(key.tmdbId, key.mediaType, region)) return@mapNotNull null
             val attrEntities = titleAttributeDao.getForTitle(key.tmdbId, key.mediaType)
             val attrs = attrEntities.toAttrKeys()
             val candidate = ScoringCandidate(key, attrs, title.voteAverage, title.voteCount, title.year)
