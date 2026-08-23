@@ -203,13 +203,19 @@ fun HomeScreen(
             }
             // M10: below the "2+ selected" threshold the row stays exactly as it always has —
             // nothing at all, the correct default state, not an error/empty state. At 2+
-            // selected there are now two distinct outcomes to render rather than one: a real
-            // blend, or (PROGRESS.md M10) an explanatory empty state for a combination that
-            // genuinely has nothing left in common — never silently nothing, which is
-            // indistinguishable from "you haven't picked 2 people yet". [familyNightLoading]
-            // withholds the empty-state message during the debounce/network window so a fresh
-            // chip tap doesn't flash it before real results land.
-            if (state.familyNightSelectedIds.size >= 2 && state.familyNightTitles.isNotEmpty()) {
+            // selected there are now three distinct outcomes to render rather than one: a real
+            // blend, the genuine-computation-in-flight loading state (M11), or (PROGRESS.md M10)
+            // an explanatory empty state for a combination that genuinely has nothing left in
+            // common — never silently nothing, which is indistinguishable from "you haven't
+            // picked 2 people yet". [familyNightLoading] is now set synchronously the instant a
+            // chip tap brings the selection to 2+ (see HomeViewModel.toggleFamilyNightProfile's
+            // kdoc) so this branch — not the empty-state message below — is what actually shows
+            // for the whole ~7-8s ad-hoc blend computation span.
+            if (state.familyNightSelectedIds.size >= 2 && state.familyNightLoading) {
+                item(key = "family-night-loading") {
+                    FamilyNightLoadingState()
+                }
+            } else if (state.familyNightSelectedIds.size >= 2 && state.familyNightTitles.isNotEmpty()) {
                 item(key = "family-night-row") {
                     PosterCarousel(
                         title = "Family Night",
@@ -224,7 +230,7 @@ fun HomeScreen(
                         )
                     }
                 }
-            } else if (state.familyNightSelectedIds.size >= 2 && !state.familyNightLoading) {
+            } else if (state.familyNightSelectedIds.size >= 2) {
                 item(key = "family-night-empty") {
                     FamilyNightEmptyState()
                 }
@@ -684,6 +690,41 @@ private fun FamilyNightEmptyState() {
         ) {
             Text(
                 text = "Nothing left that works for everyone selected right now.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ChalkMuted,
+            )
+        }
+    }
+}
+
+/**
+ * M11: shown for the genuine ~7-8s span while the ad-hoc Family Night blend is being computed —
+ * live TMDB calls, nothing persisted/cached for this path (see HomeViewModel's `familyNightTrigger`
+ * collector kdoc). Reuses the top-bar refresh spinner's convention (small `CircularProgressIndicator`,
+ * `Chalk`, 2dp stroke — PLAN.md §5b M3i item 3) rather than inventing a new loading visual, plus a
+ * one-line status so the wait doesn't read as the app having silently done nothing.
+ */
+@Composable
+private fun FamilyNightLoadingState() {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(title = "Family Night")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.Gutter)
+                .clip(MaterialTheme.shapes.medium)
+                .background(InkRaised)
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CircularProgressIndicator(
+                color = Chalk,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = "Finding a pick for everyone…",
                 style = MaterialTheme.typography.bodyMedium,
                 color = ChalkMuted,
             )

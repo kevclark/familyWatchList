@@ -2155,12 +2155,18 @@ where the M10 empty-state condition (`selectedIds.size >= 2 && !familyNightLoadi
 evaluates true and flashes the message, before the debounce fires, sets loading, and hides it
 again for the genuine ~7-8s computation. Two separate things to fix:
 
-- [ ] **Close the timing gap.** Set `_familyNightLoading.value = true` **synchronously** in
+- [x] **Close the timing gap.** Set `_familyNightLoading.value = true` **synchronously** in
       `toggleFamilyNightProfile` itself whenever the resulting selection size is `>= 2` (not only
       later inside the debounced collector) — and `false` immediately when it drops below 2.
       This closes the window entirely rather than narrowing it, since the loading flag now
       changes in lockstep with the selection itself.
-- [ ] **The ~7-8 second wait is real, not itself a bug** (live TMDB calls for this uncached
+      **Done:** `toggleFamilyNightProfile` (`HomeViewModel.kt`) now sets
+      `_familyNightLoading.value = _familyNightSelection.value.size >= 2` synchronously right
+      after updating the selection, before `familyNightTrigger.tryEmit(Unit)`. The debounced
+      collector's own later `= true`/`= false` writes are untouched — its `= true` is now
+      redundant-but-harmless for the 2+ case, and its `< 2` branch's `= false` still matches what
+      the toggle itself already set.
+- [x] **The ~7-8 second wait is real, not itself a bug** (live TMDB calls for this uncached
       ad-hoc path — likely modestly slower than before given M11 now runs a per-candidate
       availability check uniformly) — **but it's a genuine usability issue as Kev flagged**: right
       now the row is simply absent for that whole span with no feedback at all. Add a visible
@@ -2169,12 +2175,29 @@ again for the genuine ~7-8s computation. Two separate things to fix:
       reuse whatever loading-indicator visual convention already exists elsewhere in this app
       (Home's refresh spinner from M3i, or the shell `ForYouRow`'s own loading state uses) rather
       than inventing a new one.
-- [ ] Tests: state renders the loading indicator (not the empty-state message, not nothing) the
+      **Done:** new `FamilyNightLoadingState` composable (`HomeScreen.kt`) — same section-header +
+      `InkRaised` card shell as `FamilyNightEmptyState`, with a small `CircularProgressIndicator`
+      (`Chalk`, 2dp stroke, 20dp — the top-bar refresh spinner's exact convention) plus "Finding a
+      pick for everyone…" text. `HomeScreen`'s Family Night branch now checks
+      `familyNightLoading` *before* the empty-titles branch, so the loading state always wins
+      while genuinely in flight.
+- [x] Tests: state renders the loading indicator (not the empty-state message, not nothing) the
       instant selection changes to 2+ before results land; regression test that the `< 2
       selected` case is still exactly "no row at all"; regression that the empty-state message
       from M10 still correctly shows once loading genuinely completes with zero results (not
       permanently hidden by this fix)
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification — **actually reproduce Kev's exact rapid deselect/reselect sequence**
+      **Done** (`HomeViewModelTest.kt`, state-layer — this codebase has no Compose render test
+      harness): new test proves `familyNightLoading` is `true` with `familyNightTitles` empty and
+      zero network requests sent the instant the second profile is selected; the existing `< 2
+      selected` and "genuinely empty blend" tests both still pass unmodified, pinning the other
+      two states.
+- [x] `./gradlew test assembleDebug` green
+- [x] Live verification — **actually reproduce Kev's exact rapid deselect/reselect sequence**
       this time (not just a seeded-DB scenario check), confirm the flash is genuinely gone and a
       visible loading state shows for the real computation span instead
+      **Done, on `family_test` (`-gpu swangle`, verified ANGLE/Vulkan renderer live):** selected
+      Kid + Setupuu, deselected Setupuu, reselected Setupuu, screenshotting every ~0.3s throughout.
+      The very first frame after reselecting shows "Finding a pick for everyone…" with the spinner
+      (screenshot: `docs/m11-familynight-loading-indicator.png`) — no empty-state message ever
+      appeared in any frame — and the row resolved to the real blended pick a couple of frames
+      later. Emulator shut down with `adb emu kill` after.

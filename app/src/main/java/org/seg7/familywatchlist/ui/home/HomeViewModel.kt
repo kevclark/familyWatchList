@@ -303,11 +303,28 @@ class HomeViewModel(
         }
     }
 
-    /** Toggles one profile in/out of the who's-watching selection and (re)triggers the debounced ad-hoc family blend. */
+    /**
+     * Toggles one profile in/out of the who's-watching selection and (re)triggers the debounced
+     * ad-hoc family blend.
+     *
+     * M11 (real-device flicker retest): [_familyNightLoading] is set **synchronously** here, in
+     * lockstep with [_familyNightSelection] itself, rather than waiting for the debounced
+     * `familyNightTrigger` collector (`init`, below) to set it later. Previously there was a real
+     * window — between a tap landing here and [FAMILY_NIGHT_DEBOUNCE_MS] later when the collector
+     * finally set `_familyNightLoading = true` — where `selectedIds.size >= 2` was already true
+     * but `familyNightLoading` was still stale-`false`; HomeScreen's M10 empty-state condition
+     * (`selectedIds.size >= 2 && !familyNightLoading`) briefly evaluated true in that window and
+     * flashed "nothing works for everyone" before the debounce fired and hid it again for the
+     * genuine ~7-8s computation. Setting it here closes the gap entirely instead of narrowing it.
+     * The collector's own later `_familyNightLoading.value = true` (once the debounce quiets down)
+     * is now redundant but harmless; its `= false` branches are untouched and still own clearing
+     * the flag once a real result (or empty result) lands.
+     */
     fun toggleFamilyNightProfile(profileId: Long) {
         _familyNightSelection.value = _familyNightSelection.value.let { current ->
             if (profileId in current) current - profileId else current + profileId
         }
+        _familyNightLoading.value = _familyNightSelection.value.size >= 2
         familyNightTrigger.tryEmit(Unit)
     }
 
