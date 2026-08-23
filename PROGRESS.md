@@ -1861,3 +1861,51 @@ The design above is now built in `TrailerPlayerDialog.kt`:
       doesn't work, the next fallback would have to detect the *absence* of both signals
       (e.g. a timeout after tapping near where the fullscreen control renders) rather than relying
       on either Fullscreen-API-based mechanism.
+
+**Confirmed, 2026-08-23: the JS-bridge fallback also did not work on Kev's phone.** Same
+symptom exactly (status bar stays visible throughout). Also checked and ruled out: WebView
+itself is up to date (Play Store's "Manage apps & device" → Updates list did not list it), so
+this isn't a stale-engine problem — it's specific to how this WebView build handles fullscreen
+for iframe-nested video, not fixable by waiting for a system update. Two independent
+Fullscreen-API-based detection mechanisms (native Android hook, then the standards-based DOM
+event) both failing identically strongly suggests the browser engine on this device isn't
+completing the underlying fullscreen request *at all* — a dead end for any approach that depends
+on detecting YouTube's/the DOM's own fullscreen state.
+
+**Next approach, confirmed by Kev: stop depending on WebView/YouTube telling us anything.** Add
+the app's own fullscreen control, entirely independent of the Fullscreen API — driven directly
+by Compose + the Activity's window, not by any WebView callback or JS event.
+
+- [ ] Add the app's own "expand" icon to `TrailerPlayerDialog`'s chrome (our own UI element,
+      not relying on tapping anything inside the WebView/YouTube's own player controls) that
+      toggles a new `isManualFullscreen` Compose state directly
+- [ ] When true: resize the WebView's container to fill the dialog (reuse the same visual
+      layout the existing fullscreen paths already produce) **and** hide the Android system
+      status/navigation bars via `WindowInsetsControllerCompat`/`WindowCompat` on the hosting
+      window, so it actually *looks* fullscreen regardless of whatever the WebView/DOM thinks
+      its own state is. Restore system bars when toggled off.
+- [ ] **Kev's explicit requirement: keep this cleanly reversible.** Do NOT remove, hide, or
+      disable YouTube's own in-page fullscreen control, `onShowCustomView`/`onHideCustomView`,
+      or the JS-bridge fallback from the prior two attempts — all of that stays fully intact and
+      operative exactly as built (it may well work correctly on other users'/other devices'
+      WebView builds even though it doesn't on Kev's). The new manual control is purely
+      **additive** — a fourth, independent path that sits alongside the existing three, not a
+      replacement for them. Structure the diff so a single, clean `git revert` of this
+      milestone's commit(s) fully restores current behavior with nothing left half-changed
+      elsewhere (no shared state/refactoring of the existing paths that a revert would leave
+      dangling) — this is a hard requirement, not a nice-to-have.
+- [ ] Coordinate all four paths so they don't fight each other if more than one somehow signals
+      (unlikely given three are already confirmed non-functional on this specific device, but
+      don't assume — code defensively): native custom-view still wins if it ever fires; the
+      manual toggle is independent and should work regardless of whether either Fullscreen-API
+      path is active.
+- [ ] Back handling: extend the existing two-stage back state machine to also cover
+      `isManualFullscreen` — back should exit manual fullscreen (restoring system bars + normal
+      layout) before closing the dialog, same pattern as the other two paths.
+- [ ] `./gradlew test assembleDebug` green
+- [ ] Live verification: emulator regression-check that nothing existing broke (normal playback,
+      the native fullscreen path, back-handling for all paths) plus confirm the new manual
+      control itself works on the emulator (this one specifically *can* be verified there, since
+      it doesn't depend on WebView's fullscreen internals at all — it's pure Compose/Window API).
+      Final real-world confirmation still needs Kev's phone, but this path should have a much
+      higher chance of actually working there than the previous two attempts.
