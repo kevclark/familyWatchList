@@ -1711,3 +1711,15 @@ explicitly NOT part of this milestone.
       of the app (Home, Search, title details, etc.) — confirmed still out of scope: with the
       trailer dialog dismissed while the emulator was still in landscape, the details screen
       underneath rendered exactly as before (no landscape-specific layout), as expected.
+
+**Follow-up, parked for a future session (Kev, 2026-08-23, late):** on his real phone, tapping
+what he describes as an "opposing arrow" icon inside the YouTube player pauses playback; a
+physical rotate then does nothing; a separate on-screen icon "that appears to represent
+rotation" then produces a wider-but-not-quite-fullscreen state. Likely two distinct YouTube
+IFrame Player UI elements at play — possibly the real fullscreen control (already fixed and
+confirmed working on the emulator) vs. a separate YouTube-native "rotate to expand" nudge that
+may only toggle YouTube's own in-page layout rather than calling the Fullscreen API, so it never
+reaches our `onShowCustomView` handling at all. **Not investigated further tonight** — Kev
+couldn't get a screenshot across (Android phone, no Claude installed there; on laptop, not his
+iOS phone). Needs a screenshot/screen recording of the actual icons involved before attempting
+another fix — don't guess at this one blind.
