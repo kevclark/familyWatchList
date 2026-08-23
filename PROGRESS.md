@@ -1762,13 +1762,41 @@ could be safe/low-risk to remove or make conditional.
       Checked for the autoplay-into-fullscreen regression on the emulator: none — autoplay still
       starts inline in the normal 16:9 dialog, fullscreen still requires an explicit tap on
       YouTube's own control. **Only verifiable as the real fix on Kev's phone, not from here.**
-- [ ] If that alone doesn't fix it, consider a JS-based fallback: listen for the
+- [x] If that alone doesn't fix it, consider a JS-based fallback: listen for the
       `fullscreenchange` event on the wrapper page's document via `evaluateJavascript` +
       a `JavascriptInterface` bridge, and manually drive the Compose fullscreen overlay state
       from that event instead of relying solely on `onShowCustomView` firing — a more robust
       but more involved path, only worth it if the simpler fix doesn't hold up
-      — not built: no evidence yet that the simple fix doesn't hold on real hardware; only worth
-      building if Kev's phone test shows it still doesn't fire `onShowCustomView`
+      — **Confirmed needed: Kev tested `playsinline` removal on his real phone, no change at
+      all.** Time to build the JS fallback. Design, since `onShowCustomView` clearly isn't firing
+      on this device at all (not a timing issue, a "never fires" issue): don't depend on Android's
+      native custom-view hook for rendering at all on the fallback path. Instead —
+      1. Attach a `fullscreenchange` listener on the **wrapper page's own top-level `document`**
+         (same-origin, since we wrote it via `loadDataWithBaseURL`) via `evaluateJavascript` once
+         the page loads. Per the Fullscreen API spec, when a nested cross-origin iframe (the
+         YouTube embed) enters fullscreen, ancestor documents — including this same-origin
+         wrapper — also receive a `fullscreenchange` event with their own `document.fullscreenElement`
+         set to the iframe itself. This is the standard mechanism and should work regardless of
+         whatever WebView/Chromium quirk is suppressing `onShowCustomView` specifically.
+      2. Bridge that event to Kotlin via a `@JavascriptInterface` object added to the WebView
+         (`addJavascriptInterface`), with `onEnterFullscreen()`/`onExitFullscreen()` methods —
+         remember these fire on a non-UI thread, marshal back to the main thread before touching
+         Compose state.
+      3. Drive fullscreen **entirely via Compose**, not a native custom view: when the bridge
+         reports "entered", resize the *existing* WebView's own container (the same `AndroidView`
+         already showing the embed) to `fillMaxSize()`/hide the close button, instead of trying to
+         swap in a separate native `View` from `onShowCustomView` (which isn't firing, so there's
+         nothing to swap in). When it reports "exited", resize back to the normal 16:9 letterboxed
+         box. This sidesteps the broken native hook entirely rather than trying to coax it into
+         firing.
+      4. Keep the existing `onShowCustomView`/`onHideCustomView` path too, don't remove it — some
+         devices (the emulator, confirmed) legitimately do fire it and get the "real" native
+         treatment; the JS bridge is specifically the fallback for devices where it doesn't.
+         Whichever path signals first should win; guard against both firing/conflicting.
+      5. Back/close handling: when the user backs out or taps close while in the JS-fallback
+         fullscreen state, also call `document.exitFullscreen()` via `evaluateJavascript` so the
+         page's own internal fullscreen state stays in sync with the Compose layout — otherwise
+         the *next* fullscreen tap could behave oddly if the DOM still thinks it's fullscreen.
 - [x] **The emulator cannot validate this bug at all** — it already "passed" and clearly isn't
       reproducing what Kev's phone does. Any fix needs Kev to actually reinstall and test on his
       real phone (via the laptop wireless-ADB path) before being considered confirmed — say so
