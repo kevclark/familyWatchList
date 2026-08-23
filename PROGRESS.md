@@ -2010,24 +2010,38 @@ left for that specific pairing — a legitimate empty result, just never communi
 Kev's own call, matches the finding exactly: **show an explanatory empty state instead of
 silently rendering nothing.**
 
-- [ ] `HomeScreen.kt`: when `familyNightSelectedIds.size >= 2` but `familyNightTitles.isEmpty()`
+- [x] `HomeScreen.kt`: when `familyNightSelectedIds.size >= 2` but `familyNightTitles.isEmpty()`
       (currently the row just doesn't render at all in this case — check the exact conditional,
       `state.familyNightSelectedIds.size >= 2 && state.familyNightTitles.isNotEmpty()`), show a
       "Family Night" row/section anyway with a brief explanatory message instead of hiding it
       entirely — something like "Nothing left that works for everyone selected right now" —
       your call on exact wording, keep it short and match the app's existing empty-state copy
       conventions (Search's "no services selected"/"nothing available" states,
-      `HomeViewModel`'s cold-start intro copy) rather than inventing a new tone
-- [ ] Distinguish this from the `< 2 selected` case, which should stay exactly as today (no row
-      at all, that's the correct default state, not an error/empty state)
-- [ ] Consider (implementation's call, don't over-build) whether `HomeUiState` needs a distinct
-      "computed but empty" vs "not yet computed for this selection" signal, or whether checking
-      `selectedIds.size >= 2 && titles.isEmpty() && !isLoading`-equivalent is sufficient — avoid
-      flashing the empty-state message during the debounce/network-fetch window before results
-      arrive
-- [ ] Tests: state renders the empty-message row correctly when 2+ selected with zero results,
-      and does NOT render anything when fewer than 2 are selected (regression)
-- [ ] `./gradlew test assembleDebug` green
-- [ ] Live verification: reproduce Kev's actual scenario if possible (or a fixture-equivalent —
-      2+ profiles selected with a combined pool that filters to zero) and confirm the new
-      message actually appears instead of nothing
+      `HomeViewModel`'s cold-start intro copy) rather than inventing a new tone.
+      Landed as a new `FamilyNightEmptyState` composable (same `SectionHeader` + rounded
+      `InkRaised` panel shell `ForYouRow`'s "Building your picks" empty state already uses),
+      copy: "Nothing left that works for everyone selected right now." — the exact wording
+      PROGRESS.md's diagnosis suggested, which already matched Search's "Nothing available on
+      your services matched…" tone.
+- [x] Distinguish this from the `< 2 selected` case, which should stay exactly as today (no row
+      at all, that's the correct default state, not an error/empty state). Unchanged: the new
+      empty-state branch is `else if (selectedIds.size >= 2 && !familyNightLoading)`, strictly
+      alongside (not replacing) the existing `>= 2 && titles.isNotEmpty()` branch — `< 2` still
+      falls through both and renders nothing.
+- [x] Added `HomeUiState.familyNightLoading` (backed by a new `HomeViewModel._familyNightLoading`
+      flag, true for the span between the debounce firing and the ad-hoc blend landing,
+      success or failure) — the minimal signal needed to withhold the empty-state message during
+      the debounce/network window; no bigger state machine than that.
+- [x] Tests (`HomeViewModelTest.kt`, state-level per this codebase's existing ViewModel-test
+      convention — no Compose UI test harness here): `2+ selected profiles with a genuinely
+      empty ad-hoc blend surface a distinct empty-but-computed state, not just an empty list` and
+      `fewer than 2 selected stays the plain empty default state, never the new empty-state
+      message` (regression).
+- [x] `./gradlew test assembleDebug` green — `BUILD SUCCESSFUL`, `HomeViewModelTest`: 17
+      tests, 0 failures/errors (15 pre-existing + 2 new).
+- [x] Live verification: reproduced for real on the `family_test` emulator (`-gpu swangle`,
+      renderer confirmed via `dumpsys SurfaceFlinger`) — seeded a second profile and unsubscribed
+      every provider directly in the on-device Room DB (`adb shell run-as ... sqlite3`,
+      app stopped first), which reproduces the exact "genuinely empty candidate pool, zero
+      network calls, no exception" condition `HomeViewModelTest`'s new fixture also covers, then
+      selected both chips in the running app. Confirmed live: `docs/m10-family-night-empty-state.png`.
