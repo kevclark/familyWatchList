@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
@@ -259,7 +260,17 @@ class HomeViewModel(
     init {
         refresh()
         viewModelScope.launch {
-            familyNightTrigger.debounce(FAMILY_NIGHT_DEBOUNCE_MS).collect {
+            // M11 (flicker fix): collectLatest, not plain collect. A rapid deselect/reselect can
+            // debounce through more than one post-quiet-period value before this block's own slow
+            // work (network round trip via refreshFamilyShortlist) finishes — with a plain
+            // `.collect`, each of those runs to completion as a queue, so an intermediate,
+            // already-superseded selection (e.g. the momentary <2-selected state mid-toggle) gets
+            // its own full iteration and visibly sets the M10 empty-state message before the next
+            // queued iteration (the real final selection) overwrites it a moment later — the
+            // flicker Kev reported. `collectLatest` cancels an in-flight iteration the instant a
+            // newer trigger arrives, so only the most recent selection's computation ever reaches
+            // `_familyNightTitles`/`_familyNightLoading`.
+            familyNightTrigger.debounce(FAMILY_NIGHT_DEBOUNCE_MS).collectLatest {
                 val selected = _familyNightSelection.value
                 // PLAN.md §5 screen 3 / §4a slider 4's UI-home decision: a blend only makes sense
                 // for 2+ people. Below that, leave the row's data empty rather than calling
@@ -268,7 +279,7 @@ class HomeViewModel(
                 if (selected.size < 2) {
                     _familyNightTitles.value = emptyList()
                     _familyNightLoading.value = false
-                    return@collect
+                    return@collectLatest
                 }
                 // M10: flagged for the span of the actual blend computation below — see
                 // [_familyNightLoading]'s kdoc for why HomeScreen needs this (distinguishing
