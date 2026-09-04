@@ -86,4 +86,34 @@ class FamilyBlendTest {
     fun `isOverCap never excludes anything when there is no cap`() {
         assertEquals(false, FamilyBlend.isOverCap(certification = "18", cap = null))
     }
+
+    /**
+     * Bug found by Kev, 2026-09-04: a 12-capped profile couldn't find "Masters of the Universe"
+     * (BBFC 12A) at all. 12A is BBFC's cinema-only sibling of "12" — same audience floor — so it
+     * must rank equal to "12", not one tier stricter.
+     */
+    @Test
+    fun `isOverCap treats 12A as equivalent to 12, not stricter`() {
+        assertEquals(false, FamilyBlend.isOverCap(certification = "12A", cap = "12"))
+        assertEquals(false, FamilyBlend.isOverCap(certification = "12", cap = "12A"))
+        assertEquals(true, FamilyBlend.isOverCap(certification = "12A", cap = "U"))
+        assertEquals(true, FamilyBlend.isOverCap(certification = "15", cap = "12A"))
+        assertEquals(true, FamilyBlend.isOverCap(certification = "18", cap = "12A"))
+    }
+
+    /**
+     * Amazon's own (non-BBFC) age-gate labels, sometimes returned verbatim by TMDB in the GB
+     * certification field for Amazon-sourced originals. Mapped to the nearest BBFC audience floor
+     * per Kev's call (2026-09-04) so a capped profile isn't blind to them.
+     */
+    @Test
+    fun `isOverCap maps Amazon's US-style age gates to the nearest BBFC equivalent`() {
+        assertEquals(false, FamilyBlend.isOverCap(certification = "13+", cap = "12"))
+        assertEquals(true, FamilyBlend.isOverCap(certification = "13+", cap = "U"))
+        assertEquals(false, FamilyBlend.isOverCap(certification = "16+", cap = "15"))
+        assertEquals(true, FamilyBlend.isOverCap(certification = "16+", cap = "12"))
+        assertEquals(false, FamilyBlend.isOverCap(certification = "18+", cap = "18"))
+        assertEquals(true, FamilyBlend.isOverCap(certification = "7+", cap = "U"))
+        assertEquals(false, FamilyBlend.isOverCap(certification = "7+", cap = "PG"))
+    }
 }

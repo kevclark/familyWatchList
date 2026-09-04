@@ -2201,3 +2201,33 @@ again for the genuine ~7-8s computation. Two separate things to fix:
       (screenshot: `docs/m11-familynight-loading-indicator.png`) — no empty-state message ever
       appeared in any frame — and the row resolved to the real blended pick a couple of frames
       later. Emulator shut down with `adb emu kill` after.
+
+## M12 — Two more certification-rank gaps found by Kev in real Search use (2026-09-04)
+
+- [x] **Bug 1 (reported):** searching for "Masters of the Universe" from a 12-capped profile
+      found nothing, even though it's BBFC-12A. Root cause: `FamilyBlend.CERT_RANK` ranked "12A"
+      as one tier *stricter* than "12" (`U, PG, 12, 12A, 15, 18`), when 12A is BBFC's cinema-only
+      sibling of 12 — identical audience floor, the only difference being the accompanied-child
+      cinema exemption, which doesn't apply to a streaming app at all. A 12-capped profile should
+      see 12A content exactly like 12 content.
+      **Fix:** `CERT_RANK` now derives from the 5 real BBFC tiers (`U, PG, 12, 15, 18`) and maps
+      "12A" onto the same rank as "12", rather than getting its own tier.
+- [x] **Bug 2 (Kev's own follow-up question):** "This is also further complicated by Amazon
+      using seemingly American ratings such as 13+ and 16+. 12A needs to be added, but should the
+      others?" — confirmed via `TmdbMappers.kt` that certification is pulled straight from TMDB's
+      GB-region `content_ratings`/`release_dates`, verbatim, no BBFC normalisation — so an Amazon
+      Original whose GB entry happens to carry Amazon's own "7+/13+/16+/18+" age-gate labels
+      (instead of a real BBFC cert) hit `CERT_RANK`'s "unrecognised → don't exclude" fallback,
+      which is *actually two different behaviours* depending on path: Search/cold-start
+      (`isOverCap`) never excluded it regardless of cap (a silent safety gap), while Family
+      Night/For You (`isConfirmedUnderCap`) excluded it unconditionally (a silent coverage gap).
+      Kev picked "map to nearest UK cert" over "leave unrecognised" after seeing the tradeoff
+      (approximate mapping vs. either gap above).
+      **Fix:** `CERT_RANK` also maps "7+"→PG, "13+"→12, "16+"→15, "18+"→18 (Amazon's four
+      documented age-gate tiers, mapped to the nearest BBFC audience floor). Documented in-code as
+      an approximation, not a claim the underlying content was actually BBFC-classified there.
+- [x] Tests (`FamilyBlendTest.kt`): 12A-equivalence (both directions: title-side and cap-side),
+      and each Amazon gate mapped correctly relative to both a matching and a stricter cap.
+- [x] `./gradlew test assembleDebug` green.
+- [ ] Live verification on Kev's phone — re-search "Masters of the Universe" from a 12-capped
+      profile once `alpha.11` is installed.
