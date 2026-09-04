@@ -28,11 +28,32 @@ object FamilyBlend {
 
     /**
      * UK certification strictness order (PLAN.md §2's `ageRatingCap`: "e.g. '12' (UK certs
-     * U/PG/12/15/18)"). 12A is BBFC's cinema-only sibling of 12 (same audience floor) and is
-     * accepted here too since TMDB's GB certification field sometimes carries it.
+     * U/PG/12/15/18)"). Several keys deliberately share a rank with their BBFC equivalent rather
+     * than getting their own tier:
+     *
+     * - "12A" is BBFC's cinema-only sibling of "12" — same audience floor, the only difference is
+     *   the accompanied-child cinema exemption, which is irrelevant for a streaming app. TMDB's GB
+     *   certification field sometimes carries it directly. (Bug found by Kev, 2026-09-04: a
+     *   12-capped profile couldn't find "Masters of the Universe" (12A) at all, because 12A was
+     *   previously ranked one tier *stricter* than 12 instead of equal to it.)
+     * - "7+"/"13+"/"16+"/"18+" are Amazon's own (non-BBFC) age-gate labels, which TMDB sometimes
+     *   returns verbatim in the GB certification field for Amazon-sourced originals instead of a
+     *   real BBFC cert. Mapped to the nearest BBFC audience floor per Kev's call (2026-09-04):
+     *   approximate by design — an "approximate BBFC-equivalent" mapping, not a claim that the
+     *   underlying content was actually BBFC-classified at that level.
      */
-    private val CERT_RANK: Map<String, Int> = listOf("U", "PG", "12", "12A", "15", "18")
-        .withIndex().associate { (index, cert) -> cert to index }
+    private val CERT_RANK: Map<String, Int> = run {
+        val bbfcOrder = listOf("U", "PG", "12", "15", "18")
+        val bbfcRank = bbfcOrder.withIndex().associate { (index, cert) -> cert to index }
+        val equivalents = mapOf(
+            "12A" to "12",
+            "7+" to "PG",
+            "13+" to "12",
+            "16+" to "15",
+            "18+" to "18",
+        )
+        bbfcRank + equivalents.mapValues { (_, bbfcCert) -> bbfcRank.getValue(bbfcCert) }
+    }
 
     /**
      * The same ranking [strictestCap] uses, exposed for candidate-side age-cap filtering
