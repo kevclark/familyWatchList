@@ -3,6 +3,7 @@ package org.seg7.familywatchlist.data.recommend
 import java.time.LocalDate
 import kotlin.math.ln
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.seg7.familywatchlist.data.local.entity.AttrType
 import org.seg7.familywatchlist.data.local.entity.MediaType
@@ -60,6 +61,54 @@ class AffinityEngineTest {
         assertEquals(1.6, raw.getValue(genre(1)), EPS)
         assertEquals(1.0, raw.getValue(genre(2)), EPS)
         assertEquals(2, raw.size)
+    }
+
+    /**
+     * PLAN.md §4c (M13 fix 3): a dismissal folds in exactly like the watchlist bonus, at
+     * [AffinityEngine.DISMISS_SIGNAL_WEIGHT] (`-0.6`, same magnitude as
+     * [AffinityEngine.WATCHLIST_SIGNAL_WEIGHT]'s `+0.6`, opposite sign) and the same recency
+     * decay — proven both by the sign/magnitude and by comparing against the same inputs with no
+     * dismissal at all.
+     */
+    @Test
+    fun `buildRawVector folds a dismissal in as a recency-weighted negative, mirroring the watchlist bonus`() {
+        val today = LocalDate.of(2026, 8, 16)
+        val watches = listOf(
+            RatedWatch(TitleKey(100, MediaType.MOVIE), listOf(genre(1), genre(2)), today, RatingValue.UP),
+        )
+        val withoutDismissal = AffinityEngine.buildRawVector(watches, emptyList(), today, halfLifeDays = 180.0)
+        val dismissals = listOf(
+            DismissSignal(title = TitleKey(300, MediaType.MOVIE), attributes = listOf(genre(1)), dismissedAt = today),
+        )
+        val withDismissal = AffinityEngine.buildRawVector(watches, emptyList(), today, halfLifeDays = 180.0, dismissals = dismissals)
+
+        // genre(1): 1.0 (watch, UP @ 0 days) + (-0.6) (dismiss bonus @ 0 days) = 0.4
+        assertEquals(0.4, withDismissal.getValue(genre(1)), EPS)
+        // genre(2) is untouched by the dismissal (it only tags genre(1)).
+        assertEquals(withoutDismissal.getValue(genre(2)), withDismissal.getValue(genre(2)), EPS)
+        assertTrue(
+            "a dismissed title's attributes must measurably lower the resulting value vs. no dismissal at all",
+            withDismissal.getValue(genre(1)) < withoutDismissal.getValue(genre(1)),
+        )
+    }
+
+    /** PLAN.md §4c (M13 fix 3): recency decay applies to a dismissal exactly the same way it does to the watchlist bonus. */
+    @Test
+    fun `buildRawVector decays a dismissal's weight with age, the same as the watchlist bonus`() {
+        val today = LocalDate.of(2026, 8, 16)
+        val dismissals = listOf(
+            DismissSignal(title = TitleKey(300, MediaType.MOVIE), attributes = listOf(genre(1)), dismissedAt = today.minusDays(180)),
+        )
+        val raw = AffinityEngine.buildRawVector(emptyList(), emptyList(), today, halfLifeDays = 180.0, dismissals = dismissals)
+
+        // -0.6 * recencyWeight(180 days, halfLife=180) = -0.6 * 0.5 = -0.3
+        assertEquals(-0.3, raw.getValue(genre(1)), 1e-6)
+    }
+
+    @Test
+    fun `DISMISS_SIGNAL_WEIGHT is the same magnitude as WATCHLIST_SIGNAL_WEIGHT, opposite sign`() {
+        assertEquals(-AffinityEngine.WATCHLIST_SIGNAL_WEIGHT, AffinityEngine.DISMISS_SIGNAL_WEIGHT, EPS)
+        assertEquals(-0.6, AffinityEngine.DISMISS_SIGNAL_WEIGHT, EPS)
     }
 
     @Test

@@ -306,6 +306,78 @@ class RecommendationRepositoryTest {
     }
 
     /**
+     * PLAN.md §4c (M13 fix 1) regression: before this fix,
+     * [RecommendationRepository]'s `excludeDismissed` only ever read the *current* week's
+     * DISMISSED rows (the old `ShortlistDao.getForScope(weekStart, scopeKey)`), so a dismissal
+     * only suppressed its title for the rest of that week — contradicting the dismiss confirm
+     * dialog's own copy ("won't be suggested to you again until you tell us otherwise"). Proven
+     * here by dismissing under one `weekStart`, then advancing the clock into a genuinely
+     * different ISO week and confirming the same title is still excluded from that later week's
+     * recompute — now backed by [ShortlistDao.getDismissedForScope], which has no `weekStart`
+     * filter at all.
+     */
+    @Test
+    fun `a dismissal excludes its title from a later week's recompute too, not just the week it was dismissed in`() = runTest {
+        val id = seedWarmProfile()
+        val originalWeekStart = repo.currentWeekStart()
+
+        repo.dismissTitle(id, 999, MediaType.MOVIE)
+
+        clock.advanceBy(Duration.ofDays(14).toMillis()) // a genuinely different ISO week
+        // M11: 14 days also expires this suite's seeded-empty /discover cache (24h TTL) — re-seed
+        // so this recompute's discover calls still resolve from cache rather than hitting the
+        // (unscripted) network, same precedent as the suggestion-count "recovers automatically" test.
+        seedEmptyDiscoverCache(listOf(SUBSCRIBED_PROVIDER_ID))
+        val newWeekStart = repo.currentWeekStart()
+        assertTrue(
+            "the clock must have actually moved into a different week for this test to prove anything",
+            newWeekStart != originalWeekStart,
+        )
+
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Still Dismissed")))
+
+        val entries = repo.refreshProfileShortlist(id, region = "GB")
+
+        assertEquals(emptyList<ShortlistEntryEntity>(), entries)
+        assertEquals(1, server.requestCount) // /recommendations only -- excluded before ever reaching a detail fetch
+    }
+
+    /**
+     * PLAN.md §4c (M13 fix 3) regression: [RecommendationRepository]'s private `buildProfileVector`
+     * (exercised here through [RecommendationRepository.refreshProfileShortlist], its only real
+     * caller) now folds a profile's own dismissals in as a negative signal via
+     * [org.seg7.familywatchlist.data.recommend.AffinityEngine.DismissSignal] — proven end-to-end:
+     * dismissing a title tagged the same genre as an already-scored Comedy candidate must
+     * measurably lower that candidate's score on the profile's very next refresh, compared to
+     * its score just before the dismissal. No new network requests are needed for the second
+     * refresh — the `/recommendations` and detail-fetch caches from the first refresh are both
+     * still warm, well within their TTLs — isolating this test to exactly the vector-building
+     * change, not a different candidate pool.
+     */
+    @Test
+    fun `dismissing a title lowers that profile's own next refresh score for a candidate sharing the dismissed title's genre`() = runTest {
+        val id = seedWarmProfile()
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Comedy Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Comedy Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+        val beforeEntries = repo.refreshProfileShortlist(id, region = "GB")
+        assertEquals(1, beforeEntries.size)
+        val scoreBefore = beforeEntries.single().score
+
+        db.titleAttributeDao().upsertAll(listOf(TitleAttributeEntity(888, MediaType.MOVIE, AttrType.GENRE, 35, "Comedy", null)))
+        repo.dismissTitle(id, 888, MediaType.MOVIE)
+
+        val afterEntries = repo.refreshProfileShortlist(id, region = "GB")
+        assertEquals(1, afterEntries.size)
+        val scoreAfter = afterEntries.single().score
+
+        assertTrue(
+            "dismissing a Comedy-tagged title must lower this profile's own vector's Comedy " +
+                "affinity, and therefore this Comedy candidate's score, on the very next refresh",
+            scoreAfter < scoreBefore,
+        )
+    }
+
+    /**
      * The other of [RecommendationRepository.dismissTitle]'s two write branches — a title that
      * already has a live SUGGESTED row this week (the common "dismiss straight off a For You
      * card" case) gets that row flipped to DISMISSED in place, rather than a second row being

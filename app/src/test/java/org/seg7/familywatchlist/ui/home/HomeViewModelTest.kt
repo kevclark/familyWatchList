@@ -329,6 +329,66 @@ class HomeViewModelTest {
     }
 
     /**
+     * PLAN.md §4c (M13 fix 2): a long-press dismiss from the Family Night carousel must persist
+     * against that exact ad-hoc selection's own scope
+     * ([RecommendationRepository.dismissAdHocFamilyNightTitle], keyed the same way
+     * [RecommendationRepository.refreshFamilyShortlist]'s ad-hoc blend reads it back) — never
+     * against `activeProfile.id`'s own scope, which nothing reads back for that selection. Proven
+     * directly against Room: the DISMISSED row lands under the ad-hoc `"AD_HOC:..."` key for
+     * `{a, b}`, and *not* under [activeProfile]'s own `scopeKeyFor` key.
+     */
+    @Test
+    fun `dismissing from Family Night persists against the ad-hoc selection's own scope, not activeProfile's`() = runTest {
+        val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
+        val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
+        val vm = viewModel(watchlistRepository)
+
+        vm.dismissTitle(999, MediaType.MOVIE, familyNightProfileIds = listOf(a, b))
+
+        val weekStart = recommendationRepository.currentWeekStart()
+        val adHocScopeKey = "AD_HOC:" + listOf(a, b).sorted().joinToString(",")
+        // dismissTitle's write happens inside a viewModelScope-launched coroutine that suspends
+        // on Room's own executor, not this test's (Unconfined) Main dispatcher — awaiting the
+        // live Flow (rather than a one-shot read) lets the write's real completion resume this
+        // suspension point regardless of which dispatcher it lands on.
+        val adHocRows = db.shortlistDao().observeForScope(weekStart, adHocScopeKey).first { it.isNotEmpty() }
+        assertEquals(listOf(999), adHocRows.map { it.tmdbId })
+        assertEquals(
+            org.seg7.familywatchlist.data.local.entity.ShortlistState.DISMISSED,
+            adHocRows.single().state,
+        )
+        assertEquals(
+            "this dismissal must never land under activeProfile's own scope key",
+            emptyList<Int>(),
+            db.shortlistDao().getForScope(weekStart, profileId.toString()).map { it.tmdbId },
+        )
+    }
+
+    /**
+     * PLAN.md §4c (M13 fix 2) regression pin: dismissing from For You/Popular (i.e. every call
+     * site that never passes [familyNightProfileIds]) is completely unchanged by this fix — the
+     * write still lands under `activeProfile.id`'s own scope
+     * ([RecommendationRepository.dismissTitle]), never the ad-hoc key.
+     */
+    @Test
+    fun `dismissing from For You (no familyNightProfileIds) still persists against activeProfile's own scope, unchanged`() = runTest {
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
+        val vm = viewModel(watchlistRepository)
+
+        vm.dismissTitle(999, MediaType.MOVIE)
+
+        val weekStart = recommendationRepository.currentWeekStart()
+        // See the ad-hoc test above for why this awaits the live Flow rather than a one-shot read.
+        val ownRows = db.shortlistDao().observeForScope(weekStart, profileId.toString()).first { it.isNotEmpty() }
+        assertEquals(listOf(999), ownRows.map { it.tmdbId })
+        assertEquals(
+            org.seg7.familywatchlist.data.local.entity.ShortlistState.DISMISSED,
+            ownRows.single().state,
+        )
+    }
+
+    /**
      * PLAN.md §4's "Age-cap safety gap" (M3g), tightened by "Residual gap found by M3g" (M3h):
      * a cold-start profile's Popular row (and the cold-start hero fallback, which reads the same
      * [DiscoverRepository] data) previously applied **zero** age-rating filtering. Seeds three
