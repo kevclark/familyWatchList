@@ -82,7 +82,7 @@ class LogWatchFlowUiTest {
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock)
         profileRepository = ProfileRepository(db.profileDao(), clock)
         titleRepository = TitleRepository(
-            db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock,
+            db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock,
         )
 
         kevId = profileRepository.addProfile("Kev", "INITIAL|7C5C4A|", null).getOrThrow()

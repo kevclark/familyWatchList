@@ -88,7 +88,7 @@ class HomeViewModelTest {
         userPreferencesRepository = UserPreferencesRepository(
             PreferenceDataStoreFactory.create(produceFile = { context.preferencesDataStoreFile("home_vm_prefs_${System.nanoTime()}") }),
         )
-        titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
         profileRepository = ProfileRepository(db.profileDao(), clock)
         familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
         recommendationRepository = RecommendationRepository(

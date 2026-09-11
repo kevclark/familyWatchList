@@ -92,4 +92,39 @@ class AppDatabaseMigrationTest {
             )
         }
     }
+
+    /**
+     * PLAN.md §5c (M14): [AppDatabase.MIGRATION_9_10] adds `titles.imdbId` (existing rows get
+     * NULL, proven here against a real pre-migration row) and creates the new `reviews` table —
+     * against the real exported v9/v10 schemas, mirroring this class's existing v7/v8/v9 pattern.
+     */
+    @Test
+    fun `migrate9to10_addsImdbIdColumnAndCreatesReviewsTable`() {
+        helper.createDatabase(dbName, 9).apply {
+            execSQL(
+                "INSERT INTO titles (tmdbId, mediaType, title, year, posterPath, backdropPath, " +
+                    "overview, runtimeMin, certification, voteAverage, voteCount, popularity, " +
+                    "trailerKey, fetchedAt) VALUES (11, 'MOVIE', 'Central Intelligence', 2016, " +
+                    "NULL, NULL, NULL, 107, '12A', 6.4, 4000, 20.0, NULL, 0)"
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(dbName, 10, true, AppDatabase.MIGRATION_9_10)
+
+        migrated.query("SELECT imdbId FROM titles WHERE tmdbId = 11 AND mediaType = 'MOVIE'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
+
+        migrated.execSQL(
+            "INSERT INTO reviews (tmdbId, mediaType, reviewId, author, content, url, rating, createdAt) " +
+                "VALUES (11, 'MOVIE', 'r1', 'A Reviewer', 'Great film.', 'https://example.com/r1', 8.0, NULL)"
+        )
+        migrated.query("SELECT author, rating FROM reviews WHERE tmdbId = 11 AND mediaType = 'MOVIE'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("A Reviewer", cursor.getString(0))
+            assertEquals(8.0, cursor.getDouble(1), 0.0)
+        }
+    }
 }

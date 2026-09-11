@@ -16,6 +16,7 @@ import org.seg7.familywatchlist.data.local.entity.AttrType
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingValue
+import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.repository.RatingRepository
@@ -40,6 +41,8 @@ data class TitleDetailUiState(
      * — see [RecommendationRepository.reasonsForShortlistEntry]'s kdoc for exactly when that is.
      */
     val reasons: List<String>? = null,
+    /** PLAN.md §5c (M14): TMDB's own review snippets for this title, free on the same detail call. */
+    val reviews: List<ReviewEntity> = emptyList(),
     val isRefreshing: Boolean = false,
     val errorMessage: String? = null,
 )
@@ -92,7 +95,8 @@ class TitleDetailViewModel(
             _refreshing,
             _error,
             _reasons,
-        ) { ratings, refreshing, error, reasons -> DetailMeta(ratings, refreshing, error, reasons) },
+            titleRepository.observeReviews(tmdbId, mediaType),
+        ) { ratings, refreshing, error, reasons, reviews -> DetailMeta(ratings, refreshing, error, reasons, reviews) },
     ) { title, attributes, availability, isListed, meta ->
         TitleDetailUiState(
             title = title,
@@ -103,6 +107,7 @@ class TitleDetailViewModel(
             isListed = isListed,
             myRating = meta.ratings[activeProfileId],
             reasons = meta.reasons,
+            reviews = meta.reviews,
             isRefreshing = meta.refreshing,
             errorMessage = meta.error,
         )
@@ -120,6 +125,7 @@ class TitleDetailViewModel(
         val refreshing: Boolean,
         val error: String?,
         val reasons: List<String>?,
+        val reviews: List<ReviewEntity>,
     )
 
     fun refresh() {

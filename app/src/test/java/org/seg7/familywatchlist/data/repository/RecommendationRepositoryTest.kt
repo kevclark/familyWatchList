@@ -98,7 +98,7 @@ class RecommendationRepositoryTest {
                 .build(),
         )
 
-        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val availabilityGate = AvailabilityGate(titleRepository, providerRepository)

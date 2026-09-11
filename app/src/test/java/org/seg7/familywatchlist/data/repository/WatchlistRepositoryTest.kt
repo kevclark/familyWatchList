@@ -148,7 +148,7 @@ class WatchlistRepositoryTest {
                 )
             )
             val api = org.seg7.familywatchlist.data.remote.TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
-            val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+            val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
             val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
             val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
             db.providerDao().upsertAll(listOf(org.seg7.familywatchlist.data.local.entity.ProviderEntity(2, "Apple TV", null, subscribed = true, displayPriority = 1)))

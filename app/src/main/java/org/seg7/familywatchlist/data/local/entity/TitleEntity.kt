@@ -35,4 +35,11 @@ data class TitleEntity(
      */
     val trailerKey: String?,
     val fetchedAt: Long,
+    /**
+     * PLAN.md §5c (M14): TMDB's own free cross-reference to the title's real IMDb id, from the
+     * same `append_to_response=external_ids` detail call. Null until a title's next TTL refresh
+     * backfills it (schema v9 -> v10, [org.seg7.familywatchlist.data.local.AppDatabase.MIGRATION_9_10])
+     * and null for any title TMDB has no IMDb id for.
+     */
+    val imdbId: String? = null,
 )

@@ -4,11 +4,14 @@ import org.seg7.familywatchlist.data.local.entity.AttrType
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderKind
+import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
 import org.seg7.familywatchlist.data.remote.dto.MovieDetailDto
+import org.seg7.familywatchlist.data.remote.dto.PagedResponseDto
+import org.seg7.familywatchlist.data.remote.dto.ReviewDto
 import org.seg7.familywatchlist.data.remote.dto.TvDetailDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProvidersResponseDto
 
@@ -30,6 +33,7 @@ fun MovieDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
     popularity = popularity,
     trailerKey = videos.youTubeTrailerKey(),
     fetchedAt = fetchedAt,
+    imdbId = externalIds?.imdbId,
 )
 
 fun TvDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
@@ -47,6 +51,7 @@ fun TvDetailDto.toTitleEntity(fetchedAt: Long): TitleEntity = TitleEntity(
     popularity = popularity,
     trailerKey = videos.youTubeTrailerKey(),
     fetchedAt = fetchedAt,
+    imdbId = externalIds?.imdbId,
 )
 
 fun MovieDetailDto.toAttributes(): List<TitleAttributeEntity> = buildList {
@@ -110,6 +115,25 @@ private fun WatchProvidersResponseDto?.toAvailability(
         forRegion.buy.forEach { add(ProviderAvailabilityEntity(tmdbId, mediaType, it.providerId, ProviderKind.BUY, fetchedAt)) }
     }
 }
+
+/** PLAN.md §5c (M14): TMDB review snippets, free on the same detail call — reused by both media types. */
+fun MovieDetailDto.toReviews(): List<ReviewEntity> = reviews.toReviews(id, MediaType.MOVIE)
+
+fun TvDetailDto.toReviews(): List<ReviewEntity> = reviews.toReviews(id, MediaType.TV)
+
+private fun PagedResponseDto<ReviewDto>?.toReviews(tmdbId: Int, mediaType: MediaType): List<ReviewEntity> =
+    this?.results.orEmpty().map {
+        ReviewEntity(
+            tmdbId = tmdbId,
+            mediaType = mediaType,
+            reviewId = it.id,
+            author = it.author,
+            content = it.content,
+            url = it.url,
+            rating = it.authorDetails?.rating,
+            createdAt = it.createdAt,
+        )
+    }
 
 /** Discover/recommendations/search results only ever carry a summary — no runtime or certification. */
 fun MediaSummaryDto.toStubTitleEntity(mediaType: MediaType, fetchedAt: Long): TitleEntity = TitleEntity(

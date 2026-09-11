@@ -78,7 +78,7 @@ class TunePicksViewModelTest {
         clock = FakeClock(startMillis = 1_000_000L)
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
 
-        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         profileRepository = ProfileRepository(db.profileDao(), clock)

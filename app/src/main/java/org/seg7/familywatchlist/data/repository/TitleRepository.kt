@@ -5,10 +5,12 @@ import kotlinx.coroutines.flow.Flow
 import org.seg7.familywatchlist.common.AppClock
 import org.seg7.familywatchlist.data.local.dao.AvailabilityBadge
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
+import org.seg7.familywatchlist.data.local.dao.ReviewDao
 import org.seg7.familywatchlist.data.local.dao.TitleAttributeDao
 import org.seg7.familywatchlist.data.local.dao.TitleDao
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
+import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.remote.TmdbApi
@@ -27,6 +29,7 @@ class TitleRepository(
     private val titleDao: TitleDao,
     private val titleAttributeDao: TitleAttributeDao,
     private val providerAvailabilityDao: ProviderAvailabilityDao,
+    private val reviewDao: ReviewDao,
     private val api: TmdbApi,
     private val clock: AppClock,
 ) {
@@ -35,6 +38,10 @@ class TitleRepository(
 
     fun observeAttributes(tmdbId: Int, mediaType: MediaType): Flow<List<TitleAttributeEntity>> =
         titleAttributeDao.observeForTitle(tmdbId, mediaType)
+
+    /** PLAN.md §5c (M14): TMDB's own review snippets, free on the same detail call as [observeTitle]/[observeAttributes]. */
+    fun observeReviews(tmdbId: Int, mediaType: MediaType): Flow<List<ReviewEntity>> =
+        reviewDao.observeForTitle(tmdbId, mediaType)
 
     /**
      * GB availability with real provider names (PLAN.md §5 screen 4). Every UI that renders
@@ -109,6 +116,7 @@ class TitleRepository(
                 titleDao.upsert(entity)
                 titleAttributeDao.replaceForTitle(tmdbId, MediaType.MOVIE, dto.toAttributes())
                 providerAvailabilityDao.replaceForTitle(tmdbId, MediaType.MOVIE, dto.toAvailability(now, region))
+                reviewDao.replaceForTitle(tmdbId, MediaType.MOVIE, dto.toReviews())
                 entity
             }
             MediaType.TV -> {
@@ -117,6 +125,7 @@ class TitleRepository(
                 titleDao.upsert(entity)
                 titleAttributeDao.replaceForTitle(tmdbId, MediaType.TV, dto.toAttributes())
                 providerAvailabilityDao.replaceForTitle(tmdbId, MediaType.TV, dto.toAvailability(now, region))
+                reviewDao.replaceForTitle(tmdbId, MediaType.TV, dto.toReviews())
                 entity
             }
         }
