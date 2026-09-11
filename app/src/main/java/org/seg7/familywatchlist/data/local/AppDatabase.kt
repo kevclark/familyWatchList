@@ -14,6 +14,7 @@ import org.seg7.familywatchlist.data.local.dao.ProfileSlidersDao
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
 import org.seg7.familywatchlist.data.local.dao.ProviderDao
 import org.seg7.familywatchlist.data.local.dao.RatingDao
+import org.seg7.familywatchlist.data.local.dao.ReviewDao
 import org.seg7.familywatchlist.data.local.dao.ShortlistDao
 import org.seg7.familywatchlist.data.local.dao.TitleAttributeDao
 import org.seg7.familywatchlist.data.local.dao.TitleDao
@@ -28,6 +29,7 @@ import org.seg7.familywatchlist.data.local.entity.ProfileSlidersEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
+import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
@@ -56,8 +58,9 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         FamilyProfileEntity::class,
         FamilyProfileMemberEntity::class,
         NotificationPreferenceEntity::class,
+        ReviewEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -75,6 +78,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun profileSlidersDao(): ProfileSlidersDao
     abstract fun familyProfileDao(): FamilyProfileDao
     abstract fun notificationPreferenceDao(): NotificationPreferenceDao
+    abstract fun reviewDao(): ReviewDao
 
     companion object {
         const val NAME = "family_watchlist.db"
@@ -241,6 +245,30 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_8_9: Migration = object : Migration(8, 9) {
             override fun migrate(connection: SQLiteConnection) {
                 connection.execSQL("UPDATE `titles` SET `fetchedAt` = 0")
+            }
+        }
+
+        /**
+         * v9 -> v10 (PLAN.md §5c, M14): adds `titles.imdbId` and creates the new `reviews` table —
+         * both filled for free from the same detail call's `append_to_response=external_ids,reviews`
+         * (see [ReviewEntity]'s kdoc and TitleRepository.refresh). Existing rows get a NULL `imdbId` and no
+         * review rows until their next 30-day metadata TTL refresh backfills both; no destructive
+         * reset needed here (unlike [MIGRATION_7_8]/[MIGRATION_8_9]) since neither addition changes
+         * the meaning of any existing column or row.
+         */
+        val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE titles ADD COLUMN imdbId TEXT")
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `reviews` (`tmdbId` INTEGER NOT NULL, " +
+                        "`mediaType` TEXT NOT NULL, `reviewId` TEXT NOT NULL, `author` TEXT NOT NULL, " +
+                        "`content` TEXT NOT NULL, `url` TEXT NOT NULL, `rating` REAL, `createdAt` TEXT, " +
+                        "PRIMARY KEY(`tmdbId`, `mediaType`, `reviewId`))"
+                )
+                connection.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_reviews_tmdbId_mediaType` " +
+                        "ON `reviews` (`tmdbId`, `mediaType`)"
+                )
             }
         }
     }

@@ -76,7 +76,7 @@ class MyListViewModelTest {
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
-        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
         familyProfileRepository = FamilyProfileRepository(db.familyProfileDao(), db.profileDao(), clock)
         recommendationRepository = RecommendationRepository(
             watchEventDao = db.watchEventDao(),

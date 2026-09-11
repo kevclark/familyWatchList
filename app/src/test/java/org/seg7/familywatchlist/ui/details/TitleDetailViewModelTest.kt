@@ -17,6 +17,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.seg7.familywatchlist.data.local.AppDatabase
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistState
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
@@ -71,7 +72,7 @@ class TitleDetailViewModelTest {
         clock = FakeClock(startMillis = 1_000L)
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
 
-        titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
         ratingRepository = RatingRepository(db.ratingDao(), clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
@@ -131,6 +132,42 @@ class TitleDetailViewModelTest {
         val state = viewModel().uiState.first { it.title != null }
 
         assertNull(state.reasons)
+    }
+
+    /**
+     * PLAN.md §5c (M14): a title with no TMDB reviews cached renders/behaves fine with an empty
+     * list — no crash, and the screen's "only show when non-empty" convention has something
+     * real to check against.
+     */
+    @Test
+    fun `reviews default to an empty list when none are cached`() = runTest {
+        val state = viewModel().uiState.first { it.title != null }
+
+        assertEquals(emptyList<ReviewEntity>(), state.reviews)
+    }
+
+    @Test
+    fun `cached review rows flow into uiState reviews`() = runTest {
+        db.reviewDao().upsertAll(
+            listOf(
+                ReviewEntity(
+                    tmdbId = tmdbId,
+                    mediaType = mediaType,
+                    reviewId = "r1",
+                    author = "A Reviewer",
+                    content = "A lovely bear.",
+                    url = "https://www.themoviedb.org/review/r1",
+                    rating = 8.0,
+                    createdAt = "2015-01-01T00:00:00.000Z",
+                )
+            )
+        )
+
+        val state = viewModel().uiState.first { it.reviews.isNotEmpty() }
+
+        assertEquals(1, state.reviews.size)
+        assertEquals("A Reviewer", state.reviews.first().author)
+        assertEquals(8.0, state.reviews.first().rating)
     }
 
     @Test

@@ -49,6 +49,7 @@ class AppContainer(context: Context) {
             AppDatabase.MIGRATION_6_7,
             AppDatabase.MIGRATION_7_8,
             AppDatabase.MIGRATION_8_9,
+            AppDatabase.MIGRATION_9_10,
         )
         .build()
 
@@ -68,7 +69,14 @@ class AppContainer(context: Context) {
     }
 
     val titleRepository: TitleRepository by lazy {
-        TitleRepository(database.titleDao(), database.titleAttributeDao(), database.providerAvailabilityDao(), tmdbApi, clock)
+        TitleRepository(
+            database.titleDao(),
+            database.titleAttributeDao(),
+            database.providerAvailabilityDao(),
+            database.reviewDao(),
+            tmdbApi,
+            clock,
+        )
     }
 
     val discoverRepository: DiscoverRepository by lazy {

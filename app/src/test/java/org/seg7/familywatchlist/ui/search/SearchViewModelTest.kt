@@ -101,7 +101,7 @@ class SearchViewModelTest {
 
     private fun buildViewModel(api: TmdbApi, profileId: Long = activeProfileId) {
         val clock = FakeClock(startMillis = 1_000L)
-        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        val titleRepository = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
         providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         val gate = AvailabilityGate(titleRepository, providerRepository)

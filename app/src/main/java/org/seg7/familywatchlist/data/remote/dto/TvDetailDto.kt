@@ -4,8 +4,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * /tv/{id}?append_to_response=credits,keywords,videos,watch/providers,content_ratings
- * (PLAN.md §3).
+ * /tv/{id}?append_to_response=credits,keywords,videos,watch/providers,content_ratings,
+ * external_ids,reviews (PLAN.md §3, §5c).
  */
 @Serializable
 data class TvDetailDto(
@@ -30,6 +30,8 @@ data class TvDetailDto(
      * is what PLAN.md §2's TitleAttribute "crew: director/creator only" maps to for TV.
      */
     @SerialName("created_by") val createdBy: List<CreatedByDto> = emptyList(),
+    @SerialName("external_ids") val externalIds: ExternalIdsDto? = null,
+    val reviews: PagedResponseDto<ReviewDto>? = null,
 )
 
 @Serializable

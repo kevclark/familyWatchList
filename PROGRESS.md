@@ -2302,13 +2302,13 @@ score isn't freely/reliably available any more (see PLAN.md §5c for the investi
 picked the free/reliable alternative instead — a real IMDb link plus TMDB's own review text
 shown in-app, both free via the *same* existing detail call TMDB already makes.
 
-- [ ] **TMDB API surface:** `TmdbApi.APPEND_MOVIE`/`APPEND_TV` gain `,external_ids,reviews`.
+- [x] **TMDB API surface:** `TmdbApi.APPEND_MOVIE`/`APPEND_TV` gain `,external_ids,reviews`.
       New `ExternalIdsDto` (`imdb_id`) and `ReviewDto` (`id`, `author`, `content`, `url`, nested
       `AuthorDetailsDto.rating`, `createdAt`) in their own DTO file(s). `MovieDetailDto`/
       `TvDetailDto` each gain `externalIds: ExternalIdsDto?` and
       `reviews: PagedResponseDto<ReviewDto>?` (reuse the existing generic `PagedResponseDto<T>` —
       matches TMDB's reviews response shape exactly).
-- [ ] **Data model:** `TitleEntity` gains `val imdbId: String? = null`. New `ReviewEntity`
+- [x] **Data model:** `TitleEntity` gains `val imdbId: String? = null`. New `ReviewEntity`
       (table `"reviews"`, scoped by `tmdbId`/`mediaType`) + `ReviewDao` with a `replaceForTitle`
       transaction helper mirroring `TitleAttributeDao.replaceForTitle` exactly (delete-then-
       upsert, refetches always resupply the full set). Room migration bumping
@@ -2316,13 +2316,13 @@ shown in-app, both free via the *same* existing detail call TMDB already makes.
       migration. Register it in `AppContainer.kt`'s `.addMigrations(...)` alongside the existing
       ones. Export the new schema JSON per the project's existing Room schema-export convention
       (`app/schemas/`).
-- [ ] **Repository wiring:** `TitleRepository.refresh()` sets `imdbId` on the existing
+- [x] **Repository wiring:** `TitleRepository.refresh()` sets `imdbId` on the existing
       `toTitleEntity(now)` mapping (both movie and TV branches) and calls
       `reviewDao.replaceForTitle(tmdbId, mediaType, dto.toReviews())` alongside its existing two
       `replaceForTitle` calls — same `ensureFresh` 30-day TTL, no separate reviews TTL.
       `TitleRepository` gains `observeReviews(tmdbId, mediaType): Flow<List<ReviewEntity>>`
       following the exact shape of `observeTitle`/`observeAttributes`/`observeAvailability`.
-- [ ] **ViewModel/UI:** `TitleDetailViewModel.uiState`'s `combine(...)` gains the reviews flow;
+- [x] **ViewModel/UI:** `TitleDetailViewModel.uiState`'s `combine(...)` gains the reviews flow;
       `TitleDetailUiState` gains `reviews: List<ReviewEntity> = emptyList()`.
       `TitleDetailScreen.kt`: a "View on IMDb ↗" link (Accent-colored text, matching the screen's
       existing secondary-link visual language) near the new TMDB rating line, visible only when
@@ -2332,14 +2332,14 @@ shown in-app, both free via the *same* existing detail call TMDB already makes.
       `state.reviews.isNotEmpty()` — matches the screen's existing "optional section only shows
       when it has content" convention (genres, "Because you liked …"). Tapping a review opens its
       own `url` the same way as the IMDb link.
-- [ ] Tests: DTO parsing (`ExternalIdsDto`/`ReviewDto` deserialize from a realistic TMDB JSON
+- [x] Tests: DTO parsing (`ExternalIdsDto`/`ReviewDto` deserialize from a realistic TMDB JSON
       fixture); `ReviewDao` (`replaceForTitle`'s delete-then-upsert, correctly scoped by
       `tmdbId`/`mediaType`); `TitleRepositoryTest` (a `refresh()` call persists `imdbId` and
       review rows — regression pin); `TitleDetailViewModelTest` (reviews flow into
       `TitleDetailUiState`; empty reviews list renders/behaves fine, no crash); a Room migration
       test for the new `MIGRATION_9_10` against the real exported schema, mirroring the existing
       `AppDatabaseMigrationTest` pattern for `MIGRATION_7_8`/`MIGRATION_8_9`.
-- [ ] `./gradlew test assembleDebug` green.
+- [x] `./gradlew test assembleDebug` green.
 - [ ] Live verification: a title with real TMDB reviews and a real IMDb id shows both correctly;
       a title with neither shows neither section (no empty/broken UI); tapping the IMDb link and
       a review both actually open in the browser.

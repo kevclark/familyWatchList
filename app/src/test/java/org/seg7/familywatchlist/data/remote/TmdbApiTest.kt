@@ -62,6 +62,26 @@ class TmdbApiTest {
         assertTrue(recorded.target.contains("append_to_response="))
     }
 
+    /**
+     * PLAN.md §5c (M14): `external_ids`/`reviews` decode from the *same* detail response as
+     * every other appended field above — no separate call, no separate DTO paging shape (reuses
+     * [org.seg7.familywatchlist.data.remote.dto.PagedResponseDto]).
+     */
+    @Test
+    fun `movie detail decodes external_ids and reviews`() = runTest {
+        server.enqueue(MockResponse(body = PADDINGTON_MOVIE_DETAIL_JSON))
+
+        val detail = api.movieDetail(38700)
+
+        assertEquals("tt1109624", detail.externalIds?.imdbId)
+        assertEquals(1, detail.reviews?.results?.size)
+        val review = detail.reviews?.results?.first()
+        assertEquals("A Reviewer", review?.author)
+        assertEquals("A lovely bear.", review?.content)
+        assertEquals("https://www.themoviedb.org/review/abc123", review?.url)
+        assertEquals(8.0, review?.authorDetails?.rating)
+    }
+
     @Test
     fun `tv detail decodes the results-keyed keywords wrapper and content_ratings`() = runTest {
         server.enqueue(MockResponse(body = BLUEY_TV_DETAIL_JSON))
@@ -177,6 +197,22 @@ class TmdbApiTest {
                     "release_dates": [{"certification": "PG", "type": 3, "release_date": "2015-01-16T00:00:00.000Z"}]
                   }
                 ]
+              },
+              "external_ids": {"imdb_id": "tt1109624"},
+              "reviews": {
+                "page": 1,
+                "results": [
+                  {
+                    "id": "abc123",
+                    "author": "A Reviewer",
+                    "content": "A lovely bear.",
+                    "url": "https://www.themoviedb.org/review/abc123",
+                    "author_details": {"rating": 8.0},
+                    "created_at": "2015-01-01T00:00:00.000Z"
+                  }
+                ],
+                "total_pages": 1,
+                "total_results": 1
               }
             }
         """.trimIndent()

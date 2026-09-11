@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -56,6 +57,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import coil3.compose.AsyncImage
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingValue
+import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.AvailabilityRow
 import org.seg7.familywatchlist.ui.components.BottomScrim
@@ -206,6 +208,21 @@ fun TitleDetailScreen(
                                     color = ChalkMuted,
                                 )
                             }
+                            // PLAN.md §5c (M14): a real IMDb deep link, free via the same detail
+                            // call's append_to_response=external_ids — only when TMDB actually has
+                            // one, following the screen's "optional section only shows when it has
+                            // content" convention (genres, "Because you liked …").
+                            title?.imdbId?.let { imdbId ->
+                                val uriHandler = LocalUriHandler.current
+                                Text(
+                                    text = "View on IMDb ↗",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Accent,
+                                    modifier = Modifier.clickableNoRipple {
+                                        uriHandler.openUri("https://www.imdb.com/title/$imdbId/")
+                                    },
+                                )
+                            }
                             if (state.genres.isNotEmpty()) {
                                 Text(
                                     text = state.genres.joinToString(" · "),
@@ -335,6 +352,18 @@ fun TitleDetailScreen(
                     AvailabilityRow(badges = state.availability)
                 }
             }
+
+            // PLAN.md §5c (M14): TMDB's own review snippets, free on the same detail call —
+            // only rendered when there's something to show, same convention as genres/cast/crew.
+            if (state.reviews.isNotEmpty()) {
+                item(key = "reviews") {
+                    DetailSection(title = "Reviews") {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            state.reviews.forEach { review -> ReviewCard(review) }
+                        }
+                    }
+                }
+            }
         }
 
         // Floating back affordance over the hero — §5a: no solid app bar where imagery is.
@@ -456,6 +485,47 @@ private fun ChipFlow(items: List<String>) {
                     .padding(horizontal = 11.dp, vertical = 7.dp),
             )
         }
+    }
+}
+
+/**
+ * One TMDB review snippet (PLAN.md §5c): author, the reviewer's own 1-10 rating when they left
+ * one, and their review text truncated to ~3-4 lines. Tapping opens the review's own TMDB page
+ * for the full text, the same [LocalUriHandler] mechanism the IMDb link uses.
+ */
+@Composable
+private fun ReviewCard(review: ReviewEntity) {
+    val uriHandler = LocalUriHandler.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickableNoRipple { uriHandler.openUri(review.url) },
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = review.author,
+                style = MaterialTheme.typography.labelLarge,
+                color = Chalk,
+            )
+            review.rating?.let { rating ->
+                Text(
+                    text = "★ ${"%.1f".format(rating)}/10",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ChalkMuted,
+                )
+            }
+        }
+        Text(
+            text = review.content,
+            style = MaterialTheme.typography.bodyMedium,
+            color = ChalkMuted,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

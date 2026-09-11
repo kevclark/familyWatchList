@@ -85,7 +85,7 @@ interface TmdbApi {
 
     companion object {
         const val REGION_GB = "GB"
-        const val APPEND_MOVIE = "credits,keywords,videos,watch/providers,release_dates"
-        const val APPEND_TV = "credits,keywords,videos,watch/providers,content_ratings"
+        const val APPEND_MOVIE = "credits,keywords,videos,watch/providers,release_dates,external_ids,reviews"
+        const val APPEND_TV = "credits,keywords,videos,watch/providers,content_ratings,external_ids,reviews"
     }
 }

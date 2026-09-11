@@ -4,9 +4,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * /movie/{id}?append_to_response=credits,keywords,videos,watch/providers,release_dates
- * (PLAN.md §3) — one round-trip fills Title, TitleAttribute, ProviderAvailability, trailer
- * key, and UK certification.
+ * /movie/{id}?append_to_response=credits,keywords,videos,watch/providers,release_dates,
+ * external_ids,reviews (PLAN.md §3, §5c) — one round-trip fills Title, TitleAttribute,
+ * ProviderAvailability, trailer key, UK certification, the real IMDb id, and TMDB review
+ * snippets.
  */
 @Serializable
 data class MovieDetailDto(
@@ -26,4 +27,6 @@ data class MovieDetailDto(
     val videos: VideosDto? = null,
     @SerialName("watch/providers") val watchProviders: WatchProvidersResponseDto? = null,
     @SerialName("release_dates") val releaseDates: ReleaseDatesDto? = null,
+    @SerialName("external_ids") val externalIds: ExternalIdsDto? = null,
+    val reviews: PagedResponseDto<ReviewDto>? = null,
 )

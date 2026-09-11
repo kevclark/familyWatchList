@@ -40,7 +40,7 @@ class TitleRepositoryTest {
         // wall-clock timestamp, so the fake clock should behave the same way here.
         clock = FakeClock(startMillis = TimeUnit.DAYS.toMillis(365))
         val api = TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" })
-        repo = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), api, clock)
+        repo = TitleRepository(db.titleDao(), db.titleAttributeDao(), db.providerAvailabilityDao(), db.reviewDao(), api, clock)
     }
 
     @After
@@ -67,6 +67,39 @@ class TitleRepositoryTest {
         val availability = db.providerAvailabilityDao().getForTitle(38700, MediaType.MOVIE)
         assertEquals(1, availability.size)
         assertEquals(8, availability.first().providerId)
+    }
+
+    /**
+     * PLAN.md §5c (M14) regression pin: [TitleRepository.refresh] sets [TitleEntity.imdbId] from
+     * the same detail call's `external_ids`, and persists TMDB's own review snippets via
+     * [org.seg7.familywatchlist.data.local.dao.ReviewDao.replaceForTitle] alongside its existing
+     * two `replaceForTitle` calls — no separate network round-trip, no separate TTL.
+     */
+    @Test
+    fun `refresh persists imdbId and review rows`() = runTest {
+        server.enqueue(MockResponse(body = MOVIE_DETAIL_WITH_REVIEWS_JSON))
+
+        val entity = repo.refresh(38700, MediaType.MOVIE)
+
+        assertEquals("tt1109624", entity.imdbId)
+
+        val reviews = db.reviewDao().getForTitle(38700, MediaType.MOVIE)
+        assertEquals(1, reviews.size)
+        assertEquals("A Reviewer", reviews.first().author)
+        assertEquals(8.0, reviews.first().rating)
+        assertEquals("https://www.themoviedb.org/review/abc123", reviews.first().url)
+    }
+
+    /** Refetching must fully replace any stale review set, same "resupply everything" contract as title_attributes. */
+    @Test
+    fun `refresh replaces the prior review set rather than appending to it`() = runTest {
+        server.enqueue(MockResponse(body = MOVIE_DETAIL_WITH_REVIEWS_JSON))
+        repo.refresh(38700, MediaType.MOVIE)
+
+        server.enqueue(MockResponse(body = MOVIE_DETAIL_JSON))
+        repo.refresh(38700, MediaType.MOVIE)
+
+        assertTrue(db.reviewDao().getForTitle(38700, MediaType.MOVIE).isEmpty())
     }
 
     /**
@@ -254,6 +287,53 @@ class TitleRepositoryTest {
                 "results": [
                   {"iso_3166_1": "GB", "release_dates": [{"certification": "PG", "type": 3, "release_date": "2014-11-28T00:00:00.000Z"}]}
                 ]
+              }
+            }
+        """.trimIndent()
+
+        val MOVIE_DETAIL_WITH_REVIEWS_JSON = """
+            {
+              "id": 38700,
+              "title": "Paddington",
+              "release_date": "2014-11-28",
+              "runtime": 95,
+              "poster_path": "/poster.jpg",
+              "backdrop_path": "/backdrop.jpg",
+              "overview": "A bear in London",
+              "vote_average": 7.2,
+              "popularity": 33.1,
+              "genres": [{"id": 10751, "name": "Family"}],
+              "credits": {
+                "cast": [{"id": 1, "name": "Hugh Bonneville", "order": 0}],
+                "crew": [{"id": 9, "name": "Paul King", "job": "Director", "department": "Directing"}]
+              },
+              "keywords": {"keywords": [{"id": 100, "name": "bear"}]},
+              "videos": {"results": []},
+              "watch/providers": {
+                "results": {
+                  "GB": {"flatrate": [{"provider_id": 8, "provider_name": "Netflix", "display_priority": 1}]}
+                }
+              },
+              "release_dates": {
+                "results": [
+                  {"iso_3166_1": "GB", "release_dates": [{"certification": "PG", "type": 3, "release_date": "2014-11-28T00:00:00.000Z"}]}
+                ]
+              },
+              "external_ids": {"imdb_id": "tt1109624"},
+              "reviews": {
+                "page": 1,
+                "results": [
+                  {
+                    "id": "abc123",
+                    "author": "A Reviewer",
+                    "content": "A lovely bear.",
+                    "url": "https://www.themoviedb.org/review/abc123",
+                    "author_details": {"rating": 8.0},
+                    "created_at": "2015-01-01T00:00:00.000Z"
+                  }
+                ],
+                "total_pages": 1,
+                "total_results": 1
               }
             }
         """.trimIndent()
