@@ -194,6 +194,18 @@ fun TitleDetailScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = ChalkMuted,
                             )
+                            // PLAN.md §5 screen 4 (Kev, 2026-09-11): the TMDB community rating —
+                            // already fetched into TitleEntity.voteAverage and already shown on
+                            // Home's hero (same "★ 6.7" format, HomeScreen.kt) — was never surfaced
+                            // here at all. Filters the same `> 0` floor as the hero, since 0 means
+                            // "TMDB has no votes yet," not "rated zero."
+                            title?.voteAverage?.takeIf { it > 0 }?.let { rating ->
+                                Text(
+                                    text = "★ ${"%.1f".format(rating)} TMDB",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ChalkMuted,
+                                )
+                            }
                             if (state.genres.isNotEmpty()) {
                                 Text(
                                     text = state.genres.joinToString(" · "),

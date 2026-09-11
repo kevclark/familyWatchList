@@ -34,12 +34,12 @@ android {
         applicationId = "org.seg7.familywatchlist"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
+        versionCode = 13
         // SemVer (Kev, 2026-08-22): bump the alpha counter (alpha.2, alpha.3, ...) each time a
         // build goes out to his phone, so Settings' version row actually reflects "this changed"
         // rather than sitting static. versionCode stays a plain incrementing int per Play Store
         // convention; versionName is the human-facing SemVer string shown in Settings.
-        versionName = "0.1.0-alpha.12"
+        versionName = "0.1.0-alpha.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
