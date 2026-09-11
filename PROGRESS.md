@@ -2231,3 +2231,52 @@ again for the genuine ~7-8s computation. Two separate things to fix:
 - [x] `./gradlew test assembleDebug` green.
 - [ ] Live verification on Kev's phone — re-search "Masters of the Universe" from a 12-capped
       profile once `alpha.11` is installed.
+
+## M13 — Dismiss becomes a lasting, real negative signal (Kev, 2026-09-11) — see PLAN.md §4c
+
+Kev asked whether long-press dismiss on For You / Family Night updates the algorithm. Answer
+was no, plus two real bugs found while tracing it. Kev's call: fix all three (see PLAN.md §4c
+for full reasoning on each).
+
+- [ ] **Fix 1 — suppression lasts beyond the current week.** New `ShortlistDao.getDismissedForScope(scopeKey)`
+      (no `weekStart` filter — every DISMISSED row for that scope, any week). `excludeDismissed`
+      uses it instead of the old `getForScope(weekStart, scopeKey)` read.
+      Test: dismissing a title, then simulating a recompute under a *different* `weekStart`,
+      still excludes it (regression: today it wouldn't).
+- [ ] **Fix 2 — Family Night's ad-hoc dismiss persists to the scope it's actually read from.**
+      `RecommendationRepository`: extract shared private `dismissForScope(scopeKey, tmdbId, mediaType)`
+      from today's `dismissTitle` body; `dismissTitle(profileId, tmdbId, mediaType)` keeps its
+      exact signature, now just calls `dismissForScope(scopeKeyFor(profileId), ...)`; add
+      `suspend fun dismissAdHocFamilyNightTitle(profileIds: List<Long>, tmdbId: Int, mediaType: MediaType)`
+      calling `dismissForScope(adHocScopeKey(profileIds), ...)`.
+      `HomeScreen.kt`: `DismissTarget` gains `familyNightProfileIds: List<Long>? = null`; the
+      Family Night carousel's `onLongPress` sets it to `state.familyNightSelectedIds`; For
+      You/Popular/My List rows leave it null (unchanged). `HomeViewModel.dismissTitle` gains the
+      same optional param, branches to `dismissAdHocFamilyNightTitle` when non-null, otherwise
+      today's `dismissTitle(activeProfile.id, ...)` path unchanged.
+      Test (`HomeViewModelTest`): dismissing from Family Night calls the ad-hoc repository method
+      with the current selection, not `activeProfile.id`'s own scope; dismissing from For
+      You/Popular is unchanged (regression pin).
+- [ ] **Fix 3 — dismiss feeds the affinity vector, for real per-profile scopes only (not the
+      ad-hoc Family Night blend — see PLAN.md §4c point 3 for why).**
+      `AffinityEngine`: new `DismissSignal(title: TitleKey, attributes: List<AttrKey>, dismissedAt: LocalDate)`,
+      `DISMISS_SIGNAL_WEIGHT = -0.6`. `buildRawVector`/`buildAffinityVector` gain
+      `dismissals: List<DismissSignal> = emptyList()`, folded in exactly like `WatchlistSignal`
+      (recency-weighted, added to the same accumulator — negative weight subtracts). IDF corpus
+      stays watched-titles-only, unchanged.
+      `RecommendationRepository.buildProfileVector`: fetch `getDismissedForScope(scopeKeyFor(profileId))`,
+      map each row to a `DismissSignal` via `titleAttributeDao.getForTitle`, `dismissedAt = row.weekStart`,
+      pass into `AffinityEngine.buildAffinityVector`. `refreshFamilyShortlist`'s ad-hoc blend path
+      is untouched by this fix — only fix 2's corrected suppression applies there.
+      Test (`AffinityEngineTest`): a dismissed title's attributes measurably lower the resulting
+      vector value vs. the same inputs without the dismissal, at the documented weight, with
+      recency decay applied the same way as the watchlist bonus.
+      Test (`RecommendationRepositoryTest`): dismissing a title for a real profile changes that
+      profile's next `buildProfileVector` output (regression pin) — proves fix 3 actually wires
+      through, not just unit-tested in isolation.
+- [ ] `ShortlistDaoTest`: new `getDismissedForScope` query returns DISMISSED rows across every
+      `weekStart` for a scope, and only DISMISSED rows (not SUGGESTED/WATCHED).
+- [ ] `./gradlew test assembleDebug` green.
+- [ ] Live verification on Kev's phone: dismiss a Family Night title, force-stop and reopen the
+      app, reselect the same chip combination, confirm it stays gone (proves fix 2, since fix 1
+      alone wouldn't catch this — the bug was the scope key, not the week window).
