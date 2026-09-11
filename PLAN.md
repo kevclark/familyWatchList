@@ -370,6 +370,50 @@ whoever finished) is an implementation call — document whichever is chosen.
 
 This is all deterministic Kotlin — unit-testable with fixture data, no runtime LLM/API cost.
 
+### 4c. Dismiss becomes a lasting negative signal (Kev, 2026-09-11 — queued as M13)
+
+Kev asked whether long-press dismiss ("not interested") feeds the algorithm. It didn't — three
+real gaps found while answering:
+
+1. **Suppression was only for the current week.** `excludeDismissed` read
+   `ShortlistDao.getForScope(weekStart, scopeKey)` — a DISMISSED row only excludes its title from
+   *this week's* recompute, contradicting the confirm dialog's own copy ("won't be suggested to
+   you again until you tell us otherwise"). Fix: a new `ShortlistDao.getDismissedForScope(scopeKey)`
+   query with no `weekStart` filter (DISMISSED rows are never pruned — `deleteOlderThan` exists but
+   is dead code, never called from anywhere), and `excludeDismissed` reads that instead.
+2. **Family Night's ad-hoc blend never actually persisted its own dismissals.** `refreshFamilyShortlist`'s
+   ad-hoc (unpersisted) path reads `adHocScopeKey(profileIds)`, but `HomeViewModel.dismissTitle`
+   always wrote against `scopeKeyFor(activeProfile.id)` — a different key nothing else reads. It
+   only *looked* like it worked because of the session-only in-memory `_dismissedKeys` filter;
+   restart the app and a Family-Night-dismissed title could resurface. (The `adHocScopeKey` kdoc
+   already flagged this: "used to exclude this subset's own this-session dismissals if the UI
+   ever adds that" — it never did.) Fix: `RecommendationRepository` extracts a shared
+   `dismissForScope(scopeKey, tmdbId, mediaType)` private helper; `dismissTitle(profileId, ...)`
+   (unchanged public signature) calls it with `scopeKeyFor(profileId)`; a new
+   `dismissAdHocFamilyNightTitle(profileIds: List<Long>, tmdbId, mediaType)` calls it with
+   `adHocScopeKey(profileIds)`. `HomeScreen`'s single shared `DismissTarget` gains a nullable
+   `familyNightProfileIds: List<Long>?` — null for the For You/Popular rows (unchanged), set to
+   `state.familyNightSelectedIds` when the long-press came from the Family Night carousel.
+   `HomeViewModel.dismissTitle` gains that same optional param and branches to the new repository
+   method when it's non-null.
+3. **Dismissing never touched the affinity vector at all** — pure suppression, no learning.
+   Fix, deliberately scoped to *real* per-profile vectors only (a genuine `Profile.id`, or the
+   Family profile's own persisted vector — **not** the ad-hoc Family Night blend): a group
+   dismissal doesn't mean each individual member dislikes it (a kids' title dismissed for a
+   "Parent + Kid" combo tonight says nothing about the Parent's own taste), so the ad-hoc path
+   keeps benefiting from fix 2's corrected suppression only, never feeds anyone's vector.
+   `AffinityEngine` gains a `DismissSignal(title, attributes, dismissedAt)` (mirrors
+   `WatchlistSignal`'s shape) and `DISMISS_SIGNAL_WEIGHT = -0.6` — same magnitude as
+   `WATCHLIST_SIGNAL_WEIGHT` (+0.6), sign flipped: a "not interested" tap on an unwatched
+   suggestion is comparably weak evidence to an add-to-list tap, both deliberately weaker than an
+   actual watched-and-rated DOWN (-0.8). Folded into `buildRawVector` the same recency-weighted
+   way as the watchlist bonus; the IDF-damping corpus stays watched-titles-only (unchanged) — a
+   dismissed title's contribution to an already-ubiquitous attribute gets damped by that same
+   existing factor, no separate corpus needed. `RecommendationRepository.buildProfileVector` reads
+   `getDismissedForScope(scopeKeyFor(profileId))`, maps each row to a `DismissSignal` (attributes
+   via `titleAttributeDao.getForTitle`, `dismissedAt = row.weekStart` — the only date the row
+   carries, an acceptable proxy since it's only ever off by less than a week).
+
 ### 4a. Tunable sliders (Kev, 2026-08-20 — all four confirmed for v1, not a trim-down set)
 
 Four per-profile sliders, each a signed value **s ∈ [-1, +1], default 0 exactly reproducing
