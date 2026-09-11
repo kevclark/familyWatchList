@@ -785,6 +785,56 @@ investigated every one against the actual code/live device before any decision w
 - **Camera/photo avatar import** (backlog — genuine new feature: permissions, storage,
   cropping — not a fix-batch item).
 
+### 5c. Title detail ratings & reviews (Kev, 2026-09-11 — queued as M14)
+
+Kev noticed Home's hero shows a "★ 6.7" TMDB rating but the title detail screen never surfaces
+it, and asked for a Rotten Tomatoes score plus links to reviews. Investigated before building
+anything: **a real RT percentage isn't freely/reliably gettable any more** — RT locked down
+their data licensing years ago, and OMDb's API (which used to re-serve RT scores) stopped doing
+so; the remaining routes are an unofficial/scraping service (fragile, likely against RT's terms)
+or a paid data provider, neither of which fits this app's "TMDB + JustWatch, nothing else"
+posture. Presented the tradeoff; Kev picked the free/reliable route instead:
+
+- **TMDB rating on the detail screen** — already shipped ahead of this section (M13.5, a direct
+  small fix): `TitleEntity.voteAverage` was already fetched and shown on Home's hero, just never
+  on details. Same "★ X.X TMDB" format, same `> 0` vote floor.
+- **A real "View on IMDb" link** — TMDB returns the title's actual IMDb id for free via
+  `append_to_response=external_ids` on the *same* existing `/movie/{id}` and `/tv/{id}` detail
+  call (`TmdbApi.APPEND_MOVIE`/`APPEND_TV`) — zero extra network round-trips. Gives an accurate
+  deep link to real IMDb ratings and real user reviews, no new API/key, no ToS risk.
+- **In-app TMDB review snippets** — TMDB also supports `append_to_response=reviews` on that
+  exact same call (also free, also zero extra round-trips): real user-submitted review text,
+  each with an author name and an optional 1-10 rating the reviewer gave. Show a few snippets
+  (author, rating if present, truncated content) directly on the detail screen so Kev isn't
+  always forced out to another app; tapping one opens the review's own TMDB page for the full
+  text via [androidx.compose.ui.platform.LocalUriHandler] (the review's `url` field) — the same
+  mechanism the IMDb link uses.
+
+**Data model additions:**
+- `ExternalIdsDto(imdbId: String? = null)` (`@SerialName("imdb_id")`) and `ReviewDto` (`id`,
+  `author`, `content`, `url`, nested `AuthorDetailsDto(rating: Double?)`, `createdAt`) — new DTO
+  files, `MovieDetailDto`/`TvDetailDto` each gain `externalIds: ExternalIdsDto?` and
+  `reviews: PagedResponseDto<ReviewDto>?` (the existing generic `PagedResponseDto<T>` already
+  matches TMDB's reviews response shape exactly, no new paging DTO needed).
+- `TitleEntity` gains `val imdbId: String? = null`.
+- New `ReviewEntity` (tableName `"reviews"`, scoped by `tmdbId`/`mediaType` like
+  `TitleAttributeEntity`) and `ReviewDao` with a `replaceForTitle` transaction helper mirroring
+  `TitleAttributeDao.replaceForTitle`'s exact delete-then-upsert pattern (refetches always
+  resupply the full set).
+- Room migration bumping `AppDatabase.version` 9 → 10: add the `titles.imdbId` column and create
+  the new `reviews` table, in one migration.
+- `TitleRepository.refresh()` sets `imdbId` on the existing `toTitleEntity(now)` mapping and
+  calls the new `reviewDao.replaceForTitle(...)` alongside its existing two `replaceForTitle`
+  calls (`titleAttributeDao`, `providerAvailabilityDao`) — same 30-day metadata TTL via
+  `ensureFresh`, no separate reviews TTL.
+- `TitleRepository` gains `observeReviews(tmdbId, mediaType): Flow<List<ReviewEntity>>`, following
+  the exact shape of its existing `observeTitle`/`observeAttributes`/`observeAvailability`.
+- `TitleDetailViewModel.uiState`'s `combine(...)` gains that flow; `TitleDetailUiState` gains
+  `reviews: List<ReviewEntity> = emptyList()`.
+- UI: the IMDb link renders only when `title?.imdbId != null` (near the new rating line); the
+  reviews section renders only when non-empty, following the screen's existing "optional section
+  only shows when it has content" convention (genres, "Because you liked …").
+
 ---
 
 ## 6. Build environment & preview (agent101)
