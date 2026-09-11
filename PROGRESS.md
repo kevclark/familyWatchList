@@ -2283,3 +2283,63 @@ for full reasoning on each).
 - [ ] Live verification on Kev's phone: dismiss a Family Night title, force-stop and reopen the
       app, reselect the same chip combination, confirm it stays gone (proves fix 2, since fix 1
       alone wouldn't catch this — the bug was the scope key, not the week window).
+
+## M13.5 — TMDB rating on the title detail screen (Kev, 2026-09-11)
+
+- [x] Home's hero already shows "★ 6.7" from `TitleEntity.voteAverage` (already fetched, already
+      cached) — the detail screen never surfaced it. Added the same "★ X.X TMDB" line to the
+      title meta row, same `> 0` vote floor as the hero. No new data, no migration — a direct
+      small fix, not routed through feature-builder (same size class as M12).
+- [x] `./gradlew test assembleDebug` green (453 tests; one `ProfileViewModelTest` flake seen
+      under full-suite parallelism, confirmed pre-existing and unrelated — passed 3/3 in
+      isolation, see PROGRESS.md's earlier-documented flake pattern).
+- [x] Shipped as `0.1.0-alpha.13`.
+
+## M14 — IMDb link + in-app TMDB review snippets (Kev, 2026-09-11) — see PLAN.md §5c
+
+Follow-up to M13.5: Kev also asked for a Rotten Tomatoes score and review links. A real RT
+score isn't freely/reliably available any more (see PLAN.md §5c for the investigation); Kev
+picked the free/reliable alternative instead — a real IMDb link plus TMDB's own review text
+shown in-app, both free via the *same* existing detail call TMDB already makes.
+
+- [ ] **TMDB API surface:** `TmdbApi.APPEND_MOVIE`/`APPEND_TV` gain `,external_ids,reviews`.
+      New `ExternalIdsDto` (`imdb_id`) and `ReviewDto` (`id`, `author`, `content`, `url`, nested
+      `AuthorDetailsDto.rating`, `createdAt`) in their own DTO file(s). `MovieDetailDto`/
+      `TvDetailDto` each gain `externalIds: ExternalIdsDto?` and
+      `reviews: PagedResponseDto<ReviewDto>?` (reuse the existing generic `PagedResponseDto<T>` —
+      matches TMDB's reviews response shape exactly).
+- [ ] **Data model:** `TitleEntity` gains `val imdbId: String? = null`. New `ReviewEntity`
+      (table `"reviews"`, scoped by `tmdbId`/`mediaType`) + `ReviewDao` with a `replaceForTitle`
+      transaction helper mirroring `TitleAttributeDao.replaceForTitle` exactly (delete-then-
+      upsert, refetches always resupply the full set). Room migration bumping
+      `AppDatabase.version` 9 → 10: add `titles.imdbId` + create the `reviews` table, in one
+      migration. Register it in `AppContainer.kt`'s `.addMigrations(...)` alongside the existing
+      ones. Export the new schema JSON per the project's existing Room schema-export convention
+      (`app/schemas/`).
+- [ ] **Repository wiring:** `TitleRepository.refresh()` sets `imdbId` on the existing
+      `toTitleEntity(now)` mapping (both movie and TV branches) and calls
+      `reviewDao.replaceForTitle(tmdbId, mediaType, dto.toReviews())` alongside its existing two
+      `replaceForTitle` calls — same `ensureFresh` 30-day TTL, no separate reviews TTL.
+      `TitleRepository` gains `observeReviews(tmdbId, mediaType): Flow<List<ReviewEntity>>`
+      following the exact shape of `observeTitle`/`observeAttributes`/`observeAvailability`.
+- [ ] **ViewModel/UI:** `TitleDetailViewModel.uiState`'s `combine(...)` gains the reviews flow;
+      `TitleDetailUiState` gains `reviews: List<ReviewEntity> = emptyList()`.
+      `TitleDetailScreen.kt`: a "View on IMDb ↗" link (Accent-colored text, matching the screen's
+      existing secondary-link visual language) near the new TMDB rating line, visible only when
+      `title?.imdbId != null`, opening `https://www.imdb.com/title/${imdbId}/` via
+      `LocalUriHandler.current.openUri(...)`. A reviews section (author name, star/10 rating if
+      `authorDetails.rating != null`, truncated content ~3-4 lines) rendered only when
+      `state.reviews.isNotEmpty()` — matches the screen's existing "optional section only shows
+      when it has content" convention (genres, "Because you liked …"). Tapping a review opens its
+      own `url` the same way as the IMDb link.
+- [ ] Tests: DTO parsing (`ExternalIdsDto`/`ReviewDto` deserialize from a realistic TMDB JSON
+      fixture); `ReviewDao` (`replaceForTitle`'s delete-then-upsert, correctly scoped by
+      `tmdbId`/`mediaType`); `TitleRepositoryTest` (a `refresh()` call persists `imdbId` and
+      review rows — regression pin); `TitleDetailViewModelTest` (reviews flow into
+      `TitleDetailUiState`; empty reviews list renders/behaves fine, no crash); a Room migration
+      test for the new `MIGRATION_9_10` against the real exported schema, mirroring the existing
+      `AppDatabaseMigrationTest` pattern for `MIGRATION_7_8`/`MIGRATION_8_9`.
+- [ ] `./gradlew test assembleDebug` green.
+- [ ] Live verification: a title with real TMDB reviews and a real IMDb id shows both correctly;
+      a title with neither shows neither section (no empty/broken UI); tapping the IMDb link and
+      a review both actually open in the browser.
