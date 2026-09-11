@@ -32,6 +32,7 @@ import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 import org.seg7.familywatchlist.data.recommend.AffinityEngine
 import org.seg7.familywatchlist.data.recommend.AttrKey
+import org.seg7.familywatchlist.data.recommend.DismissSignal
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
 import org.seg7.familywatchlist.data.recommend.RatedWatch
@@ -119,14 +120,36 @@ class RecommendationRepository(
         if (profileId == FAMILY_PROFILE_SENTINEL_ID) FAMILY_SCOPE_KEY else profileId.toString()
 
     /**
-     * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')" — the write side of a
-     * gesture that, until M4a, had a fully-built read side ([excludeDismissed], already called
-     * from both [refreshProfileShortlist] and [refreshFamilyShortlist]) and no way to actually
-     * reach it. Per-profile by construction: [scopeKeyFor] keys on [profileId] (or
-     * [FAMILY_SCOPE_KEY] for the Family sentinel), so a dismissal from one profile can never
-     * suppress the same title for another — each has its own row in `shortlist_entries`.
-     *
-     * Two cases, because a dismissed title may or may not already have a row this week:
+     * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')" for a real per-profile scope
+     * (or Family's own persisted scope, via [scopeKeyFor]'s sentinel branch) — [dismissForScope]
+     * does the actual write; per-profile by construction, so a dismissal from one profile can
+     * never suppress the same title for another. See [dismissForScope]'s kdoc for the write
+     * mechanics and [dismissAdHocFamilyNightTitle] for the Family Night carousel's own path.
+     */
+    suspend fun dismissTitle(profileId: Long, tmdbId: Int, mediaType: MediaType) {
+        dismissForScope(scopeKeyFor(profileId), tmdbId, mediaType)
+    }
+
+    /**
+     * PLAN.md §4c (M13 fix 2): the ad-hoc who's-watching chip row's own dismiss path — writes
+     * against [adHocScopeKey] (the exact key [refreshFamilyShortlist]'s `persist = false` path
+     * reads back via [excludeDismissed]), never [scopeKeyFor]'s per-profile/[FAMILY_SCOPE_KEY]
+     * keys [dismissTitle] uses. Before this fix, [dismissTitle] was always called against
+     * `activeProfile.id`'s own scope even from the Family Night carousel — a key nothing reads
+     * back — so a Family-Night-dismissed title only appeared suppressed for the rest of that
+     * session (the UI's in-memory `_dismissedKeys` filter), not genuinely persisted. Deliberately
+     * never feeds [AffinityEngine] (see [buildProfileVector]'s kdoc) — a group dismissal doesn't
+     * mean each individual member dislikes it.
+     */
+    suspend fun dismissAdHocFamilyNightTitle(profileIds: List<Long>, tmdbId: Int, mediaType: MediaType) {
+        dismissForScope(adHocScopeKey(profileIds), tmdbId, mediaType)
+    }
+
+    /**
+     * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')" — the shared write behind
+     * both [dismissTitle] (per-profile/Family scopes) and [dismissAdHocFamilyNightTitle] (the
+     * ad-hoc Family Night blend scope). Two cases, because a dismissed title may or may not
+     * already have a row this week:
      *  - **Already shortlisted** (the common "For You" case): flip its existing row's `state` to
      *    [ShortlistState.DISMISSED] via [ShortlistDao.updateState] — preserves its score/reasons
      *    rather than clobbering them, though neither is read again once dismissed.
@@ -135,12 +158,12 @@ class RecommendationRepository(
      *    zero score and empty reasons — there's nothing else to record, this row exists purely so
      *    [excludeDismissed] finds it on the next recompute.
      * Both branches write to exactly the (weekStart, scopeKey, tmdbId, mediaType) tuple
-     * [excludeDismissed] reads, so a title dismissed this week is guaranteed excluded from this
-     * profile's *next* refresh for the rest of the week, regardless of which row it came from.
+     * [excludeDismissed] (and, for a real per-profile scope, [buildProfileVector]) reads, so a
+     * title dismissed this week is guaranteed excluded from this scope's *next* refresh —
+     * indefinitely now (PLAN.md §4c, M13 fix 1), not just for the rest of the current week.
      */
-    suspend fun dismissTitle(profileId: Long, tmdbId: Int, mediaType: MediaType) {
+    private suspend fun dismissForScope(scopeKey: String, tmdbId: Int, mediaType: MediaType) {
         val weekStart = currentWeekStart()
-        val scopeKey = scopeKeyFor(profileId)
         val alreadyPresent = shortlistDao.getForScope(weekStart, scopeKey)
             .any { it.tmdbId == tmdbId && it.mediaType == mediaType }
         if (alreadyPresent) {
@@ -211,7 +234,7 @@ class RecommendationRepository(
 
         val vector = buildProfileVector(profileId, sliders.halfLifeDays, today)
         val pool = gatherCandidatePool(listOf(profileId), region)
-        val eligible = excludeDismissed(pool, weekStart, scopeKey)
+        val eligible = excludeDismissed(pool, scopeKey)
         val scored = scoreCandidates(eligible, vector, sliders.toScoringWeights(), today.year, ageRatingCap, region)
 
         profileSlidersRepository.setEligibleCandidateCount(profileId, scored.size)
@@ -313,7 +336,7 @@ class RecommendationRepository(
         val strictestCap = FamilyBlend.strictestCap(profiles.map { it.ageRatingCap })
 
         val pool = gatherCandidatePool(profiles.map { it.id }, region)
-        val eligible = excludeDismissed(pool, weekStart, scopeKey)
+        val eligible = excludeDismissed(pool, scopeKey)
         val scored = scoreCandidates(eligible, blended, ScoringWeights.SPEC_DEFAULT, today.year, strictestCap, region)
         val assembled = ShortlistAssembler.assemble(scored, ShortlistConfig.SPEC_DEFAULT)
 
@@ -324,7 +347,14 @@ class RecommendationRepository(
         }
     }
 
-    /** A stable, order-independent key for an ad-hoc who's-watching subset — never persisted, only used to exclude that subset's own this-session dismissals if the UI ever adds that. */
+    /**
+     * A stable, order-independent key for an ad-hoc who's-watching subset — never persisted to a
+     * real shortlist row, only used (via [excludeDismissed]) to exclude this exact subset's own
+     * dismissals from its next ad-hoc blend. PLAN.md §4c (M13 fix 2):
+     * [dismissAdHocFamilyNightTitle] is what actually writes DISMISSED rows against this key now
+     * — before that fix nothing did, so a Family-Night-dismissed title only *looked* suppressed
+     * for the rest of that session (the UI's in-memory filter), never genuinely persisted.
+     */
     private fun adHocScopeKey(profileIds: List<Long>): String = "AD_HOC:" + profileIds.sorted().joinToString(",")
 
     /**
@@ -385,7 +415,16 @@ class RecommendationRepository(
         return Json.encodeToString(JsonArray.serializer(), buildJsonArray { names.forEach { add(it) } })
     }
 
-    /** PLAN.md §4: builds one profile's IDF-damped, per-type-L2-normalised affinity vector from their Room data. */
+    /**
+     * PLAN.md §4/§4c: builds one profile's IDF-damped, per-type-L2-normalised affinity vector
+     * from their Room data — watched history, the ACTIVE watchlist bonus, and (M13 fix 3) their
+     * own dismissals as a negative signal. Only ever called with a real per-profile [profileId]
+     * (or the Family sentinel, via [scopeKeyFor]'s branch) — never for the ad-hoc Family Night
+     * blend, whose member vectors are built the same way individually and only combined
+     * afterwards by [FamilyBlend.blendVectors] in [refreshFamilyShortlist]; a group dismissal
+     * from that blend never reaches here at all, deliberately (PLAN.md §4c point 3: it doesn't
+     * mean each individual member dislikes the title).
+     */
     private suspend fun buildProfileVector(profileId: Long, halfLifeDays: Double, today: LocalDate): Map<AttrKey, Double> {
         val events = watchEventDao.getForProfile(profileId)
         val ratings = ratingDao.getForProfile(profileId).associateBy { it.tmdbId to it.mediaType }
@@ -408,7 +447,17 @@ class RecommendationRepository(
                     addedAt = Instant.ofEpochMilli(entry.addedAt).atZone(ZoneOffset.UTC).toLocalDate(),
                 )
             }
-        return AffinityEngine.buildAffinityVector(watches, watchlistSignals, today, halfLifeDays)
+        val dismissSignals = shortlistDao.getDismissedForScope(scopeKeyFor(profileId)).map { row ->
+            val attrs = titleAttributeDao.getForTitle(row.tmdbId, row.mediaType).toAttrKeys()
+            DismissSignal(
+                title = TitleKey(row.tmdbId, row.mediaType),
+                attributes = attrs,
+                // The only date a shortlist row carries — an acceptable proxy for "when this was
+                // dismissed", off by less than a week (PLAN.md §4c point 3).
+                dismissedAt = row.weekStart,
+            )
+        }
+        return AffinityEngine.buildAffinityVector(watches, watchlistSignals, today, halfLifeDays, dismissSignals)
     }
 
     /**
@@ -458,9 +507,15 @@ class RecommendationRepository(
             .filterNot { it in watched || it in listed }
     }
 
-    private suspend fun excludeDismissed(pool: List<TitleKey>, weekStart: LocalDate, scopeKey: String): List<TitleKey> {
-        val dismissed = shortlistDao.getForScope(weekStart, scopeKey)
-            .filter { it.state == ShortlistState.DISMISSED }
+    /**
+     * PLAN.md §4c (M13 fix 1): reads [ShortlistDao.getDismissedForScope] — every DISMISSED row
+     * for [scopeKey], across every `weekStart` — rather than the old current-week-only
+     * [ShortlistDao.getForScope] read, so a dismissal genuinely suppresses its title
+     * indefinitely, matching the dismiss confirm dialog's own copy ("won't be suggested to you
+     * again until you tell us otherwise") instead of only for the rest of the current week.
+     */
+    private suspend fun excludeDismissed(pool: List<TitleKey>, scopeKey: String): List<TitleKey> {
+        val dismissed = shortlistDao.getDismissedForScope(scopeKey)
             .map { TitleKey(it.tmdbId, it.mediaType) }
             .toHashSet()
         return pool.filterNot { it in dismissed }

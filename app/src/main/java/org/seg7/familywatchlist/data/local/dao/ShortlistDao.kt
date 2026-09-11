@@ -51,6 +51,21 @@ interface ShortlistDao {
     suspend fun deleteOlderThan(before: LocalDate)
 
     /**
+     * PLAN.md §4c (M13 fix 1): every DISMISSED row for [scopeKey], across *every* `weekStart` —
+     * unlike [getForScope], deliberately not scoped to the current week. DISMISSED rows are never
+     * pruned ([deleteOlderThan] exists but is dead code, never called from anywhere), so this is
+     * the query that actually matches the dismiss confirm dialog's own copy ("won't be suggested
+     * to you again until you tell us otherwise") — a title dismissed weeks ago must still be
+     * excluded today. Used by
+     * [org.seg7.familywatchlist.data.repository.RecommendationRepository.excludeDismissed] (in
+     * place of the old current-week-only [getForScope] read) and by
+     * [org.seg7.familywatchlist.data.repository.RecommendationRepository.buildProfileVector] (M13
+     * fix 3) to feed dismissals into the affinity vector as a negative signal.
+     */
+    @Query("SELECT * FROM shortlist_entries WHERE scopeKey = :scopeKey AND state = 'DISMISSED'")
+    suspend fun getDismissedForScope(scopeKey: String): List<ShortlistEntryEntity>
+
+    /**
      * Clears this scope/week's still-SUGGESTED rows before a recompute writes a fresh set —
      * without this, [org.seg7.familywatchlist.data.repository.RecommendationRepository]'s
      * `upsertAll` only ever adds/updates rows for tmdbIds present in the new assembled list,

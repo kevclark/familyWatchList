@@ -72,6 +72,46 @@ class ShortlistDaoTest {
         assertEquals(ShortlistState.DISMISSED, dao.observeForScope(weekStart, "1").first().first().state)
     }
 
+    /**
+     * PLAN.md §4c (M13 fix 1): [org.seg7.familywatchlist.data.local.dao.ShortlistDao.getDismissedForScope]
+     * has no `weekStart` filter at all — every DISMISSED row for a scope, across every week —
+     * unlike [ShortlistDao.getForScope]'s old current-week-only read. Proven against a DISMISSED
+     * row from a week other than [weekStart].
+     */
+    @Test
+    fun `getDismissedForScope returns DISMISSED rows across every weekStart for a scope`() = runTest {
+        val dao = db.shortlistDao()
+        val olderWeek = weekStart.minusWeeks(3)
+        dao.upsertAll(
+            listOf(ShortlistEntryEntity(olderWeek, "1", 1, MediaType.MOVIE, score = 0.0, reasons = "[]", state = ShortlistState.DISMISSED))
+        )
+
+        val dismissed = dao.getDismissedForScope("1")
+
+        assertEquals(listOf(1), dismissed.map { it.tmdbId })
+    }
+
+    /**
+     * PLAN.md §4c (M13 fix 1): [getDismissedForScope] must only ever return DISMISSED rows —
+     * SUGGESTED and WATCHED rows for the same scope must never leak into the suppression set
+     * (or, per M13 fix 3, into the affinity vector's dismissal signal).
+     */
+    @Test
+    fun `getDismissedForScope excludes SUGGESTED and WATCHED rows for the same scope`() = runTest {
+        val dao = db.shortlistDao()
+        dao.upsertAll(
+            listOf(
+                ShortlistEntryEntity(weekStart, "1", 1, MediaType.MOVIE, score = 0.0, reasons = "[]", state = ShortlistState.DISMISSED),
+                ShortlistEntryEntity(weekStart, "1", 2, MediaType.MOVIE, score = 0.5, reasons = "[]", state = ShortlistState.SUGGESTED),
+                ShortlistEntryEntity(weekStart, "1", 3, MediaType.MOVIE, score = 0.0, reasons = "[]", state = ShortlistState.WATCHED),
+            )
+        )
+
+        val dismissed = dao.getDismissedForScope("1")
+
+        assertEquals(listOf(1), dismissed.map { it.tmdbId })
+    }
+
     @Test
     fun `deleteOlderThan clears past weeks only`() = runTest {
         val dao = db.shortlistDao()

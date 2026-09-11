@@ -24,6 +24,19 @@ data class WatchlistSignal(
 )
 
 /**
+ * A dismissed ("not interested") shortlist candidate, contributing a negative taste signal
+ * (PLAN.md §4c, M13 fix 3) — mirrors [WatchlistSignal]'s shape exactly, opposite sign. Only ever
+ * built for a genuine per-profile scope (a real [org.seg7.familywatchlist.data.local.entity.ProfileEntity.id],
+ * or the Family profile's own persisted vector) — never the ad-hoc multi-profile Family Night
+ * blend, where a group dismissal doesn't mean each individual member dislikes it.
+ */
+data class DismissSignal(
+    val title: TitleKey,
+    val attributes: List<AttrKey>,
+    val dismissedAt: LocalDate,
+)
+
+/**
  * PLAN.md §4's affinity-vector math: rating x recency weighted attribute accumulation, the
  * watchlist bonus, IDF damping over the watched corpus, and per-attribute-type L2 normalisation.
  * Pure functions over plain fixtures — no Room/TMDB coupling — so every step is independently
@@ -47,13 +60,17 @@ object AffinityEngine {
     /**
      * Raw (pre-damping, pre-normalisation) accumulation: for each watch, `ratingWeight x
      * recencyWeight(watchedAt)` added to every attribute of the title; for each watchlist entry,
-     * PLAN.md §4's `+0.6 x recencyWeight(addedAt)` bonus added the same way.
+     * PLAN.md §4's `+0.6 x recencyWeight(addedAt)` bonus added the same way; for each dismissal
+     * (PLAN.md §4c, M13 fix 3), the same recency-weighted treatment with [DISMISS_SIGNAL_WEIGHT]
+     * (`-0.6`) — a "not interested" tap is comparably weak evidence to an add-to-list tap, just
+     * negative.
      */
     fun buildRawVector(
         watches: List<RatedWatch>,
         watchlist: List<WatchlistSignal>,
         today: LocalDate,
         halfLifeDays: Double,
+        dismissals: List<DismissSignal> = emptyList(),
     ): Map<AttrKey, Double> {
         val acc = LinkedHashMap<AttrKey, Double>()
         watches.forEach { watch ->
@@ -64,6 +81,11 @@ object AffinityEngine {
         watchlist.forEach { entry ->
             val days = ChronoUnit.DAYS.between(entry.addedAt, today)
             val weight = WATCHLIST_SIGNAL_WEIGHT * recencyWeight(days, halfLifeDays)
+            entry.attributes.forEach { attr -> acc[attr] = (acc[attr] ?: 0.0) + weight }
+        }
+        dismissals.forEach { entry ->
+            val days = ChronoUnit.DAYS.between(entry.dismissedAt, today)
+            val weight = DISMISS_SIGNAL_WEIGHT * recencyWeight(days, halfLifeDays)
             entry.attributes.forEach { attr -> acc[attr] = (acc[attr] ?: 0.0) + weight }
         }
         return acc
@@ -114,8 +136,9 @@ object AffinityEngine {
         watchlist: List<WatchlistSignal>,
         today: LocalDate,
         halfLifeDays: Double = RecommenderSpec.HALF_LIFE_DAYS,
+        dismissals: List<DismissSignal> = emptyList(),
     ): Map<AttrKey, Double> {
-        val raw = buildRawVector(watches, watchlist, today, halfLifeDays)
+        val raw = buildRawVector(watches, watchlist, today, halfLifeDays, dismissals)
         val corpus = watches
             .distinctBy { it.title }
             .map { it.attributes.toSet() }
@@ -125,4 +148,7 @@ object AffinityEngine {
 
     private const val LN2 = 0.6931471805599453
     const val WATCHLIST_SIGNAL_WEIGHT = 0.6
+
+    /** PLAN.md §4c (M13 fix 3): same magnitude as [WATCHLIST_SIGNAL_WEIGHT], sign flipped. */
+    const val DISMISS_SIGNAL_WEIGHT = -0.6
 }

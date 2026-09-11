@@ -408,14 +408,28 @@ class HomeViewModel(
     /**
      * PLAN.md §5 screen 3: "long-press → dismiss ('not interested')". Updates [_dismissedKeys]
      * synchronously so the card disappears from every recommendation row this frame — see its
-     * kdoc — then persists via [RecommendationRepository.dismissTitle] against *this* profile's
-     * scope ([activeProfile.id], which resolves to the Family sentinel when Family is active),
-     * so a dismissal never leaks to a different profile's shortlist.
+     * kdoc — then persists.
+     *
+     * PLAN.md §4c (M13 fix 2): [familyNightProfileIds] is non-null exactly when the long-press
+     * came from the Family Night carousel (set from [HomeUiState.familyNightSelectedIds] at that
+     * call site) — in that case the dismissal is written via
+     * [RecommendationRepository.dismissAdHocFamilyNightTitle] against that exact selection's
+     * ad-hoc scope, the same key [refreshFamilyShortlist]'s ad-hoc blend reads back. Null
+     * everywhere else (For You/Popular/My List), where the dismissal still persists against
+     * *this* profile's own scope ([activeProfile.id], which resolves to the Family sentinel when
+     * Family is active) via [RecommendationRepository.dismissTitle] — unchanged from before this
+     * fix, so a dismissal from those rows never leaks to a different profile's shortlist.
      */
-    fun dismissTitle(tmdbId: Int, mediaType: MediaType) {
+    fun dismissTitle(tmdbId: Int, mediaType: MediaType, familyNightProfileIds: List<Long>? = null) {
         _dismissedKeys.value = _dismissedKeys.value + (tmdbId to mediaType)
         viewModelScope.launch {
-            runCatching { recommendationRepository.dismissTitle(activeProfile.id, tmdbId, mediaType) }
+            runCatching {
+                if (familyNightProfileIds != null) {
+                    recommendationRepository.dismissAdHocFamilyNightTitle(familyNightProfileIds, tmdbId, mediaType)
+                } else {
+                    recommendationRepository.dismissTitle(activeProfile.id, tmdbId, mediaType)
+                }
+            }
         }
     }
 

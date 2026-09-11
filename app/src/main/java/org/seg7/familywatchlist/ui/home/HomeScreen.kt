@@ -120,6 +120,13 @@ fun HomeScreen(
     val onLongPressDismiss: (TitleEntity) -> Unit = { title ->
         dismissTarget = DismissTarget(title.tmdbId, title.mediaType, title.title)
     }
+    // PLAN.md §4c (M13 fix 2): the Family Night carousel's own long-press — unlike every other
+    // row's [onLongPressDismiss] above, this one stamps the *current* who's-watching selection
+    // onto [DismissTarget] so the confirm dialog's dismiss persists against that exact ad-hoc
+    // scope (see [HomeViewModel.dismissTitle]), not the active profile's own.
+    val onLongPressDismissFamilyNight: (TitleEntity) -> Unit = { title ->
+        dismissTarget = DismissTarget(title.tmdbId, title.mediaType, title.title, state.familyNightSelectedIds.toList())
+    }
 
     Box(modifier = modifier.fillMaxSize().background(Ink)) {
         LazyColumn(
@@ -226,7 +233,7 @@ fun HomeScreen(
                             title = title.title,
                             posterPath = title.posterPath,
                             onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
-                            onLongPress = { onLongPressDismiss(title) },
+                            onLongPress = { onLongPressDismissFamilyNight(title) },
                         )
                     }
                 }
@@ -345,7 +352,7 @@ fun HomeScreen(
             text = { Text("“${target.title}” won't be suggested to you again until you tell us otherwise.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.dismissTitle(target.tmdbId, target.mediaType)
+                    viewModel.dismissTitle(target.tmdbId, target.mediaType, target.familyNightProfileIds)
                     dismissTarget = null
                 }) { Text("Dismiss", color = Accent) }
             },
@@ -356,7 +363,18 @@ fun HomeScreen(
     }
 }
 
-private data class DismissTarget(val tmdbId: Int, val mediaType: MediaType, val title: String)
+/**
+ * PLAN.md §4c (M13 fix 2): [familyNightProfileIds] is null for every row except the Family
+ * Night carousel (For You/Popular/My List all construct this with the 3-arg form, which
+ * defaults it to null) — non-null only when the long-press came from Family Night, carrying
+ * that carousel's current who's-watching selection through to [HomeViewModel.dismissTitle].
+ */
+private data class DismissTarget(
+    val tmdbId: Int,
+    val mediaType: MediaType,
+    val title: String,
+    val familyNightProfileIds: List<Long>? = null,
+)
 
 /**
  * The full-bleed hero. Backdrop art, a bottom scrim dissolving it into the page, and the title
