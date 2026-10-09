@@ -2357,15 +2357,23 @@ shown in-app, both free via the *same* existing detail call TMDB already makes.
 
 ## M15 — Refresh reliability & visibility (Kev, 2026-10-09) — see PLAN.md §5d
 
-- [ ] Re-anchored one-time weekly scheduling (worker books the next slot; old periodic work
+- [x] Re-anchored one-time weekly scheduling (worker books the next slot; old periodic work
       cancelled on upgrade; KEEP on app start, REPLACE on Settings change).
-- [ ] Catch-up refresh on app open when a scheduled slot was missed, with a Home banner; one
+- [x] Catch-up refresh on app open when a scheduled slot was missed, with a Home banner; one
       shared guard across scheduled / catch-up / pull-to-refresh.
-- [ ] `refresh_log` table + `MIGRATION_10_11` + migration test; per-run, per-profile diff
+- [x] `refresh_log` table + `MIGRATION_10_11` + migration test; per-run, per-profile diff
       (new picks / dropped), notification posted/suppressed reason.
-- [ ] Activity screen (Settings entry + banner tap): last/next refresh header, run list.
-- [ ] "New" badge on Home picks not in that scope's previous shortlist.
-- [ ] Family Night staged progress in place of the bare spinner.
-- [ ] Bump to 0.1.0-alpha.15 (versionCode 15); `./gradlew test assembleDebug` green.
+- [x] Activity screen (Settings entry + banner tap): last/next refresh header, run list.
+- [x] "New" badge on Home picks not in that scope's previous shortlist.
+- [x] Family Night staged progress in place of the bare spinner.
+- [x] Bump to 0.1.0-alpha.15 (versionCode 15); `./gradlew test assembleDebug` green.
 - [ ] Live verification on Kev's phone: Activity shows a catch-up run after install; next
       Friday's scheduled run appears in the log (with or without a notification, and why).
+
+**Built 2026-10-09 (feature-builder):** `RefreshSlots` / one-time `RecommendationScheduler`
+(worker re-books the next slot; legacy periodic name cancelled), `RefreshCoordinator` (single Mutex guard
+for scheduled / catch-up / manual; writes `refresh_log`), `RefreshLogRepository` + `RefreshLogDao`,
+`MIGRATION_10_11` (also adds `shortlist_entries.isNew`), `ShortlistDiff`, Activity screen, Home banner,
+"New" badge, Family Night staged progress. Only the scheduled run posts the notification (catch-up/manual
+log "Not sent: only the scheduled weekly run notifies"). The first shortlist for a scope is a baseline:
+nothing is badged "New" and the log says "(first shortlist)".
