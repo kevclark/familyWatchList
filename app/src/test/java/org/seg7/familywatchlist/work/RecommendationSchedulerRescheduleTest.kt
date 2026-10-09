@@ -17,11 +17,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * PLAN.md §4 "Configurable schedule" (M3f) critical correctness requirement: a routine app-start
- * call ([RecommendationScheduler.scheduleWeekly], [androidx.work.ExistingPeriodicWorkPolicy.KEEP])
+ * PLAN.md §4 "Configurable schedule" (M3f, re-expressed on one-time work in M15) critical correctness requirement: a routine app-start
+ * call ([RecommendationScheduler.scheduleWeekly], [androidx.work.ExistingWorkPolicy.KEEP])
  * must never move an already-scheduled job's next-run time, but a genuine settings change
  * ([RecommendationScheduler.rescheduleForSettingsChange],
- * [androidx.work.ExistingPeriodicWorkPolicy.UPDATE]) must actually move it. Drives real
+ * [androidx.work.ExistingWorkPolicy.REPLACE]) must actually move it. Drives real
  * WorkManager (via work-testing's [SynchronousExecutor], so enqueue completes on the calling
  * thread before the next assertion runs) and reads WorkInfo's own
  * `nextScheduleTimeMillis` back — proving the stored preference isn't just written but genuinely
@@ -44,7 +44,7 @@ class RecommendationSchedulerRescheduleTest {
 
     private fun nextScheduleTimeMillis(): Long {
         val infos = WorkManager.getInstance(context)
-            .getWorkInfosForUniqueWork("weekly_recommendation_refresh")
+            .getWorkInfosForUniqueWork(RecommendationScheduler.UNIQUE_WORK_NAME)
             .get()
         return infos.single().nextScheduleTimeMillis
     }
@@ -94,5 +94,34 @@ class RecommendationSchedulerRescheduleTest {
         // target instant" with a generous tolerance rather than bit-for-bit equality.
         val driftMillis = Math.abs(originalScheduledTime - nextScheduleTimeMillis())
         assertTrue("expected the same target instant, drifted by ${driftMillis}ms", driftMillis < 5_000)
+    }
+
+    @Test
+    fun `scheduling cancels the legacy periodic job so two jobs never run`() {
+        val workManager = WorkManager.getInstance(context)
+        val legacy = androidx.work.PeriodicWorkRequestBuilder<RecommendationWorker>(7, java.util.concurrent.TimeUnit.DAYS)
+            .setInitialDelay(1, java.util.concurrent.TimeUnit.DAYS)
+            .build()
+        workManager.enqueueUniquePeriodicWork(
+            RecommendationScheduler.LEGACY_PERIODIC_WORK_NAME,
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            legacy,
+        )
+
+        RecommendationScheduler.scheduleWeekly(context, DayOfWeek.FRIDAY, 6)
+
+        val legacyState = workManager.getWorkInfosForUniqueWork(RecommendationScheduler.LEGACY_PERIODIC_WORK_NAME).get().single().state
+        assertEquals(androidx.work.WorkInfo.State.CANCELLED, legacyState)
+        assertEquals(1, workManager.getWorkInfosForUniqueWork(RecommendationScheduler.UNIQUE_WORK_NAME).get().size)
+    }
+
+    @Test
+    fun `scheduleNext replaces the pending run like a settings change does`() {
+        RecommendationScheduler.scheduleWeekly(context, DayOfWeek.FRIDAY, 6)
+        val first = nextScheduleTimeMillis()
+
+        RecommendationScheduler.scheduleNext(context, DayOfWeek.TUESDAY, 14)
+
+        assertNotEquals(first, nextScheduleTimeMillis())
     }
 }

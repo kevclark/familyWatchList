@@ -4,93 +4,86 @@ import android.content.Context
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.ZonedDateTime
-import java.time.temporal.TemporalAdjusters
 import java.util.concurrent.TimeUnit
 import androidx.work.Constraints
-import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 
 /**
- * PLAN.md §4: schedules [RecommendationWorker] to run weekly, at a configurable day/hour (M3f —
- * [org.seg7.familywatchlist.data.repository.UserPreferencesRepository.refreshDayOfWeek]/
+ * PLAN.md §4 / §5d (M15): schedules [RecommendationWorker] for the user's configured weekly slot
+ * ([org.seg7.familywatchlist.data.repository.UserPreferencesRepository.refreshDayOfWeek]/
  * [org.seg7.familywatchlist.data.repository.UserPreferencesRepository.refreshHour], default
- * Friday 06:00; was a hardcoded Monday 06:00 literal through M3e). `enqueueUniquePeriodicWork`
- * with [ExistingPeriodicWorkPolicy.KEEP] via [scheduleWeekly] makes this idempotent — safe to
- * call on every app start ([org.seg7.familywatchlist.FamilyWatchListApp.onCreate]) without
- * resetting an already-scheduled job's cadence/next-run time.
+ * Friday 06:00).
  *
- * **M3f correctness requirement:** that same `KEEP` idempotency means a genuine settings change
- * (the user picking a new day/hour in Settings) would otherwise be silently ignored — WorkManager
- * would leave the previously-scheduled job running untouched. [rescheduleForSettingsChange] is
- * the distinct code path for that case: same request shape, [ExistingPeriodicWorkPolicy.UPDATE]
- * instead, called specifically from wherever Settings persists the new preference — never from
- * `onCreate`.
+ * **Why one-time, re-anchored (M15):** through M14 this was a 7-day `PeriodicWorkRequest`. Only
+ * its *first* run honoured the day/hour initial delay; every later run was 7 days after the
+ * previous *actual* run, so any lateness (Doze, the standby bucket, the network constraint) carried
+ * forward and the slot drifted -- Kev's Friday-13:00 notification stopped arriving on Fridays.
+ * Now there is always exactly one pending unique **one-time** request aimed at the next
+ * configured slot, and [RecommendationWorker] books the following one as the last thing it does
+ * ([scheduleNext]), computed from the wall clock at that moment. A late run therefore never pushes
+ * later weeks back. Exact alarms were offered and declined, so the OS may still defer a run by
+ * minutes-to-hours; catch-up on app open ([RefreshCoordinator.maybeCatchUp]) covers the rest.
  *
- * **"unmetered-preferred" judgment call:** WorkManager's [Constraints] API only expresses hard
- * requirements (`NetworkType.CONNECTED`/`UNMETERED`/…), not a soft preference that still runs
- * without it — there's no "prefer but don't require" knob. [NetworkType.CONNECTED] is used as the
- * practical approximation (never blocks the weekly refresh entirely on being unmetered, which
- * `NetworkType.UNMETERED` would) rather than building custom preference-then-fallback scheduling
- * logic for a once-a-week background job.
+ * Policies (same semantics as before, expressed on one-time work):
+ *  - [scheduleWeekly], app start: [ExistingWorkPolicy.KEEP] -- never resets a pending run.
+ *  - [rescheduleForSettingsChange], Settings: [ExistingWorkPolicy.REPLACE] -- genuinely moves it.
+ *  - [scheduleNext], from the worker: REPLACE too (it replaces itself, as its final act).
+ *
+ * **Upgrade:** the old periodic job lived under [LEGACY_PERIODIC_WORK_NAME]; every schedule call
+ * cancels it, so two jobs never run. The new work uses a different unique name precisely so the
+ * old periodic entry can't make KEEP silently no-op.
+ *
+ * **"unmetered-preferred":** [NetworkType.CONNECTED] remains the practical approximation of a
+ * preference WorkManager can't express (see git history for the original reasoning).
  */
 object RecommendationScheduler {
-    private const val UNIQUE_WORK_NAME = "weekly_recommendation_refresh"
+    const val UNIQUE_WORK_NAME = "weekly_recommendation_slot"
+    const val LEGACY_PERIODIC_WORK_NAME = "weekly_recommendation_refresh"
 
     /** Preference defaults (PLAN.md §4 "Configurable schedule", M3f): Friday, 06:00. */
     val DEFAULT_DAY_OF_WEEK: DayOfWeek = DayOfWeek.FRIDAY
     const val DEFAULT_HOUR: Int = 6
 
-    /**
-     * Routine app-start call ([org.seg7.familywatchlist.FamilyWatchListApp.onCreate]). Idempotent
-     * via [ExistingPeriodicWorkPolicy.KEEP] — deliberately does NOT reset an already-scheduled
-     * job's next-run time just because the process launched again. [dayOfWeek]/[hour] only take
-     * effect the first time this unique work name is enqueued (fresh install, or after the job
-     * was cancelled); on every subsequent app start with a job already scheduled, `KEEP` leaves
-     * the previously-scheduled time alone regardless of what's passed here.
-     */
+    /** Routine app-start call: books the next slot only if none is pending ([ExistingWorkPolicy.KEEP]). */
     fun scheduleWeekly(context: Context, dayOfWeek: DayOfWeek = DEFAULT_DAY_OF_WEEK, hour: Int = DEFAULT_HOUR) {
-        enqueue(context, dayOfWeek, hour, ExistingPeriodicWorkPolicy.KEEP)
+        enqueue(context, dayOfWeek, hour, ExistingWorkPolicy.KEEP)
+    }
+
+    /** Settings changed the day/hour: replaces the pending run so the new slot takes effect. */
+    fun rescheduleForSettingsChange(context: Context, dayOfWeek: DayOfWeek, hour: Int) {
+        enqueue(context, dayOfWeek, hour, ExistingWorkPolicy.REPLACE)
     }
 
     /**
-     * M3f: called specifically when the user changes the schedule setting in Settings —
-     * [ExistingPeriodicWorkPolicy.UPDATE] genuinely replaces the previously-scheduled job's
-     * next-run time instead of `KEEP`'s no-op-if-already-scheduled behaviour. Never called from
-     * `onCreate`.
+     * Called by [RecommendationWorker] when its run is finished for good (success, or failure after
+     * retries): books the next slot relative to *now*, which is what stops lateness accumulating.
      */
-    fun rescheduleForSettingsChange(context: Context, dayOfWeek: DayOfWeek, hour: Int) {
-        enqueue(context, dayOfWeek, hour, ExistingPeriodicWorkPolicy.UPDATE)
+    fun scheduleNext(context: Context, dayOfWeek: DayOfWeek, hour: Int) {
+        enqueue(context, dayOfWeek, hour, ExistingWorkPolicy.REPLACE)
     }
 
-    private fun enqueue(context: Context, dayOfWeek: DayOfWeek, hour: Int, policy: ExistingPeriodicWorkPolicy) {
-        val request = PeriodicWorkRequestBuilder<RecommendationWorker>(7, TimeUnit.DAYS)
+    private fun enqueue(context: Context, dayOfWeek: DayOfWeek, hour: Int, policy: ExistingWorkPolicy) {
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelUniqueWork(LEGACY_PERIODIC_WORK_NAME)
+        val request = OneTimeWorkRequestBuilder<RecommendationWorker>()
             .setInitialDelay(initialDelayMillis(dayOfWeek = dayOfWeek, hour = hour), TimeUnit.MILLISECONDS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .build()
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, policy, request)
+        workManager.enqueueUniqueWork(UNIQUE_WORK_NAME, policy, request)
     }
 
     /**
-     * Milliseconds from [now] until the next [dayOfWeek] at [hour]:00 (today if it's still ahead,
-     * otherwise next week). Package-visible for a direct unit test. [dayOfWeek]/[hour] are
-     * explicit parameters rather than a live DataStore read — callers ([scheduleWeekly] and
-     * [rescheduleForSettingsChange]) resolve the configured preference first and pass concrete
-     * values in, keeping this a pure function of its arguments for deterministic unit testing.
+     * Milliseconds from [now] until the next [dayOfWeek] at [hour]:00 (today if still ahead,
+     * otherwise next week). Pure function of its arguments for deterministic testing; this is
+     * also the re-anchor calculation -- called at the end of a (possibly late) run it yields the
+     * delay to the *next* slot, not "7 days from now".
      */
     internal fun initialDelayMillis(
         now: ZonedDateTime = ZonedDateTime.now(),
         dayOfWeek: DayOfWeek = DEFAULT_DAY_OF_WEEK,
         hour: Int = DEFAULT_HOUR,
-    ): Long {
-        val todayAtHour = now.withHour(hour).withMinute(0).withSecond(0).withNano(0)
-        var next = if (now.dayOfWeek == dayOfWeek && now.isBefore(todayAtHour)) {
-            todayAtHour
-        } else {
-            now.with(TemporalAdjusters.next(dayOfWeek)).withHour(hour).withMinute(0).withSecond(0).withNano(0)
-        }
-        if (!next.isAfter(now)) next = next.plusWeeks(1)
-        return Duration.between(now, next).toMillis()
-    }
+    ): Long = Duration.between(now, RefreshSlots.nextSlot(now, dayOfWeek, hour)).toMillis()
 }

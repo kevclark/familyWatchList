@@ -22,12 +22,19 @@ import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
+import org.seg7.familywatchlist.data.repository.RefreshLogRepository
 import org.seg7.familywatchlist.data.repository.RegionCatalogRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
 import org.seg7.familywatchlist.data.repository.WatchEventRepository
 import org.seg7.familywatchlist.data.repository.WatchlistRepository
+import org.seg7.familywatchlist.work.RefreshCoordinator
+import org.seg7.familywatchlist.work.ShortlistNotifier
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 
 /**
  * Manual DI container (PLAN.md §1: "Manual (single AppContainer) — avoids Hilt's KSP overhead").
@@ -50,6 +57,7 @@ class AppContainer(context: Context) {
             AppDatabase.MIGRATION_7_8,
             AppDatabase.MIGRATION_8_9,
             AppDatabase.MIGRATION_9_10,
+            AppDatabase.MIGRATION_10_11,
         )
         .build()
 
@@ -154,6 +162,27 @@ class AppContainer(context: Context) {
             familyProfileRepository = familyProfileRepository,
             shortlistDao = database.shortlistDao(),
             clock = clock,
+        )
+    }
+
+    // PLAN.md §5d (M15): the refresh log (Activity screen, catch-up detection) and the single
+    // coordinator every refresh run goes through (scheduled worker, catch-up, manual).
+    val refreshLogRepository: RefreshLogRepository by lazy {
+        RefreshLogRepository(database.refreshLogDao(), clock)
+    }
+
+    val refreshCoordinator: RefreshCoordinator by lazy {
+        RefreshCoordinator(
+            log = refreshLogRepository,
+            clock = clock,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+            schedule = { userPreferencesRepository.refreshDayOfWeek.first() to userPreferencesRepository.refreshHour.first() },
+            region = { userPreferencesRepository.region.first() },
+            refreshAll = { region -> recommendationRepository.refreshAllDetailed(region) },
+            invalidateDiscover = { discoverRepository.invalidateAllCachedPages() },
+            notificationsMasterEnabled = { userPreferencesRepository.notificationsEnabled.first() },
+            profileNotificationEnabled = { notificationPreferencesRepository.isEnabled(it) },
+            postNotification = { names -> ShortlistNotifier.notifyShortlistReady(appContext, names) },
         )
     }
 
