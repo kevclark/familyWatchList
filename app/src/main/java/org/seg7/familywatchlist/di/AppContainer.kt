@@ -178,7 +178,7 @@ class AppContainer(context: Context) {
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
             schedule = { userPreferencesRepository.refreshDayOfWeek.first() to userPreferencesRepository.refreshHour.first() },
             region = { userPreferencesRepository.region.first() },
-            refreshAll = { region -> recommendationRepository.refreshAllDetailed(region) },
+            refreshAll = { region, onProgress -> recommendationRepository.refreshAllDetailed(region, onProgress) },
             invalidateDiscover = { discoverRepository.invalidateAllCachedPages() },
             notificationsMasterEnabled = { userPreferencesRepository.notificationsEnabled.first() },
             profileNotificationEnabled = { notificationPreferencesRepository.isEnabled(it) },

@@ -37,6 +37,7 @@ import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
 import org.seg7.familywatchlist.data.recommend.FamilyNightProgress
 import org.seg7.familywatchlist.data.recommend.ProfileRunSummary
+import org.seg7.familywatchlist.data.recommend.RefreshProgress
 import org.seg7.familywatchlist.data.recommend.ShortlistDiff
 import org.seg7.familywatchlist.data.recommend.RatedWatch
 import org.seg7.familywatchlist.data.recommend.RecommenderSpec
@@ -47,6 +48,7 @@ import org.seg7.familywatchlist.data.recommend.Scorer
 import org.seg7.familywatchlist.data.recommend.ShortlistAssembler
 import org.seg7.familywatchlist.data.recommend.ShortlistConfig
 import org.seg7.familywatchlist.data.recommend.ShortlistSlot
+import org.seg7.familywatchlist.data.recommend.SliderSettings
 import org.seg7.familywatchlist.data.recommend.TitleKey
 import org.seg7.familywatchlist.data.recommend.WatchlistSignal
 
@@ -77,6 +79,9 @@ data class RefreshAllOutcome(
 ) {
     val failedCount: Int get() = summaries.count { it.status == ProfileRunSummary.STATUS_FAILED }
 }
+
+/** PLAN.md §5e (M16): the shown top picks plus the remaining filtered candidates in rank order (in-memory only). */
+data class RankedPicks(val top: List<ShortlistEntryEntity>, val rest: List<TitleKey>)
 
 /** One profile's recompute: [diff] is null when it was skipped (cold start, or the profile no longer exists). */
 data class ProfileShortlistRefresh(val entries: List<ShortlistEntryEntity>, val diff: ShortlistDiff?)
@@ -240,6 +245,52 @@ class RecommendationRepository(
     suspend fun refreshProfileShortlist(profileId: Long, region: String): List<ShortlistEntryEntity> =
         refreshProfileShortlistDetailed(profileId, region, isRefreshRun = false).entries
 
+    /** One profile's fully filtered and scored candidate pool plus the inputs that produced it (M16: shared by the persisted refresh and the on-demand "more"). */
+    private class ProfileRanking(
+        val scored: List<ScoredCandidate>,
+        val vector: Map<AttrKey, Double>,
+        val sliders: SliderSettings,
+        val scopeKey: String,
+    )
+
+    /**
+     * The scoring pipeline behind both [refreshProfileShortlistDetailed] (which assembles and
+     * persists the top N) and [rankedExtrasForProfile] (PLAN.md §5e, which only reads ranks beyond
+     * what is already shown): same slider inputs, vector, pool, dismissed/watched/age-cap/availability
+     * filters. Writes nothing.
+     */
+    private suspend fun scoreProfilePool(profileId: Long, region: String, today: LocalDate): ProfileRanking {
+        val ageRatingCap = resolveAgeRatingCap(profileId)
+        val sliders = profileSlidersRepository.get(profileId)
+        val scopeKey = scopeKeyFor(profileId)
+        val vector = buildProfileVector(profileId, sliders.halfLifeDays, today)
+        val pool = gatherCandidatePool(listOf(profileId), region)
+        val eligible = excludeDismissed(pool, scopeKey)
+        val scored = scoreCandidates(eligible, vector, sliders.toScoringWeights(), today.year, ageRatingCap, region)
+        return ProfileRanking(scored, vector, sliders, scopeKey)
+    }
+
+    /**
+     * PLAN.md §5e (M16): the "Show 30 more" source for For You. Scores the profile's pool on demand
+     * (same pipeline and slider inputs as the persisted refresh) and returns every candidate that
+     * passes the filters, in rank order, minus [alreadyShown]. Purely in-memory: nothing is written
+     * (no shortlist rows, no eligible-count update, no diff), so it can never feed the "New" badges
+     * or the refresh log. Cold-start / missing profiles yield an empty list.
+     */
+    suspend fun rankedExtrasForProfile(profileId: Long, region: String, alreadyShown: Set<TitleKey>): List<TitleKey> {
+        if (isColdStart(profileId)) return emptyList()
+        val exists = if (profileId == FAMILY_PROFILE_SENTINEL_ID) familyProfileRepository.get() != null else profileRepository.getById(profileId) != null
+        if (!exists) return emptyList()
+        val ranking = scoreProfilePool(profileId, region, clock.today())
+        return rankOrder(ranking.scored).filterNot { it in alreadyShown }
+    }
+
+    /** The last-known count of titles that passed every filter for this profile's last recompute (PLAN.md §4a slider 5); the For You end card's "of N" before any on-demand scoring. */
+    suspend fun eligibleCandidateCount(profileId: Long): Int = profileSlidersRepository.getEligibleCandidateCount(profileId)
+
+    private fun rankOrder(scored: List<ScoredCandidate>): List<TitleKey> =
+        scored.sortedWith(compareByDescending<ScoredCandidate> { it.score }.thenBy { it.title.tmdbId }).map { it.title }
+
     /**
      * [refreshProfileShortlist] plus the PLAN.md §5d (M15) new-pick diff against this scope's
      * previous persisted shortlist ([ShortlistDao.getPreviousShortlist]). [isRefreshRun] is true
@@ -262,16 +313,13 @@ class RecommendationRepository(
             profileRepository.getById(profileId) != null
         }
         if (!exists) return ProfileShortlistRefresh(emptyList(), null)
-        val ageRatingCap = resolveAgeRatingCap(profileId)
-        val sliders = profileSlidersRepository.get(profileId)
         val today = clock.today()
         val weekStart = weekStartFor(today)
-        val scopeKey = scopeKeyFor(profileId)
-
-        val vector = buildProfileVector(profileId, sliders.halfLifeDays, today)
-        val pool = gatherCandidatePool(listOf(profileId), region)
-        val eligible = excludeDismissed(pool, scopeKey)
-        val scored = scoreCandidates(eligible, vector, sliders.toScoringWeights(), today.year, ageRatingCap, region)
+        val ranking = scoreProfilePool(profileId, region, today)
+        val sliders = ranking.sliders
+        val scopeKey = ranking.scopeKey
+        val vector = ranking.vector
+        val scored = ranking.scored
 
         profileSlidersRepository.setEligibleCandidateCount(profileId, scored.size)
         val requestedCount = profileSlidersRepository.getSuggestionCount(profileId)
@@ -343,12 +391,18 @@ class RecommendationRepository(
      * Persists the `isNew` badge flags from the same diff ([refreshProfileShortlistDetailed] with
      * `isRefreshRun = true`).
      */
-    suspend fun refreshAllDetailed(region: String): RefreshAllOutcome {
+    suspend fun refreshAllDetailed(region: String, onProgress: ((RefreshProgress) -> Unit)? = null): RefreshAllOutcome {
         val profiles = profileRepository.observeAll().first()
         val completed = mutableListOf<ProfileRefreshResult>()
         val summaries = mutableListOf<ProfileRunSummary>()
 
+        val family = familyProfileRepository.get()
+        val total = profiles.size + if (family != null) 1 else 0
+        var position = 0
+
         suspend fun runOne(profileId: Long, name: String) {
+            position += 1
+            onProgress?.invoke(RefreshProgress(name, position, total))
             runCatching { refreshProfileShortlistDetailed(profileId, region, isRefreshRun = true) }
                 .onSuccess { result ->
                     completed += ProfileRefreshResult(profileId, name)
@@ -365,7 +419,6 @@ class RecommendationRepository(
         }
 
         profiles.forEach { runOne(it.id, it.name) }
-        val family = familyProfileRepository.get()
         if (family != null) runOne(FAMILY_PROFILE_SENTINEL_ID, family.profile.name)
         return RefreshAllOutcome(completed, summaries)
     }
@@ -413,14 +466,28 @@ class RecommendationRepository(
         familyBlendSlider: FamilyBlendSlider,
         persist: Boolean,
         onProgress: ((FamilyNightProgress) -> Unit)? = null,
-    ): List<ShortlistEntryEntity> {
-        if (profileIds.isEmpty()) return emptyList()
+    ): List<ShortlistEntryEntity> =
+        refreshFamilyShortlistRanked(profileIds, region, familyBlendSlider, persist, onProgress).top
+
+    /**
+     * [refreshFamilyShortlist] plus the rest of the ranked pool (PLAN.md §5e, M16): [RankedPicks.rest]
+     * is every other candidate that passed the filters, in rank order, so the Family Night "Show 30
+     * more" card pages through it without re-scoring. The caller keeps it in memory only.
+     */
+    suspend fun refreshFamilyShortlistRanked(
+        profileIds: List<Long>,
+        region: String,
+        familyBlendSlider: FamilyBlendSlider,
+        persist: Boolean,
+        onProgress: ((FamilyNightProgress) -> Unit)? = null,
+    ): RankedPicks {
+        if (profileIds.isEmpty()) return RankedPicks(emptyList(), emptyList())
         val today = clock.today()
         val weekStart = weekStartFor(today)
         val scopeKey = if (persist) FAMILY_SCOPE_KEY else adHocScopeKey(profileIds)
 
         val profiles = profileIds.mapNotNull { profileRepository.getById(it) }
-        if (profiles.isEmpty()) return emptyList()
+        if (profiles.isEmpty()) return RankedPicks(emptyList(), emptyList())
 
         val accountProfileCount = profileRepository.observeAll().first().size
         val effectiveSlider = if (accountProfileCount < 2) FamilyBlendSlider.DEFAULT else familyBlendSlider
@@ -439,11 +506,13 @@ class RecommendationRepository(
         )
         val assembled = ShortlistAssembler.assemble(scored, ShortlistConfig.SPEC_DEFAULT)
 
-        return if (persist) {
+        val top = if (persist) {
             persistShortlist(assembled, blended, weekStart, scopeKey)
         } else {
             assembled.map { it.toEntity(weekStart, scopeKey, reasonsFor(blended, it.candidate.title)) }
         }
+        val shown = assembled.map { it.key() }.toHashSet()
+        return RankedPicks(top, rankOrder(scored).filterNot { it in shown })
     }
 
     /**

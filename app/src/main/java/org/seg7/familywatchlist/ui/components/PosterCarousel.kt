@@ -72,6 +72,8 @@ fun <T> PosterCarousel(
     key: (T) -> Any,
     modifier: Modifier = Modifier,
     onSeeAll: (() -> Unit)? = null,
+    /** Optional last item after the posters (PLAN.md §5e: the "Show 30 more" card). */
+    endContent: (@Composable () -> Unit)? = null,
     itemContent: @Composable (T) -> Unit,
 ) {
     if (items.isEmpty()) return
@@ -82,6 +84,7 @@ fun <T> PosterCarousel(
             horizontalArrangement = Arrangement.spacedBy(Dimens.CardGap),
         ) {
             items(items.size, key = { key(items[it]) }) { index -> itemContent(items[index]) }
+            if (endContent != null) item(key = "carousel-end-card") { endContent() }
         }
     }
 }

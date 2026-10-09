@@ -17,13 +17,17 @@ import org.seg7.familywatchlist.common.AppClock
 import org.seg7.familywatchlist.data.local.entity.RefreshOutcome
 import org.seg7.familywatchlist.data.local.entity.RefreshTrigger
 import org.seg7.familywatchlist.data.recommend.ProfileRunSummary
+import org.seg7.familywatchlist.data.recommend.RefreshProgress
 import org.seg7.familywatchlist.data.repository.RefreshAllOutcome
 import org.seg7.familywatchlist.data.repository.RefreshLogRepository
 
 /** What the refresh banner on Home shows (PLAN.md §5d part 2). */
 sealed interface RefreshUiState {
     data object Idle : RefreshUiState
-    data class Running(val trigger: RefreshTrigger) : RefreshUiState
+    /** [progress] is null until the first profile starts; then it names whose picks are being rebuilt. */
+    data class Running(val trigger: RefreshTrigger, val progress: RefreshProgress? = null) : RefreshUiState {
+        val bannerText: String get() = progress?.bannerText ?: "Refreshing picks\u2026"
+    }
     data class Finished(val outcome: RefreshOutcome, val runId: Long) : RefreshUiState
 }
 
@@ -63,7 +67,7 @@ class RefreshCoordinator(
     private val scope: CoroutineScope,
     private val schedule: suspend () -> Pair<DayOfWeek, Int>,
     private val region: suspend () -> String,
-    private val refreshAll: suspend (region: String) -> RefreshAllOutcome,
+    private val refreshAll: suspend (region: String, onProgress: (RefreshProgress) -> Unit) -> RefreshAllOutcome,
     private val invalidateDiscover: suspend () -> Unit,
     private val notificationsMasterEnabled: suspend () -> Boolean,
     private val profileNotificationEnabled: suspend (profileId: Long) -> Boolean,
@@ -146,7 +150,9 @@ class RefreshCoordinator(
         var summaries: List<ProfileRunSummary> = emptyList()
         var notificationStatus: String? = null
         try {
-            val result = refreshAll(region())
+            val result = refreshAll(region()) { progress ->
+                if (_state.value is RefreshUiState.Running) _state.value = RefreshUiState.Running(trigger, progress)
+            }
             invalidateDiscover()
             summaries = result.summaries
             val classified = RefreshOutcomes.classify(summaries)
