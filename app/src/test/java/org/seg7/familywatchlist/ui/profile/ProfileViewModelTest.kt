@@ -1,9 +1,13 @@
 package org.seg7.familywatchlist.ui.profile
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -56,8 +60,10 @@ class ProfileViewModelTest {
     fun setUp() {
         db = buildInMemoryDb()
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val dataStore = PreferenceDataStoreFactory.create(
-            produceFile = { context.preferencesDataStoreFile("profile_vm_test_${System.nanoTime()}") },
+        val dataStore = LaggingDataStore(
+            PreferenceDataStoreFactory.create(
+                produceFile = { context.preferencesDataStoreFile("profile_vm_test_${System.nanoTime()}") },
+            ),
         )
         userPreferencesRepository = UserPreferencesRepository(dataStore)
         profileRepository = ProfileRepository(db.profileDao(), FakeClock())
@@ -92,7 +98,12 @@ class ProfileViewModelTest {
             viewModel.addProfile("P$i", "🍿|FFC24B", null)
             viewModel.profiles.first { it.size == i + 1 }
         }
-        val activeAfterTen = userPreferencesRepository.activeProfileId.first { it != null }
+        // addProfile inserts the row first and only then writes the active-profile id to DataStore,
+        // so the profile list can reach 10 entries while the 10th activation is still in flight
+        // (seen under CPU load). Wait for the *settled* value -- the 10th profile's id -- rather
+        // than the first non-null one, which can be an earlier profile's id that is about to change.
+        val tenthId = viewModel.profiles.first { it.size == 10 }.maxOf { it.id }
+        val activeAfterTen = userPreferencesRepository.activeProfileId.first { it == tenthId }
         assertTrue(viewModel.isAtProfileCap.first { it })
 
         // CoroutineStart.UNDISPATCHED runs this synchronously up to its first suspension point —
@@ -188,5 +199,19 @@ class ProfileViewModelTest {
             it?.profile?.name == "The Clarks" && it.memberIds.toSet() == setOf(sam, ellie)
         }!!
         assertEquals(setOf(sam, ellie), family.memberIds.toSet())
+    }
+}
+
+/**
+ * Delays every write so the active-profile id reliably lands *after* the profile row is visible --
+ * the ordering that CPU load produced intermittently, made deterministic so the tests above can't
+ * regress into assuming the two updates arrive together.
+ */
+private class LaggingDataStore(private val delegate: DataStore<Preferences>) : DataStore<Preferences> {
+    override val data = delegate.data
+
+    override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+        withContext(Dispatchers.IO) { Thread.sleep(40) }
+        return delegate.updateData(transform)
     }
 }
