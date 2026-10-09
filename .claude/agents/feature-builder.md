@@ -1,7 +1,7 @@
 ---
 name: feature-builder
 description: Implements app features for the family watchlist Android app against PLAN.md — Room data layer, TMDB client, recommendation engine, Compose screens, tests. Use for all app code work once the toolchain is green; anything in milestones M1–M5, bug fixes in app code, or test writing. Do not use for JDK/SDK/Gradle/emulator environment problems — that is toolchain-setup's job.
-model: claude-sonnet-5
+model: claude-sonnet-5-5
 tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 ---
 
