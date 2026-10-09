@@ -26,6 +26,7 @@ import org.seg7.familywatchlist.data.local.entity.RefreshLogEntity
 import org.seg7.familywatchlist.data.local.entity.RefreshOutcome
 import org.seg7.familywatchlist.data.local.entity.RefreshTrigger
 import org.seg7.familywatchlist.data.recommend.ProfileRunSummary
+import org.seg7.familywatchlist.data.recommend.RefreshProgress
 import org.seg7.familywatchlist.data.repository.ProfileRefreshResult
 import org.seg7.familywatchlist.data.repository.RefreshAllOutcome
 import org.seg7.familywatchlist.data.repository.RefreshLogRepository
@@ -54,6 +55,7 @@ class RefreshCoordinatorTest {
         summaries = listOf(ProfileRunSummary(1, "Kev", total = 30, newCount = 2, newTitles = listOf("A", "B"))),
     )
     private var refreshThrows: Throwable? = null
+    private var progressScript: List<RefreshProgress> = emptyList()
     private var master = true
     private var profileOn = true
     private var posted = ShortlistNotifier.Result.POSTED
@@ -77,8 +79,9 @@ class RefreshCoordinatorTest {
         scope = CoroutineScope(Dispatchers.Unconfined),
         schedule = { DayOfWeek.FRIDAY to 13 },
         region = { "GB" },
-        refreshAll = {
+        refreshAll = { _, onProgress ->
             refreshCalls++
+            progressScript.forEach(onProgress)
             gate?.await()
             refreshThrows?.let { throw it }
             outcome
@@ -169,6 +172,26 @@ class RefreshCoordinatorTest {
         assertEquals(RefreshOutcome.PARTIAL, result.outcome)
         assertEquals("1 of 2 profiles failed: boom", db.refreshLogDao().getAll().single().reason)
         assertEquals(1, notifyCalls)
+    }
+
+    @Test
+    fun `the Running state carries whose picks are being refreshed and the banner text says so`() = runBlocking {
+        progressScript = listOf(RefreshProgress("Sam", 3, 6))
+        gate = CompletableDeferred()
+        val c = coordinator()
+        val run = async(Dispatchers.Default) { c.run(RefreshTrigger.MANUAL) }
+        withTimeout(5_000) { while ((c.state.value as? RefreshUiState.Running)?.progress == null) kotlinx.coroutines.yield() }
+
+        val running = c.state.value as RefreshUiState.Running
+        assertEquals("Refreshing Sam's picks (3 of 6)\u2026", running.bannerText)
+        gate!!.complete(Unit)
+        run.await()
+        assertTrue(c.state.value is RefreshUiState.Finished)
+    }
+
+    @Test
+    fun `before any profile starts the banner falls back to the plain text`() {
+        assertEquals("Refreshing picks\u2026", RefreshUiState.Running(RefreshTrigger.MANUAL).bannerText)
     }
 
     @Test

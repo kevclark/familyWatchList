@@ -65,6 +65,7 @@ import org.seg7.familywatchlist.ui.avatar.avatarKeyToOption
 import org.seg7.familywatchlist.ui.components.BottomScrim
 import org.seg7.familywatchlist.ui.components.PosterCard
 import org.seg7.familywatchlist.ui.components.PosterCarousel
+import org.seg7.familywatchlist.ui.components.ShowMoreCard
 import org.seg7.familywatchlist.ui.components.SectionHeader
 import org.seg7.familywatchlist.ui.components.TopScrim
 import org.seg7.familywatchlist.ui.components.backdropUrl
@@ -202,6 +203,7 @@ fun HomeScreen(
                     onOpenTitle = onOpenTitle,
                     onOpenSearch = onOpenSearch,
                     onLongPressDismiss = onLongPressDismiss,
+                    onShowMore = viewModel::showMoreForYou,
                 )
             }
 
@@ -243,6 +245,7 @@ fun HomeScreen(
                         title = "Family Night",
                         items = state.familyNightTitles,
                         key = { "family-${it.mediaType}-${it.tmdbId}" },
+                        endContent = state.familyNightMore?.let { more -> { ShowMoreCard(more, viewModel::showMoreFamilyNight) } },
                     ) { title ->
                         PosterCard(
                             title = title.title,
@@ -594,6 +597,7 @@ private fun ForYouRow(
     onOpenTitle: (Int, MediaType) -> Unit,
     onOpenSearch: () -> Unit,
     onLongPressDismiss: (TitleEntity) -> Unit,
+    onShowMore: () -> Unit,
 ) {
     if (state.isColdStartForYou) {
         val combined = (state.popularMovies + state.popularTv)
@@ -648,6 +652,7 @@ private fun ForYouRow(
         title = "For You",
         items = state.forYouTitles,
         key = { "for-you-${it.mediaType}-${it.tmdbId}" },
+        endContent = state.forYouMore?.let { more -> { ShowMoreCard(more, onShowMore) } },
     ) { title ->
         PosterCard(
             title = title.title,
@@ -801,7 +806,7 @@ private fun RefreshBanner(state: RefreshUiState, onClick: () -> Unit, modifier: 
             }
             Text(
                 text = when {
-                    state is RefreshUiState.Running -> "Refreshing picks…"
+                    state is RefreshUiState.Running -> state.bannerText
                     failed -> "Refresh failed — see Activity"
                     else -> "Picks updated"
                 },

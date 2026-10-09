@@ -21,12 +21,17 @@ import org.seg7.familywatchlist.data.local.entity.ShortlistState
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
+import org.seg7.familywatchlist.data.recommend.ExtraPicks
+import org.seg7.familywatchlist.data.recommend.ExtraPicksPager
 import org.seg7.familywatchlist.data.recommend.FamilyNightProgress
+import org.seg7.familywatchlist.data.recommend.MoreCardState
+import org.seg7.familywatchlist.data.recommend.TitleKey
 import org.seg7.familywatchlist.data.local.entity.RefreshTrigger
 import org.seg7.familywatchlist.work.RefreshCoordinator
 import org.seg7.familywatchlist.work.RefreshUiState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
@@ -158,6 +163,26 @@ class HomeViewModel(
     private val refreshState: StateFlow<RefreshUiState> =
         refreshCoordinator?.state ?: MutableStateFlow(RefreshUiState.Idle)
 
+    /**
+     * PLAN.md §5e (M16): one row's in-memory "Show 30 more" state. [pager] is null until the ranked
+     * pool is known (For You: first tap scores it on demand; Family Night: it arrives with the
+     * blend). [titles] are the appended extras. Never persisted; see [resetExtras].
+     */
+    private data class ExtraRow(
+        val pager: ExtraPicksPager? = null,
+        val titles: List<TitleEntity> = emptyList(),
+        val loading: Boolean = false,
+    )
+
+    private val _forYouExtra = MutableStateFlow(ExtraRow())
+    private val _familyNightExtra = MutableStateFlow(ExtraRow())
+    private var forYouExtraJob: Job? = null
+    private var familyNightExtraJob: Job? = null
+    /** The Family Night blend's full rest-of-pool, kept so a landed refresh can rewind the row to its first page. */
+    private var familyNightRest: List<TitleKey> = emptyList()
+    /** Last-known filtered pool size from the persisted recompute -- the For You card's "of N" before any on-demand scoring. */
+    private val _forYouEligible = MutableStateFlow<Int?>(null)
+
     // PLAN.md §5b M3i items 5 and 9: the active profile's (or Family's strictest-member) age cap
     // — [refresh] resolves it via the same [RecommendationRepository.resolveAgeRatingCap] the
     // Popular-row filtering below already uses. Doubles as the source for both the avatar badge
@@ -224,6 +249,14 @@ class HomeViewModel(
         val isLoading: Boolean,
     )
 
+    private data class Extras(
+        val progress: String?,
+        val refresh: RefreshUiState,
+        val forYou: ExtraRow,
+        val familyNight: ExtraRow,
+        val forYouEligible: Int?,
+    )
+
     val uiState: StateFlow<HomeUiState> = combine(
         combine(myList, _discover, forYouShortlist, _coldStart, _ageRatingCap) { list, discover, shortlist, coldStart, ageRatingCap ->
             HomeCore(list, discover, shortlist, coldStart, ageRatingCap)
@@ -232,9 +265,12 @@ class HomeViewModel(
             FamilyNightState(profiles, selectedIds, titles, isLoading)
         },
         _dismissedKeys,
-        combine(_familyNightProgress, refreshState) { progress, refresh -> progress to refresh },
-    ) { core, family, dismissed, progressAndRefresh ->
-        val (familyProgress, refreshUi) = progressAndRefresh
+        combine(_familyNightProgress, refreshState, _forYouExtra, _familyNightExtra, _forYouEligible) { progress, refresh, forYouExtra, familyExtra, eligible ->
+            Extras(progress, refresh, forYouExtra, familyExtra, eligible)
+        },
+    ) { core, family, dismissed, extras ->
+        val familyProgress = extras.progress
+        val refreshUi = extras.refresh
         val (list, discover, shortlist, coldStart, ageRatingCap) = core
         // Shortlist entries carry only (tmdbId, mediaType, score) — resolve to cached TitleEntity
         // rows for rendering. Offline-first: every shortlisted candidate was already detail-fetched
@@ -249,7 +285,9 @@ class HomeViewModel(
         // recommendation-flavoured row — see [_dismissedKeys]'s kdoc for why this in-memory
         // filter is needed alongside RecommendationRepository.dismissTitle's Room write.
         fun List<TitleEntity>.withoutDismissed() = filterNot { (it.tmdbId to it.mediaType) in dismissed }
-        val visibleForYouTitles = forYouTitles.withoutDismissed()
+        val visibleForYouBase = forYouTitles.withoutDismissed()
+        val visibleForYouTitles = visibleForYouBase + extras.forYou.titles.withoutDismissed()
+        val dismissedKeys = dismissed.map { TitleKey(it.first, it.second) }.toSet()
         val visiblePopularMovies = discover.movies.withoutDismissed()
         val visiblePopularTv = discover.tv.withoutDismissed()
         HomeUiState(
@@ -257,10 +295,27 @@ class HomeViewModel(
             popularMovies = visiblePopularMovies,
             popularTv = visiblePopularTv,
             forYouTitles = visibleForYouTitles,
+            forYouMore = if (coldStart || shortlist.isEmpty()) null else {
+                val pager = extras.forYou.pager
+                val shownKeys = visibleForYouTitles.map { TitleKey(it.tmdbId, it.mediaType) }.toSet()
+                val remaining = if (pager != null) {
+                    pager.remaining(shownKeys + dismissedKeys).size
+                } else {
+                    // Before the first tap nothing is scored: use the last recompute's filtered pool
+                    // size. Session dismissals were still counted in it, so take them off.
+                    ((extras.forYouEligible ?: 0) - visibleForYouTitles.size - dismissedKeys.size).coerceAtLeast(0)
+                }
+                MoreCardState.of(visibleForYouTitles.size, remaining, extras.forYou.loading)
+            },
             isColdStartForYou = coldStart,
             familyNightProfiles = family.profiles,
             familyNightSelectedIds = family.selectedIds,
-            familyNightTitles = family.titles.withoutDismissed(),
+            familyNightTitles = (family.titles + extras.familyNight.titles).withoutDismissed(),
+            familyNightMore = extras.familyNight.pager?.let { pager ->
+                val visible = (family.titles + extras.familyNight.titles).withoutDismissed()
+                val shownKeys = visible.map { TitleKey(it.tmdbId, it.mediaType) }.toSet()
+                MoreCardState.of(visible.size, pager.remaining(shownKeys + dismissedKeys).size, extras.familyNight.loading)
+            },
             familyNightLoading = family.isLoading,
             // PLAN.md §4's 2026-08-19 design note, revised by M3g's "Cold-start Home treatment":
             // the top-scored personalised pick, not raw popularity — falling back to the popular
@@ -282,6 +337,10 @@ class HomeViewModel(
 
     init {
         refresh()
+        viewModelScope.launch {
+            // PLAN.md §5e: a landed refresh rewrites the persisted picks, so appended extras go.
+            refreshState.collect { if (it is RefreshUiState.Finished) { resetExtras(); loadEligible() } }
+        }
         viewModelScope.launch {
             // M11 (flicker fix): collectLatest, not plain collect. A rapid deselect/reselect can
             // debounce through more than one post-quiet-period value before this block's own slow
@@ -320,7 +379,7 @@ class HomeViewModel(
                 runCatching {
                     val region = userPreferencesRepository.region.first()
                     val slider = FamilyBlendSlider(userPreferencesRepository.familyBlendSlider.first())
-                    val entries = recommendationRepository.refreshFamilyShortlist(
+                    val ranked = recommendationRepository.refreshFamilyShortlistRanked(
                         profileIds = selected.toList(),
                         region = region,
                         familyBlendSlider = slider,
@@ -330,10 +389,18 @@ class HomeViewModel(
                             if (revealed) _familyNightProgress.value = progress.label
                         },
                     )
+                    val entries = ranked.top
                     val byKey = titleRepository.getTitles(entries.map { it.tmdbId to it.mediaType }).associateBy { it.tmdbId to it.mediaType }
-                    entries.sortedByDescending { it.score }.mapNotNull { byKey[it.tmdbId to it.mediaType] }
-                }.onSuccess { _familyNightTitles.value = it }
-                    .onFailure { _familyNightTitles.value = emptyList() }
+                    entries.sortedByDescending { it.score }.mapNotNull { byKey[it.tmdbId to it.mediaType] } to ranked.rest
+                }.onSuccess { (titles, rest) ->
+                    familyNightRest = rest
+                    _familyNightExtra.value = ExtraRow(pager = if (rest.isEmpty()) null else ExtraPicksPager(rest))
+                    _familyNightTitles.value = titles
+                }.onFailure {
+                    familyNightRest = emptyList()
+                    _familyNightExtra.value = ExtraRow()
+                    _familyNightTitles.value = emptyList()
+                }
                 reveal.cancel()
                 _familyNightProgress.value = null
                 _familyNightLoading.value = false
@@ -363,8 +430,84 @@ class HomeViewModel(
             if (profileId in current) current - profileId else current + profileId
         }
         _familyNightLoading.value = _familyNightSelection.value.size >= 2
+        // PLAN.md §5e: a new selection is a new ranking -- drop the old extras straight away.
+        familyNightExtraJob?.cancel()
+        familyNightRest = emptyList()
+        _familyNightExtra.value = ExtraRow()
         familyNightTrigger.tryEmit(Unit)
     }
+
+    /**
+     * PLAN.md §5e: drops every appended extra batch. For You loses its pager (the persisted picks
+     * changed, so the ranking has to be re-scored on the next tap); Family Night keeps the blend it
+     * is still showing and just rewinds to its first page.
+     */
+    private fun resetExtras() {
+        forYouExtraJob?.cancel()
+        familyNightExtraJob?.cancel()
+        _forYouExtra.value = ExtraRow()
+        _familyNightExtra.value = ExtraRow(pager = if (familyNightRest.isEmpty()) null else ExtraPicksPager(familyNightRest))
+    }
+
+    private fun loadEligible() {
+        viewModelScope.launch {
+            _forYouEligible.value = runCatching { recommendationRepository.eligibleCandidateCount(activeProfile.id) }.getOrNull()
+        }
+    }
+
+    private suspend fun resolveInOrder(keys: List<TitleKey>): List<TitleEntity> {
+        val byKey = titleRepository.getTitles(keys.map { it.tmdbId to it.mediaType }).associateBy { it.tmdbId to it.mediaType }
+        return keys.mapNotNull { byKey[it.tmdbId to it.mediaType] }
+    }
+
+    /** PLAN.md §5e: the Family Night end card. The ranked pool arrived with the blend, so this is instant. */
+    fun showMoreFamilyNight() {
+        val row = _familyNightExtra.value
+        val pager = row.pager ?: return
+        if (row.loading) return
+        familyNightExtraJob = viewModelScope.launch {
+            _familyNightExtra.value = row.copy(loading = true)
+            val shown = (_familyNightTitles.value + row.titles).map { TitleKey(it.tmdbId, it.mediaType) }
+            val (keys, advanced) = pager.next(shown.toSet() + dismissedKeySet())
+            val resolved = runCatching { resolveInOrder(keys) }.getOrNull()
+            ensureActive() // a reset while resolving must not be overwritten
+            _familyNightExtra.value = if (resolved == null) row else ExtraRow(advanced, row.titles + resolved)
+        }
+    }
+
+    /**
+     * PLAN.md §5e: the For You end card. The first tap scores the profile's pool on demand (same
+     * pipeline as the persisted refresh, under the refresh guard; skipped if a real refresh is
+     * running because its [RefreshUiState.Finished] resets us anyway), later taps just page.
+     */
+    fun showMoreForYou() {
+        val row = _forYouExtra.value
+        if (row.loading) return
+        forYouExtraJob = viewModelScope.launch {
+            _forYouExtra.value = row.copy(loading = true)
+            val result = runCatching {
+                val shown = (uiState.value.forYouTitles).map { TitleKey(it.tmdbId, it.mediaType) }.toSet()
+                val pager = row.pager ?: run {
+                    val region = userPreferencesRepository.region.first()
+                    val rank: suspend () -> List<TitleKey> = {
+                        recommendationRepository.rankedExtrasForProfile(activeProfile.id, region, shown)
+                    }
+                    val rest = (if (refreshCoordinator != null) refreshCoordinator.runIfIdle { rank() } else rank())
+                    rest?.let { ExtraPicksPager(it) }
+                }
+                if (pager == null) {
+                    null
+                } else {
+                    val (keys, advanced) = pager.next(shown + dismissedKeySet())
+                    ExtraRow(advanced, row.titles + resolveInOrder(keys))
+                }
+            }.getOrNull()
+            ensureActive() // a reset while scoring must not be overwritten
+            _forYouExtra.value = result ?: row
+        }
+    }
+
+    private fun dismissedKeySet(): Set<TitleKey> = _dismissedKeys.value.map { TitleKey(it.first, it.second) }.toSet()
 
     /**
      * Fills the discover rows and regenerates this profile's shortlist. Offline-first by
@@ -457,6 +600,10 @@ class HomeViewModel(
                 }
                 // forYouShortlist is a live Flow off Room (observeShortlist) — the write above
                 // is picked up automatically, no manual re-read needed here.
+                // PLAN.md §5e: the persisted picks may have changed, so any appended extras are stale.
+                forYouExtraJob?.cancel()
+                _forYouExtra.value = ExtraRow()
+                _forYouEligible.value = recommendationRepository.eligibleCandidateCount(activeProfile.id)
             }
             // A failed shortlist recompute leaves whatever was already persisted/cached on
             // screen (same offline-first posture as the discover half above) rather than
@@ -549,6 +696,10 @@ data class HomeUiState(
     val popularMovies: List<TitleEntity> = emptyList(),
     val popularTv: List<TitleEntity> = emptyList(),
     val forYouTitles: List<TitleEntity> = emptyList(),
+    /** PLAN.md §5e: the For You "Show 30 more" end card; null when there is nothing more to show. */
+    val forYouMore: MoreCardState? = null,
+    /** PLAN.md §5e: the Family Night "Show 30 more" end card; null when exhausted or no blend yet. */
+    val familyNightMore: MoreCardState? = null,
     /** True until the profile crosses PLAN.md §4's 5-event cold-start threshold. */
     val isColdStartForYou: Boolean = true,
     /** Every profile on the account — the who's-watching chip row's source list. */

@@ -1159,6 +1159,120 @@ class RecommendationRepositoryTest {
         assertEquals("Checking availability 1/1…", last.label)
     }
 
+    // --- PLAN.md §5e (M16): ranked-pool paging beyond the top 30 -------------------------------
+
+    private fun enqueuePool(ids: List<Int>, unavailable: Set<Int> = emptySet()) {
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(ids)))
+        ids.forEach { cid ->
+            server.enqueue(
+                MockResponse(
+                    body = movieDetailJson(
+                        id = cid, title = "Candidate $cid", genreId = 35, genreName = "Comedy", certification = "PG",
+                        providerId = if (cid in unavailable) null else SUBSCRIBED_PROVIDER_ID,
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `M16 rankedExtrasForProfile returns exactly the ranks beyond the shortlist, in rank order, with no overlap`() = runTest {
+        val id = seedWarmProfile()
+        val pool = (3000 until 3070).toList()
+        enqueuePool(pool)
+        val top = repo.refreshProfileShortlist(id, region = "GB")
+        assertEquals(30, top.size)
+        val shown = top.map { org.seg7.familywatchlist.data.recommend.TitleKey(it.tmdbId, it.mediaType) }.toSet()
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(pool))) // re-fetched; details are cached
+
+        val extras = repo.rankedExtrasForProfile(id, "GB", shown)
+
+        assertEquals("70 eligible minus the 30 already shown", 40, extras.size)
+        assertTrue("no title already shown is repeated", extras.none { it in shown })
+        assertEquals("every candidate scores identically here, so rank order is the tmdbId tiebreak", extras.map { it.tmdbId }.sorted(), extras.map { it.tmdbId })
+        assertEquals(pool.toSet(), (shown + extras).map { it.tmdbId }.toSet())
+    }
+
+    @Test
+    fun `M16 rankedExtrasForProfile writes nothing -- shortlist rows and the eligible count are untouched`() = runTest {
+        val id = seedWarmProfile()
+        val pool = (3000 until 3045).toList()
+        enqueuePool(pool)
+        val top = repo.refreshProfileShortlist(id, region = "GB")
+        val weekStart = repo.currentWeekStart()
+        val rowsBefore = db.shortlistDao().getForScope(weekStart, id.toString())
+        val eligibleBefore = profileSlidersRepository.getEligibleCandidateCount(id)
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(pool)))
+
+        repo.rankedExtrasForProfile(id, "GB", top.map { org.seg7.familywatchlist.data.recommend.TitleKey(it.tmdbId, it.mediaType) }.toSet())
+
+        assertEquals(rowsBefore, db.shortlistDao().getForScope(weekStart, id.toString()))
+        assertEquals(eligibleBefore, profileSlidersRepository.getEligibleCandidateCount(id))
+        assertEquals(45, eligibleBefore)
+    }
+
+    @Test
+    fun `M16 extras apply the same filters -- dismissed and UK-unavailable titles never appear`() = runTest {
+        val id = seedWarmProfile()
+        val pool = (3000 until 3045).toList()
+        val unavailable = setOf(3040, 3041)
+        enqueuePool(pool, unavailable)
+        val top = repo.refreshProfileShortlist(id, region = "GB")
+        val shown = top.map { org.seg7.familywatchlist.data.recommend.TitleKey(it.tmdbId, it.mediaType) }.toSet()
+        // Dismiss one title that is not in the top 30 (the lowest-ranked available one).
+        val dismissed = pool.filterNot { it in unavailable || it in shown.map { k -> k.tmdbId } }.last()
+        repo.dismissTitle(id, dismissed, MediaType.MOVIE)
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(pool)))
+
+        val extras = repo.rankedExtrasForProfile(id, "GB", shown).map { it.tmdbId }
+
+        assertTrue(dismissed !in extras)
+        assertTrue(extras.none { it in unavailable })
+        assertEquals("45 - 2 unavailable - 1 dismissed - 30 shown", 12, extras.size)
+    }
+
+    @Test
+    fun `M16 rankedExtrasForProfile is empty for a cold-start profile and touches no network`() = runTest {
+        val id = profileRepository.addProfile("New", "avatar", null).getOrThrow()
+
+        assertEquals(emptyList<Any>(), repo.rankedExtrasForProfile(id, "GB", emptySet()))
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `M16 ad-hoc Family Night returns the rest of the ranked pool beyond its top 30, persisting nothing`() = runTest {
+        val a = seedWarmProfile()
+        val b = seedWarmProfile()
+        val pool = (2000 until 2075).toList()
+        enqueuePool(pool, unavailable = setOf(2074))
+
+        val ranked = repo.refreshFamilyShortlistRanked(listOf(a, b), region = "GB", FamilyBlendSlider.DEFAULT, persist = false)
+
+        assertEquals(30, ranked.top.size)
+        assertEquals("75 - 1 unavailable - 30 shown", 44, ranked.rest.size)
+        val topIds = ranked.top.map { it.tmdbId }.toSet()
+        assertTrue(ranked.rest.none { it.tmdbId in topIds })
+        assertTrue(ranked.rest.none { it.tmdbId == 2074 })
+        assertEquals(ranked.rest.map { it.tmdbId }.sorted(), ranked.rest.map { it.tmdbId })
+        assertEquals(emptyList<ShortlistEntryEntity>(), db.shortlistDao().getForScope(repo.currentWeekStart(), FAMILY_SCOPE_KEY))
+    }
+
+    @Test
+    fun `M16 refreshAllDetailed reports which profile it is on, n of m, Family last`() = runTest {
+        val ann = seedWarmProfile(name = "Ann")
+        val bo = profileRepository.addProfile("Bo", "avatar", null).getOrThrow()
+        familyProfileRepository.save("Fam", "avatar", listOf(ann, bo)).getOrThrow()
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(emptyList())))
+        val seen = mutableListOf<org.seg7.familywatchlist.data.recommend.RefreshProgress>()
+
+        repo.refreshAllDetailed("GB") { seen += it }
+
+        assertEquals(listOf("Ann", "Bo", "Fam"), seen.map { it.profileName })
+        assertEquals(listOf(1, 2, 3), seen.map { it.index })
+        assertEquals(listOf(3, 3, 3), seen.map { it.total })
+        assertEquals("Refreshing Bo's picks (2 of 3)\u2026", seen[1].bannerText)
+    }
+
     private fun recommendationsJsonMulti(candidateIds: List<Int>): String {
         val results = candidateIds.joinToString(",\n") { cid ->
             """{"id": $cid, "title": "Candidate $cid", "poster_path": "/p.jpg", "release_date": "2026-08-01", "vote_average": 8.0, "vote_count": 500, "popularity": 50.0}"""
