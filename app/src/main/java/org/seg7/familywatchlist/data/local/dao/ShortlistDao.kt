@@ -77,4 +77,18 @@ interface ShortlistDao {
      */
     @Query("DELETE FROM shortlist_entries WHERE weekStart = :weekStart AND scopeKey = :scopeKey AND state = 'SUGGESTED'")
     suspend fun deleteSuggestedForScope(weekStart: LocalDate, scopeKey: String)
+
+    /**
+     * PLAN.md §5d (M15): the scope's *previous* shortlist for the new-pick diff — its non-DISMISSED
+     * rows from the most recent `weekStart` (<= [weekStart]) that has any. That is this week's
+     * current rows on a mid-week recompute, or an earlier week's rows on the first refresh of a
+     * new week (shortlists of past weeks are never pruned, which is what makes this work).
+     * DISMISSED rows are skipped on both counts: they are exclusion markers, not shown picks, and
+     * a dismissal placeholder written this week must not hide last week's real shortlist.
+     */
+    @Query(
+        "SELECT * FROM shortlist_entries WHERE scopeKey = :scopeKey AND state != 'DISMISSED' AND weekStart = " +
+            "(SELECT MAX(weekStart) FROM shortlist_entries WHERE scopeKey = :scopeKey AND state != 'DISMISSED' AND weekStart <= :weekStart)"
+    )
+    suspend fun getPreviousShortlist(scopeKey: String, weekStart: LocalDate): List<ShortlistEntryEntity>
 }

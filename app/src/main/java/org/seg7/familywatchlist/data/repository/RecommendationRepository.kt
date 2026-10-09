@@ -35,6 +35,9 @@ import org.seg7.familywatchlist.data.recommend.AttrKey
 import org.seg7.familywatchlist.data.recommend.DismissSignal
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
+import org.seg7.familywatchlist.data.recommend.FamilyNightProgress
+import org.seg7.familywatchlist.data.recommend.ProfileRunSummary
+import org.seg7.familywatchlist.data.recommend.ShortlistDiff
 import org.seg7.familywatchlist.data.recommend.RatedWatch
 import org.seg7.familywatchlist.data.recommend.RecommenderSpec
 import org.seg7.familywatchlist.data.recommend.ScoredCandidate
@@ -61,6 +64,22 @@ const val FAMILY_SCOPE_KEY: String = "FAMILY"
  * build the notification text.
  */
 data class ProfileRefreshResult(val profileId: Long, val name: String)
+
+/**
+ * PLAN.md §5d (M15): [RecommendationRepository.refreshAllDetailed]'s result — [completed] is exactly
+ * what [RecommendationRepository.refreshAll] has always returned (it feeds the notification gate),
+ * [summaries] is one [ProfileRunSummary] per profile attempted (including failed and cold-start
+ * ones) for the refresh log.
+ */
+data class RefreshAllOutcome(
+    val completed: List<ProfileRefreshResult>,
+    val summaries: List<ProfileRunSummary>,
+) {
+    val failedCount: Int get() = summaries.count { it.status == ProfileRunSummary.STATUS_FAILED }
+}
+
+/** One profile's recompute: [diff] is null when it was skipped (cold start, or the profile no longer exists). */
+data class ProfileShortlistRefresh(val entries: List<ShortlistEntryEntity>, val diff: ShortlistDiff?)
 
 /**
  * PLAN.md §4/§4a: orchestrates the pure `data/recommend` engine against real Room/TMDB data —
@@ -218,14 +237,31 @@ class RecommendationRepository(
      * [ShortlistConfig.SPEC_DEFAULT]'s fixed 30, deliberately never threading a profile's personal
      * request (or this per-profile eligible count) in — unrelated to this function's Family path.
      */
-    suspend fun refreshProfileShortlist(profileId: Long, region: String): List<ShortlistEntryEntity> {
-        if (isColdStart(profileId)) return emptyList()
+    suspend fun refreshProfileShortlist(profileId: Long, region: String): List<ShortlistEntryEntity> =
+        refreshProfileShortlistDetailed(profileId, region, isRefreshRun = false).entries
+
+    /**
+     * [refreshProfileShortlist] plus the PLAN.md §5d (M15) new-pick diff against this scope's
+     * previous persisted shortlist ([ShortlistDao.getPreviousShortlist]). [isRefreshRun] is true
+     * for a real refresh run (scheduled / catch-up / manual, via [refreshAllDetailed]) and false for
+     * incidental recomputes (Home opening, a Tune-my-picks slider change). It only changes how the
+     * persisted `isNew` badge flag is carried: a real run re-derives it purely from the diff (what
+     * wasn't in the previous shortlist), whereas an incidental recompute also keeps flags that were
+     * already set, so merely opening Home never clears a "New" badge — it stays "until the next
+     * refresh" as spec'd.
+     */
+    suspend fun refreshProfileShortlistDetailed(
+        profileId: Long,
+        region: String,
+        isRefreshRun: Boolean,
+    ): ProfileShortlistRefresh {
+        if (isColdStart(profileId)) return ProfileShortlistRefresh(emptyList(), null)
         val exists = if (profileId == FAMILY_PROFILE_SENTINEL_ID) {
             familyProfileRepository.get() != null
         } else {
             profileRepository.getById(profileId) != null
         }
-        if (!exists) return emptyList()
+        if (!exists) return ProfileShortlistRefresh(emptyList(), null)
         val ageRatingCap = resolveAgeRatingCap(profileId)
         val sliders = profileSlidersRepository.get(profileId)
         val today = clock.today()
@@ -242,8 +278,21 @@ class RecommendationRepository(
         val effectiveTargetSize = requestedCount.coerceAtMost(scored.size)
 
         val assembled = ShortlistAssembler.assemble(scored, sliders.toShortlistConfig(targetSize = effectiveTargetSize))
-        val entries = persistShortlist(assembled, vector, weekStart, scopeKey)
-        return entries
+
+        val previous = shortlistDao.getPreviousShortlist(scopeKey, weekStart)
+        val newKeys = assembled.map { TitleKey(it.candidate.title.tmdbId, it.candidate.title.mediaType) }
+        val rawDiff = ShortlistDiff.compute(
+            previous = if (previous.isEmpty()) null else previous.map { TitleKey(it.tmdbId, it.mediaType) },
+            current = newKeys,
+        )
+        // A title the family watched since last time is no longer "dropped" -- it left because it was done.
+        val watchedSince = previous.filter { it.state == ShortlistState.WATCHED }.map { TitleKey(it.tmdbId, it.mediaType) }.toSet()
+        val diff = rawDiff.copy(dropped = rawDiff.dropped.filterNot { it in watchedSince })
+        val carriedNew = if (isRefreshRun) emptySet() else previous.filter { it.isNew }.map { TitleKey(it.tmdbId, it.mediaType) }.toSet()
+        val newBadges = diff.added.toSet() + carriedNew
+
+        val entries = persistShortlist(assembled, vector, weekStart, scopeKey, newBadges)
+        return ProfileShortlistRefresh(entries, diff)
     }
 
     /**
@@ -285,20 +334,64 @@ class RecommendationRepository(
     suspend fun refreshAll(
         region: String,
         familyBlendSlider: FamilyBlendSlider = FamilyBlendSlider.DEFAULT,
-    ): List<ProfileRefreshResult> {
+    ): List<ProfileRefreshResult> = refreshAllDetailed(region).completed
+
+    /**
+     * [refreshAll] for a real refresh run (PLAN.md §5d, M15): same per-profile isolation, plus a
+     * [ProfileRunSummary] per profile for the refresh log -- new picks (titles not in that scope's
+     * previous shortlist, up to [ProfileRunSummary.MAX_NAMED] named) and titles that dropped off.
+     * Persists the `isNew` badge flags from the same diff ([refreshProfileShortlistDetailed] with
+     * `isRefreshRun = true`).
+     */
+    suspend fun refreshAllDetailed(region: String): RefreshAllOutcome {
         val profiles = profileRepository.observeAll().first()
         val completed = mutableListOf<ProfileRefreshResult>()
-        profiles.forEach { profile ->
-            runCatching { refreshProfileShortlist(profile.id, region) }
-                .onSuccess { completed += ProfileRefreshResult(profile.id, profile.name) }
+        val summaries = mutableListOf<ProfileRunSummary>()
+
+        suspend fun runOne(profileId: Long, name: String) {
+            runCatching { refreshProfileShortlistDetailed(profileId, region, isRefreshRun = true) }
+                .onSuccess { result ->
+                    completed += ProfileRefreshResult(profileId, name)
+                    summaries += summarise(profileId, name, result.diff)
+                }
+                .onFailure { t ->
+                    summaries += ProfileRunSummary(
+                        profileId = profileId,
+                        name = name,
+                        status = ProfileRunSummary.STATUS_FAILED,
+                        error = t.message?.take(160) ?: t::class.java.simpleName,
+                    )
+                }
         }
+
+        profiles.forEach { runOne(it.id, it.name) }
         val family = familyProfileRepository.get()
-        if (family != null) {
-            runCatching { refreshProfileShortlist(FAMILY_PROFILE_SENTINEL_ID, region) }
-                .onSuccess { completed += ProfileRefreshResult(FAMILY_PROFILE_SENTINEL_ID, family.profile.name) }
-        }
-        return completed
+        if (family != null) runOne(FAMILY_PROFILE_SENTINEL_ID, family.profile.name)
+        return RefreshAllOutcome(completed, summaries)
     }
+
+    private suspend fun summarise(profileId: Long, name: String, diff: ShortlistDiff?): ProfileRunSummary {
+        if (diff == null) {
+            return ProfileRunSummary(profileId, name, status = ProfileRunSummary.STATUS_COLD_START)
+        }
+        val max = ProfileRunSummary.MAX_NAMED
+        val named = titleNames((diff.added.take(max) + diff.dropped.take(max)))
+        fun List<TitleKey>.names() = take(max).map { named[it] ?: "Title ${it.tmdbId}" }
+        return ProfileRunSummary(
+            profileId = profileId,
+            name = name,
+            total = diff.total,
+            newCount = diff.added.size,
+            newTitles = diff.added.names(),
+            droppedCount = diff.dropped.size,
+            droppedTitles = diff.dropped.names(),
+            hadPrevious = diff.hadPrevious,
+        )
+    }
+
+    private suspend fun titleNames(keys: List<TitleKey>): Map<TitleKey, String> =
+        titleRepository.getTitles(keys.map { it.tmdbId to it.mediaType })
+            .associate { TitleKey(it.tmdbId, it.mediaType) to it.title }
 
     /**
      * PLAN.md §4: family-scope blend for [profileIds] — the "who's watching tonight?" chip row's
@@ -319,6 +412,7 @@ class RecommendationRepository(
         region: String,
         familyBlendSlider: FamilyBlendSlider,
         persist: Boolean,
+        onProgress: ((FamilyNightProgress) -> Unit)? = null,
     ): List<ShortlistEntryEntity> {
         if (profileIds.isEmpty()) return emptyList()
         val today = clock.today()
@@ -331,13 +425,18 @@ class RecommendationRepository(
         val accountProfileCount = profileRepository.observeAll().first().size
         val effectiveSlider = if (accountProfileCount < 2) FamilyBlendSlider.DEFAULT else familyBlendSlider
 
+        onProgress?.invoke(FamilyNightProgress.BuildingProfiles)
         val vectors = profiles.map { buildProfileVector(it.id, profileSlidersRepository.get(it.id).halfLifeDays, today) }
         val blended = FamilyBlend.blendVectors(vectors, effectiveSlider.toFamilyBlendWeights())
         val strictestCap = FamilyBlend.strictestCap(profiles.map { it.ageRatingCap })
 
+        onProgress?.invoke(FamilyNightProgress.FindingCandidates)
         val pool = gatherCandidatePool(profiles.map { it.id }, region)
         val eligible = excludeDismissed(pool, scopeKey)
-        val scored = scoreCandidates(eligible, blended, ScoringWeights.SPEC_DEFAULT, today.year, strictestCap, region)
+        val scored = scoreCandidates(
+            eligible, blended, ScoringWeights.SPEC_DEFAULT, today.year, strictestCap, region,
+            onCandidateChecked = onProgress?.let { cb -> { done: Int, total: Int -> cb(FamilyNightProgress.CheckingAvailability(done, total)) } },
+        )
         val assembled = ShortlistAssembler.assemble(scored, ShortlistConfig.SPEC_DEFAULT)
 
         return if (persist) {
@@ -382,8 +481,11 @@ class RecommendationRepository(
         vector: Map<AttrKey, Double>,
         weekStart: LocalDate,
         scopeKey: String,
+        newBadges: Set<TitleKey> = emptySet(),
     ): List<ShortlistEntryEntity> {
-        val entries = assembled.map { it.toEntity(weekStart, scopeKey, reasonsFor(vector, it.candidate.title)) }
+        val entries = assembled.map {
+            it.toEntity(weekStart, scopeKey, reasonsFor(vector, it.candidate.title), isNew = it.key() in newBadges)
+        }
         // Clear this cycle's previously-SUGGESTED rows first — a recompute (slider change,
         // manual refresh) replaces the shortlist, it doesn't just add to it. See
         // ShortlistDao.deleteSuggestedForScope's kdoc for why DISMISSED/WATCHED rows survive.
@@ -392,7 +494,14 @@ class RecommendationRepository(
         return entries
     }
 
-    private fun ShortlistSlot.toEntity(weekStart: LocalDate, scopeKey: String, reasons: String): ShortlistEntryEntity =
+    private fun ShortlistSlot.key(): TitleKey = TitleKey(candidate.title.tmdbId, candidate.title.mediaType)
+
+    private fun ShortlistSlot.toEntity(
+        weekStart: LocalDate,
+        scopeKey: String,
+        reasons: String,
+        isNew: Boolean = false,
+    ): ShortlistEntryEntity =
         ShortlistEntryEntity(
             weekStart = weekStart,
             scopeKey = scopeKey,
@@ -401,6 +510,7 @@ class RecommendationRepository(
             score = candidate.score,
             reasons = reasons,
             state = ShortlistState.SUGGESTED,
+            isNew = isNew,
         )
 
     /** PLAN.md §5: "'Because you liked …' reason line" — the candidate's top 3 attributes by this vector's affinity, positive contributions only. */
@@ -565,11 +675,13 @@ class RecommendationRepository(
         todayYear: Int,
         ageCap: String?,
         region: String,
+        onCandidateChecked: ((done: Int, total: Int) -> Unit)? = null,
     ): List<ScoredCandidate> {
-        return pool.mapNotNull { key ->
+        return pool.mapIndexedNotNull { index, key ->
+            onCandidateChecked?.invoke(index + 1, pool.size)
             val title = titleRepository.ensureFresh(key.tmdbId, key.mediaType, region)
-            if (!FamilyBlend.isConfirmedUnderCap(title.certification, ageCap)) return@mapNotNull null
-            if (!availabilityGate.isAvailableOnSubscribedProvider(key.tmdbId, key.mediaType, region)) return@mapNotNull null
+            if (!FamilyBlend.isConfirmedUnderCap(title.certification, ageCap)) return@mapIndexedNotNull null
+            if (!availabilityGate.isAvailableOnSubscribedProvider(key.tmdbId, key.mediaType, region)) return@mapIndexedNotNull null
             val attrEntities = titleAttributeDao.getForTitle(key.tmdbId, key.mediaType)
             val attrs = attrEntities.toAttrKeys()
             val candidate = ScoringCandidate(key, attrs, title.voteAverage, title.voteCount, title.year)
