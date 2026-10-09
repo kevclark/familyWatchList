@@ -2389,12 +2389,19 @@ nothing is badged "New" and the log says "(first shortlist)".
 
 ## M16 — "Show 30 more" on For You and Family Night (Kev, 2026-10-09) — see PLAN.md §5e
 
-- [ ] Ranked-pool paging API (offset/limit over the same scoring pipeline; same filters as the
+- [x] Ranked-pool paging API (offset/limit over the same scoring pipeline; same filters as the
       top 30; nothing persisted).
-- [ ] "Show 30 more" end card on Family Night (appends, keeps scroll, loading state, hides when
+- [x] "Show 30 more" end card on Family Night (appends, keeps scroll, loading state, hides when
       exhausted, resets on selection change / refresh).
-- [ ] Same on For You (on-demand scoring beyond the persisted shortlist).
-- [ ] Dismiss works from extra batches.
-- [ ] Refresh banner shows "Refreshing <name>'s picks (n of m)…".
-- [ ] Bump to 0.1.0-alpha.16 (versionCode 16); `./gradlew test assembleDebug` green.
+- [x] Same on For You (on-demand scoring beyond the persisted shortlist).
+- [x] Dismiss works from extra batches.
+- [x] Refresh banner shows "Refreshing <name>'s picks (n of m)…".
+- [x] Bump to 0.1.0-alpha.16 (versionCode 16); `./gradlew test assembleDebug` green.
 - [ ] Live check on Kev's phone.
+
+M16 notes (2026-10-09): the pager is pure (`ExtraPicksPager`, `MoreCardState`, `RefreshProgress` in
+`data/recommend/ExtraPicks.kt`). Family Night gets the rest of the ranked pool for free from the
+ad-hoc blend (`refreshFamilyShortlistRanked`); For You scores on demand on first tap
+(`rankedExtrasForProfile`, same `scoreProfilePool` as the persisted refresh) and shows "of N" from the
+last recompute's stored eligible count until then. Extras are view-only (HomeViewModel `ExtraRow`),
+reset on selection change / `Finished` / shortlist recompute. No schema change.
