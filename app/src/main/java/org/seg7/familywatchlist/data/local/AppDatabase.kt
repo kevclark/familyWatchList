@@ -14,6 +14,7 @@ import org.seg7.familywatchlist.data.local.dao.ProfileSlidersDao
 import org.seg7.familywatchlist.data.local.dao.ProviderAvailabilityDao
 import org.seg7.familywatchlist.data.local.dao.ProviderDao
 import org.seg7.familywatchlist.data.local.dao.RatingDao
+import org.seg7.familywatchlist.data.local.dao.RefreshLogDao
 import org.seg7.familywatchlist.data.local.dao.ReviewDao
 import org.seg7.familywatchlist.data.local.dao.ShortlistDao
 import org.seg7.familywatchlist.data.local.dao.TitleAttributeDao
@@ -29,6 +30,7 @@ import org.seg7.familywatchlist.data.local.entity.ProfileSlidersEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderAvailabilityEntity
 import org.seg7.familywatchlist.data.local.entity.ProviderEntity
 import org.seg7.familywatchlist.data.local.entity.RatingEntity
+import org.seg7.familywatchlist.data.local.entity.RefreshLogEntity
 import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
@@ -59,8 +61,9 @@ import org.seg7.familywatchlist.data.local.entity.WatchlistEntryEntity
         FamilyProfileMemberEntity::class,
         NotificationPreferenceEntity::class,
         ReviewEntity::class,
+        RefreshLogEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -79,6 +82,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun familyProfileDao(): FamilyProfileDao
     abstract fun notificationPreferenceDao(): NotificationPreferenceDao
     abstract fun reviewDao(): ReviewDao
+    abstract fun refreshLogDao(): RefreshLogDao
 
     companion object {
         const val NAME = "family_watchlist.db"
@@ -268,6 +272,28 @@ abstract class AppDatabase : RoomDatabase() {
                 connection.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_reviews_tmdbId_mediaType` " +
                         "ON `reviews` (`tmdbId`, `mediaType`)"
+                )
+            }
+        }
+
+        /**
+         * v10 -> v11 (PLAN.md §5d, M15): creates `refresh_log` (one row per refresh run, newest ~20
+         * kept — see [RefreshLogEntity]) and adds `shortlist_entries.isNew`, the persisted "New"
+         * badge flag fed by the same shortlist diff the log summarises. Existing shortlist rows get
+         * `isNew = 0`, so nothing is badged until the first real refresh after upgrade. This is
+         * the shipped v10->v11 step; an unrelated, abandoned MIGRATION_10_11 sits in `git stash`
+         * and is deliberately not this.
+         */
+        val MIGRATION_10_11: Migration = object : Migration(10, 11) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `refresh_log` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `trigger` TEXT NOT NULL, " +
+                        "`outcome` TEXT NOT NULL, `reason` TEXT, `summaryJson` TEXT NOT NULL, " +
+                        "`notificationStatus` TEXT)"
+                )
+                connection.execSQL(
+                    "ALTER TABLE shortlist_entries ADD COLUMN isNew INTEGER NOT NULL DEFAULT 0"
                 )
             }
         }

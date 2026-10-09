@@ -1042,6 +1042,123 @@ class RecommendationRepositoryTest {
         assertEquals(listOf(999), db.shortlistDao().getForScope(weekStart, succeeding.toString()).map { it.tmdbId })
     }
 
+    // --- PLAN.md §5d (M15): new-pick diff, "New" badge flags, Family Night progress ------------
+
+    private suspend fun seedPreviousShortlist(scopeKey: String, vararg tmdbIds: Int) {
+        val lastWeek = repo.currentWeekStart().minusWeeks(1)
+        db.shortlistDao().upsertAll(
+            tmdbIds.map { ShortlistEntryEntity(lastWeek, scopeKey, it, MediaType.MOVIE, score = 0.5, reasons = "[]", state = ShortlistState.SUGGESTED) },
+        )
+    }
+
+    private suspend fun seedTitle(id: Int, name: String) {
+        db.titleDao().upsert(
+            org.seg7.familywatchlist.data.local.entity.TitleEntity(
+                tmdbId = id, mediaType = MediaType.MOVIE, title = name, year = 2020, posterPath = null, backdropPath = null,
+                overview = null, runtimeMin = null, certification = null, voteAverage = null, popularity = null,
+                trailerKey = null, fetchedAt = clock.nowMillis(),
+            ),
+        )
+    }
+
+    @Test
+    fun `a refresh run diffs against the previous shortlist and flags only genuinely new picks`() = runTest {
+        val id = seedWarmProfile()
+        seedTitle(777, "Gone Film")
+        seedPreviousShortlist(id.toString(), 998, 777)
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(listOf(998, 999))))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 998, title = "Kept Film", genreId = 35, genreName = "Comedy", certification = "PG")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Fresh Film", genreId = 35, genreName = "Comedy", certification = "PG")))
+
+        val outcome = repo.refreshAllDetailed(region = "GB")
+
+        val summary = outcome.summaries.single()
+        assertEquals(id, summary.profileId)
+        assertEquals(1, summary.newCount)
+        assertEquals(listOf("Fresh Film"), summary.newTitles)
+        assertEquals(1, summary.droppedCount)
+        assertEquals(listOf("Gone Film"), summary.droppedTitles)
+        assertEquals(2, summary.total)
+        val stored = db.shortlistDao().getForScope(repo.currentWeekStart(), id.toString()).associateBy { it.tmdbId }
+        assertEquals(true, stored.getValue(999).isNew)
+        assertEquals(false, stored.getValue(998).isNew)
+    }
+
+    @Test
+    fun `the very first shortlist for a scope is a baseline, not a wall of New badges`() = runTest {
+        val id = seedWarmProfile()
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "First Ever")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "First Ever", genreId = 35, genreName = "Comedy", certification = "PG")))
+
+        val result = repo.refreshProfileShortlistDetailed(id, "GB", isRefreshRun = true)
+
+        assertEquals(false, result.diff!!.hadPrevious)
+        assertEquals(emptyList<Any>(), result.diff!!.added)
+        assertEquals(false, result.entries.single().isNew)
+    }
+
+    @Test
+    fun `an incidental recompute keeps existing New flags but the next real refresh run re-derives them`() = runTest {
+        val id = seedWarmProfile()
+        seedPreviousShortlist(id.toString(), 998)
+        server.enqueue(MockResponse(body = recommendationsJsonMulti(listOf(998, 999))))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 998, title = "Kept", genreId = 35, genreName = "Comedy", certification = "PG")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Fresh", genreId = 35, genreName = "Comedy", certification = "PG")))
+        repo.refreshProfileShortlistDetailed(id, "GB", isRefreshRun = true)
+        val weekStart = repo.currentWeekStart()
+        assertEquals(true, db.shortlistDao().getForScope(weekStart, id.toString()).single { it.tmdbId == 999 }.isNew)
+
+        // Home opening: same shortlist again (all caches warm) -- the badge must survive.
+        repo.refreshProfileShortlistDetailed(id, "GB", isRefreshRun = false)
+        assertEquals(true, db.shortlistDao().getForScope(weekStart, id.toString()).single { it.tmdbId == 999 }.isNew)
+
+        // The next real refresh run: 999 was already in the previous shortlist, so it is no longer new.
+        repo.refreshProfileShortlistDetailed(id, "GB", isRefreshRun = true)
+        assertEquals(false, db.shortlistDao().getForScope(weekStart, id.toString()).single { it.tmdbId == 999 }.isNew)
+    }
+
+    @Test
+    fun `a profile whose refresh throws is summarised as failed and left out of completed`() = runTest {
+        val id = seedWarmProfile(name = "Unlucky")
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Pick")))
+        server.enqueue(MockResponse(code = 500))
+
+        val outcome = repo.refreshAllDetailed(region = "GB")
+
+        val summary = outcome.summaries.single { it.profileId == id }
+        assertEquals("FAILED", summary.status)
+        assertTrue(summary.error != null)
+        assertEquals(emptyList<ProfileRefreshResult>(), outcome.completed)
+        assertEquals(1, outcome.failedCount)
+    }
+
+    @Test
+    fun `a cold-start profile is summarised as cold start, not as failed or empty`() = runTest {
+        val id = profileRepository.addProfile("New", "avatar", null).getOrThrow()
+
+        val outcome = repo.refreshAllDetailed(region = "GB")
+
+        assertEquals("COLD_START", outcome.summaries.single { it.profileId == id }.status)
+    }
+
+    @Test
+    fun `ad-hoc Family Night blend reports staged progress ending in per-candidate availability checks`() = runTest {
+        val a = seedWarmProfile(name = "A")
+        val b = seedWarmProfile(name = "B")
+        server.enqueue(MockResponse(body = recommendationsJson(candidateId = 999, title = "Pick")))
+        server.enqueue(MockResponse(body = movieDetailJson(id = 999, title = "Pick", genreId = 35, genreName = "Comedy", certification = "PG")))
+        val seen = mutableListOf<org.seg7.familywatchlist.data.recommend.FamilyNightProgress>()
+
+        repo.refreshFamilyShortlist(listOf(a, b), region = "GB", FamilyBlendSlider.DEFAULT, persist = false, onProgress = { seen += it })
+
+        assertEquals(org.seg7.familywatchlist.data.recommend.FamilyNightProgress.BuildingProfiles, seen[0])
+        assertEquals(org.seg7.familywatchlist.data.recommend.FamilyNightProgress.FindingCandidates, seen[1])
+        val last = seen.last() as org.seg7.familywatchlist.data.recommend.FamilyNightProgress.CheckingAvailability
+        assertEquals(1, last.done)
+        assertEquals(1, last.total)
+        assertEquals("Checking availability 1/1…", last.label)
+    }
+
     private fun recommendationsJsonMulti(candidateIds: List<Int>): String {
         val results = candidateIds.joinToString(",\n") { cid ->
             """{"id": $cid, "title": "Candidate $cid", "poster_path": "/p.jpg", "release_date": "2026-08-01", "vote_average": 8.0, "vote_count": 500, "popularity": 50.0}"""

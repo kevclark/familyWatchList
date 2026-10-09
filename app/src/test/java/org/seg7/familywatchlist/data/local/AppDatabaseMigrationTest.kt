@@ -127,4 +127,42 @@ class AppDatabaseMigrationTest {
             assertEquals(8.0, cursor.getDouble(1), 0.0)
         }
     }
+
+    /**
+     * PLAN.md §5d (M15): [AppDatabase.MIGRATION_10_11] creates `refresh_log` and adds
+     * `shortlist_entries.isNew` (existing rows default to 0, i.e. nothing badged until the first
+     * real refresh), validated against the real exported v10/v11 schemas. Existing shortlist data
+     * must survive untouched.
+     */
+    @Test
+    fun `migrate10to11_createsRefreshLogAndAddsIsNewKeepingExistingShortlistRows`() {
+        helper.createDatabase(dbName, 10).apply {
+            execSQL(
+                "INSERT INTO shortlist_entries (weekStart, scopeKey, tmdbId, mediaType, score, reasons, state) " +
+                    "VALUES ('2026-10-05', '1', 42, 'MOVIE', 0.8, '[]', 'SUGGESTED')"
+            )
+            close()
+        }
+
+        val migrated = helper.runMigrationsAndValidate(dbName, 11, true, AppDatabase.MIGRATION_10_11)
+
+        migrated.query("SELECT tmdbId, score, isNew FROM shortlist_entries").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(42, cursor.getInt(0))
+            assertEquals(0.8, cursor.getDouble(1), 0.0)
+            assertEquals(0, cursor.getInt(2))
+        }
+
+        migrated.execSQL(
+            "INSERT INTO refresh_log (startedAt, finishedAt, `trigger`, outcome, reason, summaryJson, notificationStatus) " +
+                "VALUES (1000, 2000, 'SCHEDULED', 'SUCCESS', NULL, '[]', 'Posted for Kev')"
+        )
+        migrated.query("SELECT id, `trigger`, outcome, notificationStatus FROM refresh_log").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+            assertEquals("SCHEDULED", cursor.getString(1))
+            assertEquals("SUCCESS", cursor.getString(2))
+            assertEquals("Posted for Kev", cursor.getString(3))
+        }
+    }
 }

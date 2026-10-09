@@ -128,4 +128,60 @@ class ShortlistDaoTest {
         assertEquals(0, dao.observeForScope(oldWeek, "1").first().size)
         assertEquals(1, dao.observeForScope(weekStart, "1").first().size)
     }
+
+    // --- PLAN.md §5d (M15): getPreviousShortlist ------------------------------------------------
+
+    private fun row(week: LocalDate, scope: String, id: Int, state: ShortlistState = ShortlistState.SUGGESTED) =
+        ShortlistEntryEntity(week, scope, id, MediaType.MOVIE, score = 0.5, reasons = "[]", state = state)
+
+    @Test
+    fun `getPreviousShortlist returns the most recent week's non-dismissed rows for the scope`() = runTest {
+        val dao = db.shortlistDao()
+        val older = weekStart.minusWeeks(2)
+        val last = weekStart.minusWeeks(1)
+        dao.upsertAll(
+            listOf(
+                row(older, "1", 1), row(last, "1", 2), row(last, "1", 3, ShortlistState.WATCHED),
+                row(last, "1", 4, ShortlistState.DISMISSED), row(last, "2", 9),
+            )
+        )
+
+        val previous = dao.getPreviousShortlist("1", weekStart)
+
+        assertEquals(setOf(2, 3), previous.map { it.tmdbId }.toSet())
+    }
+
+    @Test
+    fun `getPreviousShortlist includes the current week on a mid-week recompute`() = runTest {
+        val dao = db.shortlistDao()
+        dao.upsertAll(listOf(row(weekStart.minusWeeks(1), "1", 1), row(weekStart, "1", 2)))
+
+        assertEquals(listOf(2), dao.getPreviousShortlist("1", weekStart).map { it.tmdbId })
+    }
+
+    @Test
+    fun `a dismissal placeholder this week does not hide last week's real shortlist`() = runTest {
+        val dao = db.shortlistDao()
+        dao.upsertAll(listOf(row(weekStart.minusWeeks(1), "1", 1), row(weekStart, "1", 99, ShortlistState.DISMISSED)))
+
+        assertEquals(listOf(1), dao.getPreviousShortlist("1", weekStart).map { it.tmdbId })
+    }
+
+    @Test
+    fun `getPreviousShortlist is empty when the scope has never had a shortlist, and ignores future weeks`() = runTest {
+        val dao = db.shortlistDao()
+        dao.upsertAll(listOf(row(weekStart.plusWeeks(1), "1", 1)))
+
+        assertEquals(emptyList<ShortlistEntryEntity>(), dao.getPreviousShortlist("1", weekStart))
+    }
+
+    @Test
+    fun `isNew round-trips and defaults to false`() = runTest {
+        val dao = db.shortlistDao()
+        dao.upsertAll(listOf(row(weekStart, "1", 1), row(weekStart, "1", 2).copy(isNew = true)))
+
+        val byId = dao.getForScope(weekStart, "1").associateBy { it.tmdbId }
+        assertEquals(false, byId.getValue(1).isNew)
+        assertEquals(true, byId.getValue(2).isNew)
+    }
 }

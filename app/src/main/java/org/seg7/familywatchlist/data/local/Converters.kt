@@ -6,6 +6,8 @@ import org.seg7.familywatchlist.data.local.entity.AttrType
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.ProviderKind
 import org.seg7.familywatchlist.data.local.entity.RatingValue
+import org.seg7.familywatchlist.data.local.entity.RefreshOutcome
+import org.seg7.familywatchlist.data.local.entity.RefreshTrigger
 import org.seg7.familywatchlist.data.local.entity.ShortlistState
 import org.seg7.familywatchlist.data.local.entity.WatchlistState
 
@@ -56,4 +58,16 @@ class Converters {
 
     @TypeConverter
     fun stringToLocalDate(value: String): LocalDate = LocalDate.parse(value)
+
+    @TypeConverter
+    fun refreshTriggerToString(value: RefreshTrigger): String = value.name
+
+    @TypeConverter
+    fun stringToRefreshTrigger(value: String): RefreshTrigger = RefreshTrigger.valueOf(value)
+
+    @TypeConverter
+    fun refreshOutcomeToString(value: RefreshOutcome): String = value.name
+
+    @TypeConverter
+    fun stringToRefreshOutcome(value: String): RefreshOutcome = RefreshOutcome.valueOf(value)
 }
