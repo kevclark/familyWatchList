@@ -881,6 +881,35 @@ All four parts below are confirmed by Kev (2026-10-09):
    (e.g. "Building taste profiles…", "Checking availability 12/40…") in place of the bare
    spinner. If it finishes instantly from cache, show no progress UI at all.
 
+### 5e. "Show 30 more" on For You and Family Night (Kev, 2026-10-09 — queued as M16)
+
+**Kev's report (alpha.15 on his phone):** the catch-up refresh ran and finished, and Family
+Night showed staged progress ("12/294"). But the picks are the same as before. Scoring is
+deterministic, so with unchanged taste and availability the same top 30 come back each time. He
+wants a way to see the next batch.
+
+**Decided (Kev, 2026-10-09):**
+1. **"Show 30 more" end card** on both the For You row and the Family Night row. It is the last
+   item in the carousel, with "Show 30 more" plus a muted "31–60 of 294" (live numbers). Tapping
+   it appends the next 30 *ranked* titles (rank order, no shuffle) to the same row. The row
+   keeps its scroll position, and the card moves to the new end. It repeats until the ranked pool
+   runs out, then the card disappears. A pager and shuffle were offered and declined.
+2. **Extra batches are view-only and in-memory.** They don't change the persisted 30-title
+   shortlist, the weekly refresh diff, the "New" badges or the refresh log. They reset when the
+   selection/profile changes or a refresh lands. The same filters apply as for the top 30:
+   availability on subscribed services, age cap, dismissed titles (scope-keyed, §4c) and
+   watched titles. Dismissing a title from an extra batch works exactly as it does in the top
+   30. If a deeper batch needs titles whose details aren't cached, fetch them through the
+   existing throttled `ensureFresh` path and show the end card in a loading state while that
+   runs.
+3. **For You** currently reads the persisted shortlist. "More" needs the ranked list beyond it,
+   so score the profile's candidate pool on demand using the same pipeline and blend/slider
+   inputs as the persisted refresh, and take ranks 31+ (skipping anything already shown).
+   Reuse, don't fork, the scoring code.
+4. **Refresh banner detail** (carried over from the M15 review): while a refresh runs, the Home
+   banner says whose picks it's on, e.g. "Refreshing Sam's picks (3 of 6)…". Kev's first
+   alpha.15 refresh took several minutes behind a bare "Refreshing picks…".
+
 ---
 
 ## 6. Build environment & preview (agent101)
