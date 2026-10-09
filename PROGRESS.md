@@ -2354,3 +2354,18 @@ shown in-app, both free via the *same* existing detail call TMDB already makes.
       every title cached before the alpha.14 install was past the 7-day provider TTL and
       refetches on its own, so the migration had nothing left to fix. It's kept in
       `git stash` ("MIGRATION_10_11 fetchedAt reset ...") rather than deleted.
+
+## M15 — Refresh reliability & visibility (Kev, 2026-10-09) — see PLAN.md §5d
+
+- [ ] Re-anchored one-time weekly scheduling (worker books the next slot; old periodic work
+      cancelled on upgrade; KEEP on app start, REPLACE on Settings change).
+- [ ] Catch-up refresh on app open when a scheduled slot was missed, with a Home banner; one
+      shared guard across scheduled / catch-up / pull-to-refresh.
+- [ ] `refresh_log` table + `MIGRATION_10_11` + migration test; per-run, per-profile diff
+      (new picks / dropped), notification posted/suppressed reason.
+- [ ] Activity screen (Settings entry + banner tap): last/next refresh header, run list.
+- [ ] "New" badge on Home picks not in that scope's previous shortlist.
+- [ ] Family Night staged progress in place of the bare spinner.
+- [ ] Bump to 0.1.0-alpha.15 (versionCode 15); `./gradlew test assembleDebug` green.
+- [ ] Live verification on Kev's phone: Activity shows a catch-up run after install; next
+      Friday's scheduled run appears in the log (with or without a notification, and why).
