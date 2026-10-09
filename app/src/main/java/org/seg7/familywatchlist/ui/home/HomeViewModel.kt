@@ -21,6 +21,12 @@ import org.seg7.familywatchlist.data.local.entity.ShortlistState
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.recommend.FamilyBlendSlider
+import org.seg7.familywatchlist.data.recommend.FamilyNightProgress
+import org.seg7.familywatchlist.data.local.entity.RefreshTrigger
+import org.seg7.familywatchlist.work.RefreshCoordinator
+import org.seg7.familywatchlist.work.RefreshUiState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FAMILY_SCOPE_KEY
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
@@ -115,6 +121,12 @@ class HomeViewModel(
     private val profileRepository: ProfileRepository,
     private val familyProfileRepository: FamilyProfileRepository,
     private val activeProfile: ActiveProfile,
+    /**
+     * PLAN.md §5d (M15): the shared refresh guard + log. Null keeps the pre-M15 behaviour (used by
+     * tests that don't exercise refresh orchestration): Home then recomputes its own shortlist
+     * directly, with no banner and no log entry.
+     */
+    private val refreshCoordinator: RefreshCoordinator? = null,
 ) : ViewModel() {
 
     /** The scope key [forYouShortlist]/[refresh] read and write against -- see the class kdoc's "Family profile" section. */
@@ -139,6 +151,12 @@ class HomeViewModel(
     // than 2 are selected — there's no computation to be "in flight" for that case.
     private val _familyNightLoading = MutableStateFlow(false)
     private val familyNightTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    // PLAN.md §5d part 5 (M15): the staged label ("Checking availability 12/40…"), published only
+    // once a blend has been running longer than FAMILY_NIGHT_PROGRESS_GRACE_MS -- a result that
+    // comes straight from cache never shows any progress UI at all.
+    private val _familyNightProgress = MutableStateFlow<String?>(null)
+    private val refreshState: StateFlow<RefreshUiState> =
+        refreshCoordinator?.state ?: MutableStateFlow(RefreshUiState.Idle)
 
     // PLAN.md §5b M3i items 5 and 9: the active profile's (or Family's strictest-member) age cap
     // — [refresh] resolves it via the same [RecommendationRepository.resolveAgeRatingCap] the
@@ -214,7 +232,9 @@ class HomeViewModel(
             FamilyNightState(profiles, selectedIds, titles, isLoading)
         },
         _dismissedKeys,
-    ) { core, family, dismissed ->
+        combine(_familyNightProgress, refreshState) { progress, refresh -> progress to refresh },
+    ) { core, family, dismissed, progressAndRefresh ->
+        val (familyProgress, refreshUi) = progressAndRefresh
         val (list, discover, shortlist, coldStart, ageRatingCap) = core
         // Shortlist entries carry only (tmdbId, mediaType, score) — resolve to cached TitleEntity
         // rows for rendering. Offline-first: every shortlisted candidate was already detail-fetched
@@ -254,6 +274,9 @@ class HomeViewModel(
             errorMessage = discover.error,
             hasSubscribedServices = discover.hasSubscribedServices,
             ageRatingCap = ageRatingCap,
+            newPickKeys = shortlist.filter { it.isNew }.map { it.tmdbId to it.mediaType }.toSet(),
+            familyNightProgress = familyProgress,
+            refreshState = refreshUi,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState(isLoading = true))
 
@@ -279,12 +302,21 @@ class HomeViewModel(
                 if (selected.size < 2) {
                     _familyNightTitles.value = emptyList()
                     _familyNightLoading.value = false
+                    _familyNightProgress.value = null
                     return@collectLatest
                 }
                 // M10: flagged for the span of the actual blend computation below — see
                 // [_familyNightLoading]'s kdoc for why HomeScreen needs this (distinguishing
                 // "still computing" from "computed, genuinely zero results").
                 _familyNightLoading.value = true
+                _familyNightProgress.value = null
+                var revealed = false
+                var latest: FamilyNightProgress? = null
+                val reveal: Job = viewModelScope.launch {
+                    delay(FAMILY_NIGHT_PROGRESS_GRACE_MS)
+                    revealed = true
+                    _familyNightProgress.value = (latest ?: FamilyNightProgress.BuildingProfiles).label
+                }
                 runCatching {
                     val region = userPreferencesRepository.region.first()
                     val slider = FamilyBlendSlider(userPreferencesRepository.familyBlendSlider.first())
@@ -293,11 +325,17 @@ class HomeViewModel(
                         region = region,
                         familyBlendSlider = slider,
                         persist = false,
+                        onProgress = { progress ->
+                            latest = progress
+                            if (revealed) _familyNightProgress.value = progress.label
+                        },
                     )
                     val byKey = titleRepository.getTitles(entries.map { it.tmdbId to it.mediaType }).associateBy { it.tmdbId to it.mediaType }
                     entries.sortedByDescending { it.score }.mapNotNull { byKey[it.tmdbId to it.mediaType] }
                 }.onSuccess { _familyNightTitles.value = it }
                     .onFailure { _familyNightTitles.value = emptyList() }
+                reveal.cancel()
+                _familyNightProgress.value = null
                 _familyNightLoading.value = false
             }
         }
@@ -337,6 +375,28 @@ class HomeViewModel(
      * after the first run thanks to per-title TTL caching (see the class kdoc).
      */
     fun refresh() {
+        loadDiscover()
+        recomputeShortlist()
+    }
+
+    /**
+     * PLAN.md §5d (M15): the user-initiated refresh (the Home refresh icon / retry). With a
+     * [refreshCoordinator] it is a real, logged [RefreshTrigger.MANUAL] run of every profile's
+     * shortlist behind the shared guard (if one is already running it simply yields -- the banner
+     * is already showing), followed by reloading the discover rows, since a run invalidates their
+     * cache. Without one it behaves like [refresh].
+     */
+    fun manualRefresh() {
+        val coordinator = refreshCoordinator ?: return refresh()
+        viewModelScope.launch {
+            _discover.value = _discover.value.copy(isLoading = true, error = null)
+            coordinator.run(RefreshTrigger.MANUAL)
+            loadDiscover()
+            _coldStart.value = runCatching { recommendationRepository.isColdStart(activeProfile.id) }.getOrDefault(_coldStart.value)
+        }
+    }
+
+    private fun loadDiscover() {
         viewModelScope.launch {
             _discover.value = _discover.value.copy(isLoading = true, error = null)
             runCatching {
@@ -373,19 +433,27 @@ class HomeViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * Incidental recompute of this profile's shortlist (Home opening). Runs under the refresh
+     * guard when there is one: if a real refresh is in flight it is skipped, since that run
+     * rewrites the same shortlist. Not logged -- the log is for refresh *runs*.
+     */
+    private fun recomputeShortlist() {
         viewModelScope.launch {
             runCatching {
                 // PLAN.md §4b (M3j): Family is cold-start/refreshed exactly like any individual
                 // profile now — the plain per-profile isColdStart/refreshProfileShortlist check,
-                // called with activeProfile.id (the sentinel for Family). This replaces M3i's
-                // "cold only if every curated member is individually cold" special case
-                // ([familyIsColdStart], now removed) — Family can own its own watch events as of
-                // M3j, so its own event count is exactly what should decide this, same as anyone.
+                // called with activeProfile.id (the sentinel for Family).
                 val cold = recommendationRepository.isColdStart(activeProfile.id)
                 _coldStart.value = cold
                 if (!cold) {
                     val region = userPreferencesRepository.region.first()
-                    recommendationRepository.refreshProfileShortlist(activeProfile.id, region)
+                    val recompute: suspend () -> Unit = {
+                        recommendationRepository.refreshProfileShortlist(activeProfile.id, region)
+                    }
+                    if (refreshCoordinator != null) refreshCoordinator.runIfIdle { recompute() } else recompute()
                 }
                 // forYouShortlist is a live Flow off Room (observeShortlist) — the write above
                 // is picked up automatically, no manual re-read needed here.
@@ -469,6 +537,9 @@ class HomeViewModel(
     companion object {
         /** Same order of magnitude as [org.seg7.familywatchlist.ui.tune.TunePicksViewModel.RECOMPUTE_DEBOUNCE_MS] — don't refire on every rapid chip tap. */
         const val FAMILY_NIGHT_DEBOUNCE_MS = 400L
+
+        /** PLAN.md §5d part 5: a Family Night result faster than this shows no progress UI at all. */
+        const val FAMILY_NIGHT_PROGRESS_GRACE_MS = 500L
     }
 }
 
@@ -492,6 +563,12 @@ data class HomeUiState(
     val hasSubscribedServices: Boolean = false,
     /** PLAN.md §5b M3i items 5/9: the active profile's (or Family's strictest-member) age cap — null means no cap. */
     val ageRatingCap: String? = null,
+    /** PLAN.md §5d part 4: For You picks not in the previous shortlist, rendered with a "New" label. */
+    val newPickKeys: Set<Pair<Int, MediaType>> = emptySet(),
+    /** PLAN.md §5d part 5: staged Family Night progress label; null while the result is fast or absent. */
+    val familyNightProgress: String? = null,
+    /** PLAN.md §5d part 2: drives the slim refresh banner. */
+    val refreshState: RefreshUiState = RefreshUiState.Idle,
 ) {
     /** PLAN.md §4a slider 4's UI-home decision, reused verbatim: the chip row itself is only relevant with 2+ profiles on the account at all. */
     val familyNightChipsVisible: Boolean get() = familyNightProfiles.size >= 2

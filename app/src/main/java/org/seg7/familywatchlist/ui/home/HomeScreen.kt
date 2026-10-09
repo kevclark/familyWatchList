@@ -1,6 +1,14 @@
 package org.seg7.familywatchlist.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import org.seg7.familywatchlist.data.local.entity.RefreshOutcome
+import org.seg7.familywatchlist.work.RefreshUiState
+import org.seg7.familywatchlist.ui.theme.InkHairline
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,6 +95,7 @@ fun HomeScreen(
     onOpenMyList: () -> Unit,
     onOpenSearch: () -> Unit,
     onSwitchProfile: () -> Unit,
+    onOpenActivity: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val container = LocalAppContainer.current
@@ -104,6 +113,7 @@ fun HomeScreen(
                     container.profileRepository,
                     container.familyProfileRepository,
                     activeProfile,
+                    container.refreshCoordinator,
                 )
             }
         },
@@ -146,7 +156,7 @@ fun HomeScreen(
                         isLoading = state.isLoading,
                         errorMessage = state.errorMessage,
                         onOpenTitle = onOpenTitle,
-                        onRetry = viewModel::refresh,
+                        onRetry = viewModel::manualRefresh,
                         onOpenSearch = onOpenSearch,
                     )
                 }
@@ -219,8 +229,13 @@ fun HomeScreen(
             // kdoc) so this branch — not the empty-state message below — is what actually shows
             // for the whole ~7-8s ad-hoc blend computation span.
             if (state.familyNightSelectedIds.size >= 2 && state.familyNightLoading) {
-                item(key = "family-night-loading") {
-                    FamilyNightLoadingState()
+                // PLAN.md §5d part 5 (M15): staged progress, shown only once the blend has outlasted
+                // HomeViewModel.FAMILY_NIGHT_PROGRESS_GRACE_MS -- a cache-instant result shows no
+                // progress UI at all (neither this nor the empty state while still in flight).
+                state.familyNightProgress?.let { progress ->
+                    item(key = "family-night-loading") {
+                        FamilyNightLoadingState(progress)
+                    }
                 }
             } else if (state.familyNightSelectedIds.size >= 2 && state.familyNightTitles.isNotEmpty()) {
                 item(key = "family-night-row") {
@@ -276,6 +291,12 @@ fun HomeScreen(
             item(key = "footer") { HomeFooter() }
         }
 
+        RefreshBanner(
+            state = state.refreshState,
+            onClick = onOpenActivity,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+        )
+
         // Floating chrome over the hero: scrim first, then the controls on top of it.
         Box(modifier = Modifier.fillMaxWidth().height(96.dp)) { TopScrim() }
         Row(
@@ -310,7 +331,7 @@ fun HomeScreen(
                         tint = Chalk,
                         modifier = Modifier
                             .size(22.dp)
-                            .clickableNoRipple(viewModel::refresh),
+                            .clickableNoRipple(viewModel::manualRefresh),
                     )
                 }
                 Column(
@@ -633,6 +654,7 @@ private fun ForYouRow(
             posterPath = title.posterPath,
             onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
             onLongPress = { onLongPressDismiss(title) },
+            isNew = (title.tmdbId to title.mediaType) in state.newPickKeys,
         )
     }
 }
@@ -723,7 +745,7 @@ private fun FamilyNightEmptyState() {
  * one-line status so the wait doesn't read as the app having silently done nothing.
  */
 @Composable
-private fun FamilyNightLoadingState() {
+private fun FamilyNightLoadingState(label: String) {
     Column(modifier = Modifier.fillMaxWidth()) {
         SectionHeader(title = "Family Night")
         Row(
@@ -742,9 +764,49 @@ private fun FamilyNightLoadingState() {
                 modifier = Modifier.size(20.dp),
             )
             Text(
-                text = "Finding a pick for everyone…",
+                text = label,
                 style = MaterialTheme.typography.bodyMedium,
                 color = ChalkMuted,
+            )
+        }
+    }
+}
+
+/**
+ * PLAN.md §5d part 2 (M15): the slim, non-blocking pill shown while a refresh runs ("Refreshing
+ * picks…") and for a few seconds after ("Picks updated"). Tapping it opens the Activity screen.
+ * Restrained on purpose: a raised-ink pill with a hairline, no colour beyond [Accent] on the spinner.
+ */
+@Composable
+private fun RefreshBanner(state: RefreshUiState, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = state !is RefreshUiState.Idle,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(InkRaised)
+                .border(1.dp, InkHairline, RoundedCornerShape(50))
+                .clickableNoRipple(onClick)
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val failed = (state as? RefreshUiState.Finished)?.outcome == RefreshOutcome.FAILED
+            if (state is RefreshUiState.Running) {
+                CircularProgressIndicator(color = Accent, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+            }
+            Text(
+                text = when {
+                    state is RefreshUiState.Running -> "Refreshing picks…"
+                    failed -> "Refresh failed — see Activity"
+                    else -> "Picks updated"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = if (failed) ChalkMuted else Chalk,
             )
         }
     }

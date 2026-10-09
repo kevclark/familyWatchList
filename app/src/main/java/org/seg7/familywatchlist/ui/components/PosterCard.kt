@@ -118,6 +118,12 @@ fun PosterCard(
      * call) renders exactly as before.
      */
     paidOnly: Boolean = false,
+    /**
+     * PLAN.md §5d part 4 (M15): true for a pick that wasn't in the scope's previous shortlist --
+     * a small "New" label over the top-end corner (opposite [paidOnly]'s top-start tag) that stays
+     * until the next refresh. False everywhere except Home's For You row.
+     */
+    isNew: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -160,6 +166,10 @@ fun PosterCard(
 
             if (paidOnly && !dimmed) {
                 PaidOnlyTag(modifier = Modifier.align(Alignment.TopStart).padding(5.dp))
+            }
+
+            if (isNew && !dimmed) {
+                NewTag(modifier = Modifier.align(Alignment.TopEnd).padding(5.dp))
             }
 
             when {
@@ -223,6 +233,20 @@ private fun PaidOnlyTag(modifier: Modifier = Modifier) {
         modifier = modifier
             .clip(RoundedCornerShape(4.dp))
             .background(AccentEmber.copy(alpha = 0.85f))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+    )
+}
+
+/** PLAN.md §5d part 4 (M15): the restrained "New" marker -- accent fill, no emoji, no animation. */
+@Composable
+private fun NewTag(modifier: Modifier = Modifier) {
+    Text(
+        text = "New",
+        style = MaterialTheme.typography.labelSmall,
+        color = OnAccent,
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(Accent)
             .padding(horizontal = 5.dp, vertical = 2.dp),
     )
 }

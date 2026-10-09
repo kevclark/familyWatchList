@@ -46,6 +46,7 @@ import androidx.navigation.navArgument
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.ui.ActiveProfile
 import org.seg7.familywatchlist.ui.LocalAppContainer
+import org.seg7.familywatchlist.ui.activity.ActivityScreen
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
 import org.seg7.familywatchlist.ui.details.TitleDetailScreen
 import org.seg7.familywatchlist.ui.history.HistoryScreen
@@ -82,6 +83,7 @@ private val BOTTOM_TABS = listOf(
 private const val ROUTE_TITLE = "title/{mediaType}/{tmdbId}"
 private const val ROUTE_TUNE_PICKS = "tune-picks"
 private const val ROUTE_ABOUT = "about"
+private const val ROUTE_ACTIVITY = "activity"
 
 private fun titleRoute(tmdbId: Int, mediaType: MediaType) = "title/${mediaType.name}/$tmdbId"
 
@@ -126,7 +128,7 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
         val currentRoute = backStackEntry?.destination?.route
         // Details is full-bleed hero art — a bottom bar sitting on top of it would cut the
         // image and undo §5a's edge-to-edge intent, so the bar hides on that route only.
-        val showBottomBar = currentRoute != ROUTE_TITLE && currentRoute != ROUTE_TUNE_PICKS && currentRoute != ROUTE_ABOUT
+        val showBottomBar = currentRoute != ROUTE_TITLE && currentRoute != ROUTE_TUNE_PICKS && currentRoute != ROUTE_ABOUT && currentRoute != ROUTE_ACTIVITY
 
         Column(modifier = Modifier.fillMaxSize()) {
             NavHost(
@@ -143,6 +145,7 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
                         onSwitchProfile = {
                             scope.launch { container.userPreferencesRepository.clearActiveProfileId() }
                         },
+                        onOpenActivity = { navController.navigate(ROUTE_ACTIVITY) },
                     )
                 }
                 composable(BottomTab.Search.route) {
@@ -173,10 +176,14 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
                         activeProfileId = activeProfile.id,
                         onOpenTunePicks = { navController.navigate(ROUTE_TUNE_PICKS) },
                         onOpenAbout = { navController.navigate(ROUTE_ABOUT) },
+                        onOpenActivity = { navController.navigate(ROUTE_ACTIVITY) },
                     )
                 }
                 composable(ROUTE_TUNE_PICKS) {
                     TunePicksScreen(activeProfileId = activeProfile.id, onBack = { navController.popBackStack() })
+                }
+                composable(ROUTE_ACTIVITY) {
+                    ActivityScreen(onBack = { navController.popBackStack() })
                 }
                 composable(ROUTE_ABOUT) {
                     AboutScreen(onBack = { navController.popBackStack() })
