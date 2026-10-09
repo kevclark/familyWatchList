@@ -13,6 +13,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -75,6 +77,9 @@ fun AppRoot(modifier: Modifier = Modifier) {
                     container.userPreferencesRepository.setNotificationPermissionRequested()
                 }
             }
+            // PLAN.md §5d part 2 (M15): on every foreground, refresh now if the last scheduled slot
+            // was missed. The coordinator decides (and shares one guard with the scheduled worker).
+            LifecycleEventEffect(Lifecycle.Event.ON_START) { container.refreshCoordinator.maybeCatchUp() }
             MainScaffold(activeProfile = current.activeProfile, modifier = modifier)
         }
     }

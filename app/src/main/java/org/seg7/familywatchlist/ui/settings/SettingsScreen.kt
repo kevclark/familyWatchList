@@ -99,6 +99,7 @@ fun SettingsScreen(
     activeProfileId: Long,
     onOpenTunePicks: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenActivity: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val container = LocalAppContainer.current
@@ -169,6 +170,13 @@ fun SettingsScreen(
                 title = "Tune my picks",
                 subtitle = "Adjust discovery, recency, and personal-match sliders",
                 onClick = onOpenTunePicks,
+            )
+            // PLAN.md §5d (M15): the refresh log -- did the weekly job run, what did it find, and
+            // was the notification sent.
+            SettingsRow(
+                title = "Activity",
+                subtitle = "Recent refreshes, what they found, and notifications",
+                onClick = onOpenActivity,
             )
         }
 

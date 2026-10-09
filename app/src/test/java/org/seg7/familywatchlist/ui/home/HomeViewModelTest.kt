@@ -802,4 +802,98 @@ class HomeViewModelTest {
         assertTrue("a fresh individual profile (0 events) must still be cold-start", state.isColdStartForYou)
         assertEquals(emptyList<TitleEntity>(), state.forYouTitles)
     }
+
+    /**
+     * PLAN.md §5d part 4 (M15): a shortlist row persisted with `isNew` surfaces in
+     * [HomeUiState.newPickKeys] (and only that row), so Home can render the "New" label.
+     */
+    @Test
+    fun `picks flagged new in the persisted shortlist are exposed for the New badge`() = runTest {
+        repeat(5) { i ->
+            db.watchEventDao().logWatch(
+                org.seg7.familywatchlist.data.local.entity.WatchEventEntity(
+                    tmdbId = 900 + i, mediaType = MediaType.MOVIE, watchedAt = java.time.LocalDate.now(), note = null,
+                ),
+                listOf(profileId),
+            )
+        }
+        db.titleDao().upsertAll(
+            listOf(501, 502).map { id ->
+                TitleEntity(
+                    tmdbId = id, mediaType = MediaType.MOVIE, title = "T$id", year = 2024, posterPath = null,
+                    backdropPath = null, overview = null, runtimeMin = null, certification = null, voteAverage = null,
+                    popularity = 1.0, trailerKey = null, fetchedAt = clock.current,
+                )
+            }
+        )
+        val weekStart = recommendationRepository.currentWeekStart()
+        db.shortlistDao().upsertAll(
+            listOf(
+                org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity(
+                    weekStart, profileId.toString(), 501, MediaType.MOVIE, score = 0.9, reasons = "[]",
+                    state = org.seg7.familywatchlist.data.local.entity.ShortlistState.SUGGESTED, isNew = true,
+                ),
+                org.seg7.familywatchlist.data.local.entity.ShortlistEntryEntity(
+                    weekStart, profileId.toString(), 502, MediaType.MOVIE, score = 0.5, reasons = "[]",
+                    state = org.seg7.familywatchlist.data.local.entity.ShortlistState.SUGGESTED,
+                ),
+            )
+        )
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
+        val state = viewModel(watchlistRepository).uiState.first { it.forYouTitles.size == 2 }
+
+        assertEquals(setOf(501 to MediaType.MOVIE), state.newPickKeys)
+    }
+
+    /**
+     * PLAN.md §5d part 5 (M15): a Family Night blend that runs past the grace period publishes
+     * staged progress labels; the label is cleared once the result lands. (The "instant cache hit
+     * shows nothing" half is covered by [HomeViewModel.FAMILY_NIGHT_PROGRESS_GRACE_MS] gating: the
+     * label is only ever set from the delayed reveal job, which is cancelled when the blend ends.)
+     */
+    @Test
+    fun `a slow Family Night blend publishes a staged progress label and clears it when done`() = runTest {
+        val a = profileRepository.addProfile("A", "avatar", null).getOrThrow()
+        val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
+        db.ratingDao().upsert(RatingEntity(b, 1, MediaType.MOVIE, RatingValue.UP, clock.current))
+        db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
+        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
+            (1..RecommendationRepository.CANDIDATE_PAGES).forEach { page ->
+                db.discoverCacheDao().upsertAll(
+                    listOf(DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis())),
+                )
+            }
+        }
+        server.enqueue(
+            MockResponse.Builder()
+                .headersDelay(1, java.util.concurrent.TimeUnit.SECONDS)
+                .body("""{"page":1,"results":[{"id":999,"title":"Family Pick","poster_path":"/p.jpg","release_date":"2026-08-01","vote_average":8.0,"vote_count":500,"popularity":50.0}],"total_pages":1,"total_results":1}""")
+                .build()
+        )
+        server.enqueue(
+            MockResponse(
+                body = """
+                    {"id":999,"title":"Family Pick","release_date":"2026-08-01","runtime":100,"vote_average":8.0,"vote_count":500,"popularity":50.0,
+                     "genres":[{"id":35,"name":"Comedy"}],"credits":{"cast":[],"crew":[]},"keywords":{"keywords":[]},"videos":{"results":[]},
+                     "watch/providers":{"results":{"GB":{"flatrate":[{"provider_id":8,"provider_name":"Netflix"}]}}},
+                     "release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"PG","type":3,"release_date":"2026-08-01T00:00:00.000Z"}]}]}}
+                """.trimIndent()
+            )
+        )
+
+        val watchlistRepository = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
+        val vm = viewModel(watchlistRepository)
+        vm.uiState.first { it.familyNightProfiles.size == 2 }
+        vm.toggleFamilyNightProfile(a)
+        vm.toggleFamilyNightProfile(b)
+
+        val withProgress = vm.uiState.first { it.familyNightProgress != null }
+        assertTrue(withProgress.familyNightLoading)
+        val stages = setOf("Building taste profiles…", "Finding candidates…")
+        assertTrue("unexpected label ${withProgress.familyNightProgress}", withProgress.familyNightProgress in stages)
+
+        val done = vm.uiState.first { it.familyNightTitles.isNotEmpty() && !it.familyNightLoading }
+        assertEquals(null, done.familyNightProgress)
+    }
 }
