@@ -2383,3 +2383,18 @@ for scheduled / catch-up / manual; writes `refresh_log`), `RefreshLogRepository`
 "New" badge, Family Night staged progress. Only the scheduled run posts the notification (catch-up/manual
 log "Not sent: only the scheduled weekly run notifies"). The first shortlist for a scope is a baseline:
 nothing is badged "New" and the log says "(first shortlist)".
+- [x] Kev installed alpha.15 from the chat (2026-10-09). The catch-up refresh ran for several
+      minutes, then finished. Family Night showed staged progress. Scheduled-run verification
+      is still due next Friday.
+
+## M16 — "Show 30 more" on For You and Family Night (Kev, 2026-10-09) — see PLAN.md §5e
+
+- [ ] Ranked-pool paging API (offset/limit over the same scoring pipeline; same filters as the
+      top 30; nothing persisted).
+- [ ] "Show 30 more" end card on Family Night (appends, keeps scroll, loading state, hides when
+      exhausted, resets on selection change / refresh).
+- [ ] Same on For You (on-demand scoring beyond the persisted shortlist).
+- [ ] Dismiss works from extra batches.
+- [ ] Refresh banner shows "Refreshing <name>'s picks (n of m)…".
+- [ ] Bump to 0.1.0-alpha.16 (versionCode 16); `./gradlew test assembleDebug` green.
+- [ ] Live check on Kev's phone.
