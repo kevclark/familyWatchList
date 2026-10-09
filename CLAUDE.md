@@ -4,9 +4,10 @@ Android app (Kotlin + Jetpack Compose) that tracks what the family watched, lear
 locally, and recommends titles available on our UK streaming services via TMDB.
 
 ## Model & billing
-Default orchestrator is **Sonnet 5** (`/model sonnet`); Fable bills Kev's usage credits and
-he has okayed spending them on this project when its judgment genuinely helps — but routine
-implementation work never needs it. Delegate to the pinned subagents instead of doing work inline:
+Default orchestrator is **Sonnet 5.5** for simple orchestration; Kev switches to **Opus 5.5**
+himself for harder asks (Kev, 2026-10-09). Fable bills Kev's usage credits and he has okayed
+spending them on this project when its judgment genuinely helps — but routine implementation
+work never needs it. Delegate to the pinned subagents instead of doing work inline:
 - `toolchain-setup` (Opus 4.8) → JDK/SDK/Gradle/emulator/ADB, anything environment
 - `feature-builder` (Sonnet 5) → all app code and tests, one milestone task at a time
 
