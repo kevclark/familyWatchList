@@ -2340,6 +2340,17 @@ shown in-app, both free via the *same* existing detail call TMDB already makes.
       test for the new `MIGRATION_9_10` against the real exported schema, mirroring the existing
       `AppDatabaseMigrationTest` pattern for `MIGRATION_7_8`/`MIGRATION_8_9`.
 - [x] `./gradlew test assembleDebug` green.
-- [ ] Live verification: a title with real TMDB reviews and a real IMDb id shows both correctly;
+- [x] Live verification: a title with real TMDB reviews and a real IMDb id shows both correctly;
       a title with neither shows neither section (no empty/broken UI); tapping the IMDb link and
       a review both actually open in the browser.
+      **Done on Kev's phone (alpha.14, 2026-09-12):** War Machine (tmdbId 1265609) showed the
+      TMDB rating, a working "View on IMDb" link and the Reviews section. Kev's first report of
+      "no link or reviews" was on the same title moments earlier and resolved by itself, most
+      likely because the detail refetch hadn't landed yet when he looked. The rating
+      differences he asked about (7.5 TMDB vs 6.3 IMDb vs one reviewer's 6.0/10) are three
+      independent figures, not a bug.
+      **Not shipped:** a `MIGRATION_10_11` (reset `fetchedAt` so pre-M14 cached titles backfill
+      immediately) was written during that investigation but left uncommitted. By 2026-10-09
+      every title cached before the alpha.14 install was past the 7-day provider TTL and
+      refetches on its own, so the migration had nothing left to fix. It's kept in
+      `git stash` ("MIGRATION_10_11 fetchedAt reset ...") rather than deleted.
