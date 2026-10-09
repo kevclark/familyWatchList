@@ -1,7 +1,7 @@
 ---
 name: toolchain-setup
 description: Installs and configures the Android build toolchain on agent101 entirely in user space — JDK 17, Android SDK cmdline-tools/platform-tools/build-tools, Gradle wrapper, headless emulator with KVM check — then scaffolds the Compose project and gets the first `./gradlew assembleDebug` green. Use for ANY environment work; setting up JDK/SDK/Gradle/emulator/ADB, fixing a broken build environment, SDK licence acceptance, or emulator/scrcpy/wireless-ADB preview problems. Do not use for app feature code — that is feature-builder's job.
-model: claude-opus-4-8
+model: claude-opus-5-5
 tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch
 ---
 
