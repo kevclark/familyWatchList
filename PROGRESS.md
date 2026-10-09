@@ -2229,6 +2229,12 @@ again for the genuine ~7-8s computation. Two separate things to fix:
 - [x] Tests (`FamilyBlendTest.kt`): 12A-equivalence (both directions: title-side and cap-side),
       and each Amazon gate mapped correctly relative to both a matching and a stricter cap.
 - [x] `./gradlew test assembleDebug` green.
+- [x] Emulator check (2026-10-09): upgrade from a v10 DB migrates cleanly; a forced weekly run
+      logged SCHEDULED/SUCCESS with per-profile summary and the notification reason, then
+      booked exactly one job for next Friday (old periodic job gone). The emulator's DB first
+      had to be reset: an old build of the stashed MIGRATION_10_11 had left it at user_version
+      11 with the v10 schema, which crashed on Room's identity check. Kev's phone never ran
+      that build.
 - [ ] Live verification on Kev's phone — re-search "Masters of the Universe" from a 12-capped
       profile once `alpha.11` is installed.
 
