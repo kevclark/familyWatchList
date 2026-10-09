@@ -835,6 +835,52 @@ posture. Presented the tradeoff; Kev picked the free/reliable route instead:
   reviews section renders only when non-empty, following the screen's existing "optional section
   only shows when it has content" convention (genres, "Because you liked …").
 
+### 5d. Refresh reliability & visibility (Kev, 2026-10-09 — queued as M15)
+
+**Kev's report from real phone use:** the weekly notification (his setting is Friday, around
+13:00) doesn't always arrive. The last one came 7 days ago and none came today (Friday). When he
+opens the app after a gap it "seems not refreshed, and it's missing something". Picking people for
+Family Night sometimes spins for a while with no feedback. He wants to *see* what the app is
+doing: a log of recent refreshes and what they found.
+
+**Likely cause (unverified on the device):** `RecommendationScheduler` uses a 7-day
+`PeriodicWorkRequest`. Only the *first* run honours the day/hour initial delay. Every later run
+is 7 days after the previous *actual* run, so any lateness (Doze, the app-standby bucket
+dropping after a week unopened, the CONNECTED constraint) carries forward and drifts the slot.
+Android may also defer the job for hours. Nothing in the app records whether the job ran, so
+neither Kev nor we can tell.
+
+All four parts below are confirmed by Kev (2026-10-09):
+
+1. **Re-anchored schedule.** Replace the periodic request with a unique **one-time** request
+   targeting the next configured day/hour (reuse `initialDelayMillis`). At the end of every run,
+   whether it succeeds or fails after retries, the worker enqueues the next one-time request
+   for the following slot. Late runs then never push later weeks back. Keep the existing
+   semantics: app start must not reset a pending run (`KEEP`-equivalent), and a Settings change
+   must genuinely reschedule it (`REPLACE`). Cancel the old periodic unique work name on upgrade
+   so two jobs never run. Exact alarms were offered and declined.
+2. **Catch-up refresh on app open.** On app foreground, if the most recent *scheduled* slot has
+   passed and no successful refresh happened since that slot, run the same refresh in-process
+   immediately (or as expedited work). Home shows a slim, non-blocking "Refreshing picks…"
+   banner while it runs and "Picks updated" briefly afterwards. Never run two refreshes at once:
+   the scheduled worker, catch-up and pull-to-refresh share one guard.
+3. **Activity screen.** Add a new Room table (`refresh_log`, migration 10→11). The `git stash`
+   `MIGRATION_10_11` is unrelated and stays unshipped. One row per refresh run with: started/
+   finished time, trigger (scheduled / catch-up / manual), outcome (success / partial / failed +
+   short reason), and a per-profile summary: count of new picks added to the shortlist (titles
+   not in that profile's previous shortlist), with up to ~5 titles named, and titles that
+   dropped off. Keep about the last 20 runs. The screen shows a header ("Last refresh: Fri 13:04
+   · Next: Fri 16 Oct 13:00") then the run list, newest first, each expandable per profile. Its
+   entry point is Settings, plus tapping the Home refresh banner. It also logs whether
+   notifications were posted or suppressed (and why: master off, profile off, OS permission),
+   because a missing notification is exactly what Kev is diagnosing. Premium/restrained visual
+   language (§5a), not playful.
+4. **"New" badge on Home.** A pick that wasn't in that scope's previous shortlist gets a small
+   "New" label on its card until the next refresh. It uses the same diff source as the log.
+5. **Family Night progress.** The ad-hoc Family Night computation reports staged progress
+   (e.g. "Building taste profiles…", "Checking availability 12/40…") in place of the bare
+   spinner. If it finishes instantly from cache, show no progress UI at all.
+
 ---
 
 ## 6. Build environment & preview (agent101)
