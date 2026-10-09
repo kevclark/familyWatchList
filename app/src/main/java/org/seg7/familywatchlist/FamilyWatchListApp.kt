@@ -31,7 +31,7 @@ class FamilyWatchListApp : Application(), SingletonImageLoader.Factory {
         // PLAN.md §4 / M3f: weekly shortlist regeneration + notification, at the user's
         // configured day/hour (UserPreferencesRepository.refreshDayOfWeek/refreshHour, default
         // Friday 06:00 — was a hardcoded Monday 06:00 literal through M3e). Idempotent
-        // (ExistingPeriodicWorkPolicy.KEEP via scheduleWeekly) — safe on every process start,
+        // (ExistingWorkPolicy.KEEP via scheduleWeekly, M15: a one-time request the worker re-books) — safe on every process start,
         // and deliberately does NOT reset an already-scheduled job's next-run time just because
         // the app launched again; only a genuine settings change
         // (RecommendationScheduler.rescheduleForSettingsChange, called from SettingsScreen) does

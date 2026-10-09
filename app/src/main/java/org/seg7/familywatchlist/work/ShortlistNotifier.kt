@@ -29,6 +29,9 @@ import org.seg7.familywatchlist.R
  * see this file's own design-choice note below for why.
  */
 object ShortlistNotifier {
+    /** PLAN.md §5d (M15): what [notifyShortlistReady] did, so the refresh log can say why nothing arrived. */
+    enum class Result { POSTED, NOTHING_TO_POST, PERMISSION_DENIED, BLOCKED_BY_SYSTEM }
+
     const val CHANNEL_ID: String = "weekly_shortlist"
     private const val NOTIFICATION_ID = 1001
 
@@ -71,13 +74,14 @@ object ShortlistNotifier {
      * have their own per-profile toggle on. An empty list means nothing to say — this posts
      * nothing at all rather than an empty/blank notification.
      */
-    fun notifyShortlistReady(context: Context, profileNames: List<String>) {
-        if (profileNames.isEmpty()) return
+    fun notifyShortlistReady(context: Context, profileNames: List<String>): Result {
+        if (profileNames.isEmpty()) return Result.NOTHING_TO_POST
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            return
+            return Result.PERMISSION_DENIED
         }
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return Result.BLOCKED_BY_SYSTEM
         ensureChannel(context)
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -94,6 +98,7 @@ object ShortlistNotifier {
             .setAutoCancel(true)
             .build()
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+        return Result.POSTED
     }
 
     /** "Kev" -> "Kev's"; ["Kev", "Family"] -> "Kev's and Family's"; ["Kev", "Sam", "Family"] -> "Kev's, Sam's and Family's". */
