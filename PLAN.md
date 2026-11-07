@@ -958,6 +958,51 @@ word matching only. The only network calls are TMDB lookups.
 
 ---
 
+### 5g. Search "More" depth and a themes table (Kev, 2026-11-07 — alpha.18)
+
+**Problem 1: "More" returned 10-12 titles.** One tap fetched one TMDB discover page per media type, and
+the local checks (rent/buy-only, availability gate, age/unrated, TV keyword check) dropped about half.
+
+**Decided: one load keeps fetching until it has enough.** A load is the first search or one More tap.
+`DescriptiveSearchRepository.run(plan, page, cap, region, exclude)` fetches TMDB pages `page`, `page+1`, ...
+until at least `TARGET_TITLES` (20) titles have passed the checks, `MAX_PAGES_PER_LOAD` (3) pages have been
+fetched, or TMDB has no more pages (`total_pages`). A media type that runs out is no longer asked for pages.
+- `ResultPage.pagesConsumed` tells the ViewModel how many pages the load used; `nextPage = page + pagesConsumed`.
+- Titles already on screen (`exclude`, as `"MEDIATYPE-tmdbId"` keys) and titles seen earlier in the same load are
+  dropped before any availability check, so nothing is shown twice and no request is wasted on them.
+- `hasMore` is true only while some media type still has a further page, so More hides when TMDB is exhausted.
+- Emission stays progressive: every title that passes a check is emitted straight away (cumulative for the load).
+- TV with a person has no TV `with_cast`, so it pages locally over the person's filtered credits in chunks of
+  `PAGE_SIZE` (20). Each chunk counts as a page under the same 20-titles / 3-pages rule.
+- Cost: at most 3 discover calls per media type per load plus the usual detail fetches, still under the 4 req/s throttle.
+
+**Problem 2: everyday words miss TMDB's real tags.** The generic keyword lookup (exact name plus "<word> ..."
+variants) finds near-empty tags: "london" is 14 films while "london, england" is 1,115; "dystopian" is 6 films while
+"dystopia" is 1,032.
+
+**Decided: a themes section in `PhraseTable`, pure lookup, no inference.**
+- A theme (`ThemeTerm`) maps one or more everyday phrases to a fixed list of TMDB keyword ids. The list is one OR
+  group (`|`); separate themes, genres, people and generic keywords AND together, as before.
+- Ids are hard-coded and were each verified on 2026-11-07 against live TMDB (`search/keyword`, then `discover/movie`
+  and `discover/tv` `total_results` with `with_keywords=<id>`). The film/show counts sit in a comment beside every
+  entry. Themes with a thin best tag (under about 30 films + shows) were dropped. 77 themes.
+- Multi-word phrases match before single words (the parser looks longest-first across genre and theme phrases, so
+  "cold war" is a theme, not the War genre; "dark comedy" is a theme, not "dark" + Comedy).
+- A matched theme is a removable chip named after the theme ("Spy", "London"). Removing it reruns the search without
+  it (`theme:<Name>` key). Themes bypass the generic keyword lookup entirely, so they also cost no network call.
+- A phrase never maps to both a genre and a theme (pinned in `PhraseTableTest`).
+
+**Judgement calls (flagged for Kev):**
+- "gangster"/"gangsters" moved from the Crime genre phrases to the Gangster theme (3149 | 10291). "crime" is still a genre.
+- "musical"/"musicals" stay a genre, not a theme: the Music genre has no TV id, but the existing genre behaviour
+  pre-dates themes and is pinned by tests. (A theme would also have worked for TV; say if you want it.)
+- "football" means soccer (UK), keyword "football (soccer)" 13042. "american football"/"gridiron"/"nfl" is its own theme.
+- "cop"/"cops" map to Police procedural rather than "cop show", so the media word "show" still restricts to TV.
+- "slapstick" is not a theme: the existing generic lookup already resolves it to an OR group of its variants.
+- "dark" and "bleak" alone mean Gritty (as specified), so "dark" never combines with Comedy; "dark comedy" is its own theme.
+- Genre words used by the earlier tests as unplaced-keyword examples (heist, zombie, dragons) became themes, so those
+  tests now use non-theme words (caper, cozy, gadgets); the mechanism they pin is unchanged.
+
 ## 6. Build environment & preview (agent101)
 
 Everything user-space under `~/android-dev/` unless noted:

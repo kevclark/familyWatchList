@@ -11,17 +11,23 @@ package org.seg7.familywatchlist
  */
 object BuildStats {
 
-    /** ISO date the numbers below were last re-derived from the session transcripts. */
-    const val SNAPSHOT_DATE: String = "2026-08-22"
+    /**
+     * ISO date the numbers below were last re-derived from the session transcripts. 2026-11-07 refresh: the
+     * 2026-08-22 figures are carried forward unchanged and everything after that date was mined fresh (user
+     * prompts from the main transcript; per-dispatch duration, tokens and tool calls from `<task-notification>`
+     * blocks, or from the agent's own transcript where no notification exists, joined to each agent's recorded
+     * model). The alpha.18 build that was running at the time is not counted yet.
+     */
+    const val SNAPSHOT_DATE: String = "2026-11-07"
 
     /** Total prompts across the project's whole continuous session plus one post-reboot recovery session. */
-    const val TOTAL_PROMPTS: Int = 173
+    const val TOTAL_PROMPTS: Int = 249
 
     /** Total background agent dispatches across all models. */
-    const val TOTAL_AGENT_TASKS: Int = 34
+    const val TOTAL_AGENT_TASKS: Int = 48
 
     /** Cumulative build time across all background agent dispatches, in hours. */
-    const val TOTAL_HOURS: Double = 12.9
+    const val TOTAL_HOURS: Double = 17.0
 
     data class ModelStats(
         val modelName: String,
@@ -45,12 +51,21 @@ object BuildStats {
         ),
         ModelStats(
             modelName = "Claude Sonnet 5",
-            taskCount = 28,
-            hours = 10.0,
-            tokens = 6_850_000L,
-            toolCalls = 4_000,
+            taskCount = 39,
+            hours = 13.2,
+            tokens = 8_950_000L,
+            toolCalls = 5_345,
             usedFor = "The great majority of milestone feature implementation — well-specified, " +
                 "routine build work once a design/investigation decision was already made.",
+        ),
+        ModelStats(
+            modelName = "Claude Sonnet 5.5",
+            taskCount = 3,
+            hours = 0.9,
+            tokens = 588_000L,
+            toolCalls = 174,
+            usedFor = "Milestone builds from M15 on (refresh visibility, show-more paging, descriptive search) " +
+                "after the project moved to Sonnet 5.5.",
         ),
         ModelStats(
             modelName = "Claude Haiku 4.5",
