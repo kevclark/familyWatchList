@@ -206,13 +206,14 @@ class DescriptiveSearchViewModelTest {
         vm.onQueryChange("comedy movies")
         vm.onSubmit()
         vm.uiState.first { it.hasSearched && it.interpretation != null }
-        assertTrue(requestsTo("/search/multi").isEmpty())
+        val before = requestsTo("/search/multi").size // the parallel title-match search
 
         vm.onSearchTitlesInstead()
 
         val state = vm.uiState.first { it.interpretation == null && it.hasSearched && !it.isSearching }
         assertFalse(state.showTitleSearchLink)
-        assertEquals("comedy movies", requestsTo("/search/multi").single().queryParameter("query"))
+        assertEquals(before + 1, requestsTo("/search/multi").size)
+        assertEquals("comedy movies", requestsTo("/search/multi").last().queryParameter("query"))
     }
 
     @Test
@@ -247,5 +248,69 @@ class DescriptiveSearchViewModelTest {
         val second = vm.uiState.first { it.results.size == 2 && !it.isLoadingMore }
         assertEquals(listOf("Funny Film", "Funnier Film"), second.results.map { it.title })
         assertFalse(second.canLoadMore)
+    }
+
+    private val starWarsMulti = """{"page":1,"results":[
+        {"id":11,"media_type":"movie","title":"Star Wars","popularity":90.0},
+        {"id":12,"media_type":"movie","title":"Star Wars: The Empire Strikes Back","popularity":80.0},
+        {"id":13,"media_type":"movie","title":"The Making of Star Wars","popularity":70.0}]}"""
+
+    private fun routeAvailableMovie(id: Int, title: String) {
+        routes["/movie/$id"] = {
+            """{"id":$id,"title":"$title","watch/providers":{"results":{"GB":{"flatrate":[{"provider_id":8,"provider_name":"N"}]}}},
+               "release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"PG","type":3}]}]}}"""
+        }
+    }
+
+    @Test
+    fun `star wars shows the title match above the structured War results`() = runTest {
+        routes["/search/multi"] = { starWarsMulti }
+        routes["/search/keyword"] = { """{"results":[{"id":3,"name":"star"}]}""" }
+        routes["/discover/movie"] = { """{"page":1,"results":[],"total_pages":1}""" }
+        routeAvailableMovie(11, "Star Wars")
+        routeAvailableMovie(12, "Star Wars: The Empire Strikes Back")
+        routeAvailableMovie(13, "The Making of Star Wars")
+        val vm = builder(1L)
+        vm.onQueryChange("star wars")
+        vm.onSubmit()
+
+        val state = vm.uiState.first { it.hasSearched && !it.isSearching && it.titleMatches.isNotEmpty() }
+
+        assertEquals(listOf("War"), state.interpretation!!.chips.map { it.label }.filter { it == "War" })
+        // Equal or starts-with only; "The Making of Star Wars" is not a match. Highest relevance first.
+        assertEquals(listOf("Star Wars", "Star Wars: The Empire Strikes Back"), state.titleMatches.map { it.title })
+        assertTrue(state.showTitleSearchLink)
+    }
+
+    @Test
+    fun `comedy movies with no matching title shows no title section`() = runTest {
+        routes["/search/multi"] = { starWarsMulti }
+        routeAvailableMovie(11, "Star Wars")
+        val vm = builder(1L)
+        vm.onQueryChange("comedy movies")
+        vm.onSubmit()
+        val state = vm.uiState.first { it.hasSearched && !it.isSearching && it.interpretation != null && it.results.isNotEmpty() }
+        assertTrue(state.titleMatches.isEmpty())
+        assertTrue(state.visibleTitleMatches.isEmpty())
+    }
+
+    @Test
+    fun `a rent-only title is excluded from structured results but still appears in title search`() = runTest {
+        val rentOnly = """{"id":21,"title":"Quokka","watch/providers":{"results":{"GB":{"rent":[{"provider_id":8,"provider_name":"N"}]}}},
+            "release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"PG","type":3}]}]}}"""
+        routes["/movie/21"] = { rentOnly }
+        routes["/discover/movie"] = { """{"page":1,"results":[{"id":21,"title":"Quokka","popularity":9.0,"vote_count":500}],"total_pages":1}""" }
+        routes["/search/multi"] = { """{"page":1,"results":[{"id":21,"media_type":"movie","title":"Quokka","popularity":9.0}]}""" }
+        val vm = builder(1L)
+
+        vm.onQueryChange("comedy movies")
+        vm.onSubmit()
+        val structured = vm.uiState.first { it.hasSearched && !it.isSearching && it.interpretation != null }
+        assertTrue(structured.results.isEmpty())
+
+        vm.onQueryChange("quokka")
+        vm.onSubmit()
+        val titles = vm.uiState.first { it.results.isNotEmpty() }
+        assertEquals(listOf("Quokka"), titles.results.map { it.title })
     }
 }

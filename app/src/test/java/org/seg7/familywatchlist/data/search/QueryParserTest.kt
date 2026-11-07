@@ -109,9 +109,15 @@ class QueryParserTest {
 
     @Test
     fun `title-only queries have no structure`() {
-        assertFalse(QueryParser.parse("inception").hasStructure)
         assertFalse(QueryParser.parse("movies").hasStructure)
         assertFalse(QueryParser.parse("the").hasStructure)
+    }
+
+    @Test
+    fun `a lone unplaced word is a keyword candidate with structure`() {
+        val p = QueryParser.parse("slapstick")
+        assertTrue(p.hasStructure)
+        assertFalse(p.candidates.single().personFirst)
     }
 
     @Test
