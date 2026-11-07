@@ -2448,3 +2448,9 @@ A lone unplaced word is tried as a keyword.
       apocalypse → post-apocalyptic future; aliens → alien; cyberpunk; time travel. Start with
       50–80 themes, each verified against live TMDB to point at the main tag (not a near-unused
       variant like "dystopian" or "slapstick"). Pure lookup, no inference. Kev adds misses as found.
+- [ ] Themes also cover (Kev, 2026-11-07, verified against live TMDB keyword usage):
+      places (london → "london, england" 212, not the near-empty "london" 382039; other UK
+      cities likewise); gritty/dark/bleak → gritty 286125 | neo-noir 207268 | british noir 155451;
+      spy/spies/espionage/secret agent/mi6/mi5 → spy 470 | espionage 5265 | secret agent 4289 |
+      mi6 14555 | mi5 190904; gangster/gangland/mob → gangster 3149 | organized crime 10291;
+      undercover 1568; police procedural 268067. Each theme is one OR group; separate themes AND.
