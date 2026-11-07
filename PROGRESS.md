@@ -2474,6 +2474,7 @@ use key `theme:<Name>`. Tests: 629 -> 655 JVM tests, all green. Judgement calls 
       flatrate/free only (no rent/buy-only), profile/Family age cap, unrated rule. Horizontal
       poster row like Home; hidden when nothing passes; tapping opens that title's detail.
 - [x] Bumped to 0.1.0-alpha.19 / versionCode 19. `BuildStats.kt` left as refreshed for alpha.18 (needs transcript mining, not cheap).
+- [x] Emulator check against live TMDB (2026-11-07, orchestrator, Netflix-only profile, cap 12): Interstellar → More like this: The Creator, Stowaway, Star Trek, The Electric State; tapping The Electric State opened its detail (12, 2025) with its own row: The Creator, Interstellar, The Adam Project. Chaining works.
 - [ ] Live check on Kev's phone (More like this on Slow Horses shows Spooks / The Night Manager / The Capture type titles on his services;
       tapping chains to that title's detail; row hidden when nothing is on his services; no rent/buy-only titles; capped profile hides over-cap).
 
