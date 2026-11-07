@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -49,6 +50,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import org.seg7.familywatchlist.R
 import org.seg7.familywatchlist.data.local.entity.MediaType
+import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.FilterPill
 import org.seg7.familywatchlist.ui.components.PosterCard
@@ -232,85 +234,12 @@ fun SearchScreen(
             val results = state.visibleResults
             val matches = state.visibleTitleMatches
             when {
-                results.isNotEmpty() || matches.isNotEmpty() -> LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(
-                        start = Dimens.Gutter,
-                        end = Dimens.Gutter,
-                        top = 14.dp,
-                        bottom = 28.dp,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(Dimens.CardGap),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    // PLAN.md §5b M3i item 1: the keyboard can otherwise cover the last row of
-                    // results with no way to scroll past it short of dismissing it first.
-                    modifier = Modifier.fillMaxSize().imePadding(),
-                ) {
-                    if (matches.isNotEmpty()) {
-                        item(key = "title-matches-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                            Text(
-                                text = "Titles matching \u2018${state.query.trim()}\u2019",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = ChalkMuted,
-                            )
-                        }
-                        items(matches, key = { "match-${it.mediaType}-${it.tmdbId}" }) { title ->
-                            PosterCard(
-                                title = title.title,
-                                posterPath = title.posterPath,
-                                onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
-                                width = Dimens.PosterWidthLarge,
-                                label = true,
-                                year = title.year,
-                                isListed = state.isListed(title),
-                                onQuickAdd = { viewModel.toggleWatchlist(title) },
-                                paidOnly = state.isPaidOnly(title),
-                            )
-                        }
-                        if (results.isNotEmpty()) {
-                            item(key = "results-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                                Text(
-                                    text = "Results",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = ChalkMuted,
-                                )
-                            }
-                        }
-                    }
-                    items(results, key = { "${it.mediaType}-${it.tmdbId}" }) { title ->
-                      Column {
-                        PosterCard(
-                            title = title.title,
-                            posterPath = title.posterPath,
-                            onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
-                            width = Dimens.PosterWidthLarge,
-                            label = true,
-                            year = title.year,
-                            isListed = state.isListed(title),
-                            onQuickAdd = { viewModel.toggleWatchlist(title) },
-                            paidOnly = state.isPaidOnly(title),
-                        )
-                        if (state.isUnrated(title)) {
-                            Text(
-                                text = "Unrated",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = ChalkFaint,
-                            )
-                        }
-                      }
-                    }
-                    if (state.canLoadMore) {
-                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                                if (state.isLoadingMore) {
-                                    CircularProgressIndicator(color = Accent)
-                                } else {
-                                    FilterPill(label = "Load more", selected = false, onClick = viewModel::loadMore)
-                                }
-                            }
-                        }
-                    }
-                }
+                results.isNotEmpty() || matches.isNotEmpty() -> SearchResultsGrid(
+                    state = state,
+                    onOpenTitle = onOpenTitle,
+                    onToggleWatchlist = viewModel::toggleWatchlist,
+                    onLoadMore = viewModel::loadMore,
+                )
 
                 // PLAN.md §5a's M2g refinement: with nothing subscribed, no query could ever
                 // return a result (the availability gate has no provider to pass against) — say
@@ -403,6 +332,109 @@ fun SearchScreen(
       }
       SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
     }
+}
+
+/**
+ * The result grid, stateless so it can be tested on its own. Title matches (PLAN.md §5f) usually
+ * arrive *after* the structured results; items prepended to a lazy list are kept off-screen above
+ * the viewport (the list holds the first visible item's position by key), so the grid scrolls
+ * back to the top when the matches section first appears.
+ */
+@Composable
+internal fun SearchResultsGrid(
+    state: SearchUiState,
+    onOpenTitle: (Int, MediaType) -> Unit,
+    onToggleWatchlist: (TitleEntity) -> Unit,
+    onLoadMore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val results = state.visibleResults
+    val matches = state.visibleTitleMatches
+    val gridState = rememberLazyGridState()
+    val hasMatches = matches.isNotEmpty()
+    LaunchedEffect(hasMatches) {
+        if (hasMatches) gridState.scrollToItem(0)
+    }
+    LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(
+                        start = Dimens.Gutter,
+                        end = Dimens.Gutter,
+                        top = 14.dp,
+                        bottom = 28.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(Dimens.CardGap),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    // PLAN.md §5b M3i item 1: the keyboard can otherwise cover the last row of
+                    // results with no way to scroll past it short of dismissing it first.
+                    modifier = modifier.fillMaxSize().imePadding(),
+                ) {
+                    if (matches.isNotEmpty()) {
+                        item(key = "title-matches-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                text = "Titles matching \u2018${state.query.trim()}\u2019",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = ChalkMuted,
+                            )
+                        }
+                        items(matches, key = { "match-${it.mediaType}-${it.tmdbId}" }) { title ->
+                            PosterCard(
+                                title = title.title,
+                                posterPath = title.posterPath,
+                                onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+                                width = Dimens.PosterWidthLarge,
+                                label = true,
+                                year = title.year,
+                                isListed = state.isListed(title),
+                                onQuickAdd = { onToggleWatchlist(title) },
+                                paidOnly = state.isPaidOnly(title),
+                            )
+                        }
+                        if (results.isNotEmpty()) {
+                            item(key = "results-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                Text(
+                                    text = "Results",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = ChalkMuted,
+                                )
+                            }
+                        }
+                    }
+                    items(results, key = { "${it.mediaType}-${it.tmdbId}" }) { title ->
+                      Column {
+                        PosterCard(
+                            title = title.title,
+                            posterPath = title.posterPath,
+                            onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+                            width = Dimens.PosterWidthLarge,
+                            label = true,
+                            year = title.year,
+                            isListed = state.isListed(title),
+                            onQuickAdd = { onToggleWatchlist(title) },
+                            paidOnly = state.isPaidOnly(title),
+                        )
+                        if (state.isUnrated(title)) {
+                            Text(
+                                text = "Unrated",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ChalkFaint,
+                            )
+                        }
+                      }
+                    }
+                    if (state.canLoadMore) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                if (state.isLoadingMore) {
+                                    CircularProgressIndicator(color = Accent)
+                                } else {
+                                    FilterPill(label = "Load more", selected = false, onClick = onLoadMore)
+                                }
+                            }
+                        }
+                    }
+                }
 }
 
 @Composable
