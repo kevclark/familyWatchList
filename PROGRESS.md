@@ -2456,6 +2456,7 @@ A lone unplaced word is tried as a keyword.
       undercover 1568; police procedural 268067. Each theme is one OR group; separate themes AND.
 - [x] Bumped to 0.1.0-alpha.18 / versionCode 18; `BuildStats.kt` re-derived (snapshot 2026-11-07: 249 prompts,
       48 agent tasks, ~17.0 h; Sonnet 5.5 row added; the running alpha.18 build is not counted yet).
+- [x] Emulator check against live TMDB (2026-11-07, orchestrator, Netflix-only profile, cap 12): "gritty london spy shows" → TV + Gritty + London + Spy chips (0 results on Netflix at 12, expected); "dystopian movies" → Movies + Dystopia (Interstellar, Ready Player One, Edge of Tomorrow…); "superpowers" → Superhero (Smallville, Henry Danger, Spider-Man…); "london crime shows" → TV + Crime + London (Manhunt); "zombies" → Zombie (Warm Bodies…). "comedy movies": first load 17, one More tap added 17 new titles, no duplicates seen.
 - [ ] Live check on Kev's phone (More gives 20+ per tap and hides when exhausted; theme chips for "gritty london
       spy shows", "dystopian movies", "london"; removing a theme chip reruns).
 
