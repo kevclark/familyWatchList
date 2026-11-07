@@ -25,6 +25,7 @@ import org.seg7.familywatchlist.data.remote.TmdbClient
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
+import org.seg7.familywatchlist.data.repository.MoreLikeThisRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -59,6 +60,7 @@ class TitleDetailViewModelTest {
     private lateinit var ratingRepository: RatingRepository
     private lateinit var recommendationRepository: RecommendationRepository
     private lateinit var userPreferencesRepository: UserPreferencesRepository
+    private lateinit var providerRepository: ProviderRepository
 
     private val profileId = 1L
     private val tmdbId = 42
@@ -76,7 +78,7 @@ class TitleDetailViewModelTest {
         watchlistRepository = WatchlistRepository(db.watchlistDao(), clock) { _, _, _ -> true }
         ratingRepository = RatingRepository(db.ratingDao(), clock)
         val discoverRepository = DiscoverRepository(db.discoverCacheDao(), db.titleDao(), api, clock)
-        val providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
+        providerRepository = ProviderRepository(db.providerDao(), api, discoverRepository)
         recommendationRepository = RecommendationRepository(
             watchEventDao = db.watchEventDao(),
             ratingDao = db.ratingDao(),
@@ -125,6 +127,7 @@ class TitleDetailViewModelTest {
         mediaType,
         profileId,
         userPreferencesRepository,
+        MoreLikeThisRepository(db.titleDao(), TmdbClient.create(baseUrl = server.url("/").toString(), accessToken = { "t" }), clock, AvailabilityGate(titleRepository, providerRepository)),
     )
 
     @Test

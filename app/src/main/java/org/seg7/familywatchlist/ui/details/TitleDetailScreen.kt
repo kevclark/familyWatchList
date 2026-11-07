@@ -28,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -58,10 +59,14 @@ import coil3.compose.AsyncImage
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.ReviewEntity
+import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.ui.LocalAppContainer
 import org.seg7.familywatchlist.ui.components.AvailabilityRow
 import org.seg7.familywatchlist.ui.components.BottomScrim
 import org.seg7.familywatchlist.ui.components.PosterArt
+import org.seg7.familywatchlist.ui.components.PosterCard
+import org.seg7.familywatchlist.ui.components.PosterCarousel
+import org.seg7.familywatchlist.ui.components.SectionHeader
 import org.seg7.familywatchlist.ui.components.TopScrim
 import org.seg7.familywatchlist.ui.components.backdropUrl
 import org.seg7.familywatchlist.ui.components.clickableNoRipple
@@ -102,6 +107,7 @@ fun TitleDetailScreen(
     activeProfileId: Long,
     onBack: () -> Unit,
     onLogWatch: (Int, MediaType) -> Unit,
+    onOpenTitle: (Int, MediaType) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val container = LocalAppContainer.current
@@ -118,6 +124,7 @@ fun TitleDetailScreen(
                     mediaType,
                     activeProfileId,
                     container.userPreferencesRepository,
+                    container.moreLikeThisRepository,
                 )
             }
         },
@@ -364,6 +371,17 @@ fun TitleDetailScreen(
                     }
                 }
             }
+
+            // PLAN.md §5h: "More like this" at the bottom; hidden unless something passed the checks.
+            if (state.moreLikeThis.isNotEmpty() || state.moreLikeThisLoading) {
+                item(key = "more-like-this") {
+                    MoreLikeThisRow(
+                        titles = state.moreLikeThis,
+                        loading = state.moreLikeThisLoading,
+                        onOpenTitle = onOpenTitle,
+                    )
+                }
+            }
         }
 
         // Floating back affordance over the hero — §5a: no solid app bar where imagery is.
@@ -389,6 +407,45 @@ fun TitleDetailScreen(
     val trailerKey = title?.trailerKey
     if (trailerVisible && trailerKey != null) {
         TrailerPlayerDialog(youTubeKey = trailerKey, onDismiss = { trailerVisible = false })
+    }
+}
+
+/**
+ * PLAN.md §5h: horizontal poster row of TMDB recommendations that passed the browse checks. While
+ * checks run with nothing passed yet it shows only a hairline-quiet placeholder (title plus a thin
+ * progress line), never a spinner or error. The "Where to watch" section above carries the JustWatch
+ * credit for the availability data these titles were gated on, and nothing here renders badges.
+ */
+@Composable
+internal fun MoreLikeThisRow(
+    titles: List<TitleEntity>,
+    loading: Boolean,
+    onOpenTitle: (Int, MediaType) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (titles.isEmpty()) {
+        if (!loading) return
+        Column(modifier = modifier.fillMaxWidth().padding(top = 8.dp)) {
+            SectionHeader(title = "More like this")
+            LinearProgressIndicator(
+                modifier = Modifier.padding(horizontal = Dimens.Gutter).fillMaxWidth().height(2.dp),
+                color = ChalkFaint,
+                trackColor = InkHairline,
+            )
+        }
+        return
+    }
+    PosterCarousel(
+        title = "More like this",
+        items = titles,
+        key = { "${it.mediaType}-${it.tmdbId}" },
+        modifier = modifier.padding(top = 8.dp),
+    ) { item ->
+        PosterCard(
+            title = item.title,
+            posterPath = item.posterPath,
+            onClick = { onOpenTitle(item.tmdbId, item.mediaType) },
+        )
     }
 }
 

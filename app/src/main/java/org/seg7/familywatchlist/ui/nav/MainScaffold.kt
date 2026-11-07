@@ -226,6 +226,7 @@ fun MainScaffold(activeProfile: ActiveProfile, modifier: Modifier = Modifier) {
                         activeProfileId = activeProfile.id,
                         onBack = { navController.popBackStack() },
                         onLogWatch = { id, type -> logWatchTarget = LogWatchTarget(id, type, null) },
+                        onOpenTitle = openTitle,
                     )
                 }
             }

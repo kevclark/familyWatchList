@@ -17,6 +17,7 @@ import org.seg7.familywatchlist.data.repository.BackupRepository
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.NotificationPreferencesRepository
+import org.seg7.familywatchlist.data.repository.MoreLikeThisRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileSlidersRepository
 import org.seg7.familywatchlist.data.repository.ProviderRepository
@@ -111,6 +112,11 @@ class AppContainer(context: Context) {
         DescriptiveSearchRepository(
             database.titleDao(), database.titleAttributeDao(), tmdbApi, clock, availabilityGate, providerRepository,
         )
+    }
+
+    // PLAN.md §5h: the detail screen's "More like this" row (TMDB recommendations, same gates as search).
+    val moreLikeThisRepository: MoreLikeThisRepository by lazy {
+        MoreLikeThisRepository(database.titleDao(), tmdbApi, clock, availabilityGate)
     }
 
     val watchlistRepository: WatchlistRepository by lazy {
