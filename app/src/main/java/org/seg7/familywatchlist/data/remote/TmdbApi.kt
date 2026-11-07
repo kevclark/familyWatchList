@@ -1,9 +1,12 @@
 package org.seg7.familywatchlist.data.remote
 
 import org.seg7.familywatchlist.data.remote.dto.ConfigurationDto
+import org.seg7.familywatchlist.data.remote.dto.KeywordDto
 import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
 import org.seg7.familywatchlist.data.remote.dto.MovieDetailDto
 import org.seg7.familywatchlist.data.remote.dto.PagedResponseDto
+import org.seg7.familywatchlist.data.remote.dto.PersonDto
+import org.seg7.familywatchlist.data.remote.dto.PersonTvCreditsDto
 import org.seg7.familywatchlist.data.remote.dto.ProviderListResponseDto
 import org.seg7.familywatchlist.data.remote.dto.TvDetailDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProviderRegionsResponseDto
@@ -32,6 +35,11 @@ interface TmdbApi {
         @Query("append_to_response") appendToResponse: String = APPEND_TV,
     ): TvDetailDto
 
+    /**
+     * The trailing nullable params are PLAN.md §5f's structured search filters (null = omitted from
+     * the URL, so the recommender's existing calls are unchanged). Genres/cast/keywords use `,` for
+     * AND; providers use `|` for OR.
+     */
     @GET("discover/movie")
     suspend fun discoverMovies(
         @Query("watch_region") watchRegion: String = REGION_GB,
@@ -39,8 +47,15 @@ interface TmdbApi {
         @Query("with_watch_monetization_types") monetizationTypes: String = "flatrate|free",
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("page") page: Int = 1,
+        @Query("with_genres") withGenres: String? = null,
+        @Query("with_cast") withCast: String? = null,
+        @Query("with_keywords") withKeywords: String? = null,
+        @Query("vote_count.gte") voteCountGte: Int? = null,
+        @Query("certification_country") certificationCountry: String? = null,
+        @Query("certification.lte") certificationLte: String? = null,
     ): PagedResponseDto<MediaSummaryDto>
 
+    /** TV discover has no cast or certification filter (PLAN.md §5f); people come from [personTvCredits]. */
     @GET("discover/tv")
     suspend fun discoverTv(
         @Query("watch_region") watchRegion: String = REGION_GB,
@@ -48,7 +63,25 @@ interface TmdbApi {
         @Query("with_watch_monetization_types") monetizationTypes: String = "flatrate|free",
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("page") page: Int = 1,
+        @Query("with_genres") withGenres: String? = null,
+        @Query("with_keywords") withKeywords: String? = null,
+        @Query("vote_count.gte") voteCountGte: Int? = null,
     ): PagedResponseDto<MediaSummaryDto>
+
+    @GET("search/person")
+    suspend fun searchPerson(
+        @Query("query") query: String,
+        @Query("page") page: Int = 1,
+    ): PagedResponseDto<PersonDto>
+
+    @GET("search/keyword")
+    suspend fun searchKeyword(
+        @Query("query") query: String,
+        @Query("page") page: Int = 1,
+    ): PagedResponseDto<KeywordDto>
+
+    @GET("person/{id}/tv_credits")
+    suspend fun personTvCredits(@Path("id") id: Int): PersonTvCreditsDto
 
     @GET("movie/{id}/recommendations")
     suspend fun movieRecommendations(

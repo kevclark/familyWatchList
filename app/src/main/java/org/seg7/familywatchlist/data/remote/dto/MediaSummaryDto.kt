@@ -31,4 +31,8 @@ data class MediaSummaryDto(
     @SerialName("vote_average") val voteAverage: Double? = null,
     @SerialName("vote_count") val voteCount: Int? = null,
     val popularity: Double? = null,
+    /** Present on discover and person-credit rows (PLAN.md §5f filters TV credits by it); absent on detail payloads. */
+    @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
+    /** Only on person credit rows: the role played. "Self" marks talk-show/awards appearances. */
+    val character: String? = null,
 )

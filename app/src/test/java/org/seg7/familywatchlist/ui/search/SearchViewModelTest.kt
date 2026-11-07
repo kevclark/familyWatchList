@@ -39,6 +39,7 @@ import org.seg7.familywatchlist.data.remote.dto.WatchProviderDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProviderRegionsResponseDto
 import org.seg7.familywatchlist.data.remote.dto.WatchProvidersResponseDto
 import org.seg7.familywatchlist.data.repository.AvailabilityGate
+import org.seg7.familywatchlist.data.repository.DescriptiveSearchRepository
 import org.seg7.familywatchlist.data.repository.DiscoverRepository
 import org.seg7.familywatchlist.data.repository.FamilyProfileRepository
 import org.seg7.familywatchlist.data.repository.ProfileRepository
@@ -130,6 +131,9 @@ class SearchViewModelTest {
             activeProfileId = profileId,
             userPreferencesRepository = userPreferencesRepository,
             recommendationRepository = recommendationRepository,
+            descriptiveSearchRepository = DescriptiveSearchRepository(
+                db.titleDao(), db.titleAttributeDao(), api, clock, gate, providerRepository,
+            ),
         )
     }
 
@@ -507,7 +511,22 @@ class SearchViewModelTest {
             monetizationTypes: String,
             sortBy: String,
             page: Int,
+            withGenres: String?,
+            withCast: String?,
+            withKeywords: String?,
+            voteCountGte: Int?,
+            certificationCountry: String?,
+            certificationLte: String?,
         ): PagedResponseDto<MediaSummaryDto> = error("not used in this test")
+
+        override suspend fun searchPerson(query: String, page: Int): PagedResponseDto<org.seg7.familywatchlist.data.remote.dto.PersonDto> =
+            error("not used in this test")
+
+        override suspend fun searchKeyword(query: String, page: Int): PagedResponseDto<org.seg7.familywatchlist.data.remote.dto.KeywordDto> =
+            error("not used in this test")
+
+        override suspend fun personTvCredits(id: Int): org.seg7.familywatchlist.data.remote.dto.PersonTvCreditsDto =
+            error("not used in this test")
 
         override suspend fun discoverTv(
             watchRegion: String,
@@ -515,6 +534,9 @@ class SearchViewModelTest {
             monetizationTypes: String,
             sortBy: String,
             page: Int,
+            withGenres: String?,
+            withKeywords: String?,
+            voteCountGte: Int?,
         ): PagedResponseDto<MediaSummaryDto> = error("not used in this test")
 
         override suspend fun movieRecommendations(id: Int, page: Int): PagedResponseDto<MediaSummaryDto> =

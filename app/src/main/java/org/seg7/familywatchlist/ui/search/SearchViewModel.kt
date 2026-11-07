@@ -21,7 +21,13 @@ import kotlinx.coroutines.launch
 import org.seg7.familywatchlist.data.local.entity.FAMILY_PROFILE_SENTINEL_ID
 import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.repository.DescriptiveSearchRepository
+import org.seg7.familywatchlist.data.repository.Interpretation
 import org.seg7.familywatchlist.data.repository.ProviderRepository
+import org.seg7.familywatchlist.data.repository.SearchPlan
+import org.seg7.familywatchlist.data.search.AgeFilter
+import org.seg7.familywatchlist.data.search.AgeOption
+import org.seg7.familywatchlist.data.search.QueryParser
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
@@ -78,7 +84,22 @@ data class SearchUiState(
      * stale tag.
      */
     val paidOnlyKeys: Set<String> = emptySet(),
+    /** PLAN.md §5f: what the structured search understood; null for a plain title search. */
+    val interpretation: Interpretation? = null,
+    /** `"MEDIATYPE-tmdbId"` keys of visible results with no certification, labelled "Unrated". */
+    val unratedKeys: Set<String> = emptySet(),
+    val canLoadMore: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    /** The selected age chip (defaults to the active profile's cap, or Family's strictest). */
+    val ageOption: AgeOption = AgeFilter.ANY,
 ) {
+    val ageOptions: List<AgeOption> get() = AgeFilter.options
+
+    /** PLAN.md §5f item 2: the "Search titles for ... instead" link shows only on a structured search. */
+    val showTitleSearchLink: Boolean get() = interpretation != null
+
+    fun isUnrated(title: TitleEntity): Boolean = listedKey(title.tmdbId, title.mediaType) in unratedKeys
+
     /**
      * PLAN.md §5b M3i item 4's heuristic, deliberately simple: *plausible*, not *proven*. Search
      * already gates every result through [org.seg7.familywatchlist.data.recommend.FamilyBlend
@@ -130,6 +151,10 @@ private data class SearchInternal(
     val ageRatingCap: String? = null,
     /** M6: mirrors [SearchUiState.paidOnlyKeys] — see its kdoc. */
     val paidOnlyKeys: Set<String> = emptySet(),
+    val interpretation: Interpretation? = null,
+    val unratedKeys: Set<String> = emptySet(),
+    val canLoadMore: Boolean = false,
+    val isLoadingMore: Boolean = false,
 )
 
 /**
@@ -147,6 +172,7 @@ class SearchViewModel(
     private val activeProfileId: Long,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val recommendationRepository: RecommendationRepository,
+    private val descriptiveSearchRepository: DescriptiveSearchRepository,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -157,6 +183,17 @@ class SearchViewModel(
 
     /** The last query actually sent to TMDB — see the dedupe note in [runSearch]. */
     private var lastSearched: String? = null
+
+    /** PLAN.md §5f: chip keys removed for the current query text, and the "search titles instead" override. */
+    private var removedKeys: Set<String> = emptySet()
+    private var titlesOnly = false
+    private var lastQueryText: String? = null
+    private var structuredPlan: SearchPlan.Structured? = null
+    private var nextPage = 2
+
+    /** Null until the user taps an age chip; then it wins over [defaultAge]. */
+    private val _ageChoice = MutableStateFlow<AgeOption?>(null)
+    private val _defaultAge = MutableStateFlow(AgeFilter.ANY)
 
     /**
      * The currently-collecting [SearchRepository.search] flow, if any. PLAN.md §5a: "in-flight
@@ -180,7 +217,15 @@ class SearchViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     val uiState: StateFlow<SearchUiState> =
-        combine(_query, _filter, _search, listedKeys, hasSubscribedServices) { query, filter, search, listed, hasServices ->
+        combine(_query, _filter, _search, listedKeys, hasSubscribedServices, _ageChoice, _defaultAge) { values ->
+            @Suppress("UNCHECKED_CAST")
+            val query = values[0] as String
+            val filter = values[1] as SearchFilter
+            val search = values[2] as SearchInternal
+            val listed = values[3] as Set<String>
+            val hasServices = values[4] as Boolean
+            val ageChoice = values[5] as AgeOption?
+            val defaultAge = values[6] as AgeOption
             SearchUiState(
                 query = query,
                 filter = filter,
@@ -192,10 +237,18 @@ class SearchViewModel(
                 hasSubscribedServices = hasServices,
                 ageRatingCap = search.ageRatingCap,
                 paidOnlyKeys = search.paidOnlyKeys,
+                interpretation = search.interpretation,
+                unratedKeys = search.unratedKeys,
+                canLoadMore = search.canLoadMore,
+                isLoadingMore = search.isLoadingMore,
+                ageOption = ageChoice ?: defaultAge,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
 
     init {
+        viewModelScope.launch {
+            _defaultAge.value = AgeFilter.optionForCap(recommendationRepository.resolveAgeRatingCap(activeProfileId))
+        }
         viewModelScope.launch {
             _query
                 .debounce(SEARCH_DEBOUNCE_MS)
@@ -262,62 +315,152 @@ class SearchViewModel(
      * `channelFlow` and every availability check it started, so a stale batch can never emit
      * into `_search` after a newer query has taken over.
      */
-    private fun runSearch(query: String) {
+    private fun runSearch(query: String, force: Boolean = false) {
         if (query.isBlank()) {
             searchJob?.cancel()
             _search.value = SearchInternal()
             lastSearched = null
+            lastQueryText = null
             return
         }
+        // New query text resets the per-query chip removals and the titles-only override.
+        if (query != lastQueryText) {
+            removedKeys = emptySet()
+            titlesOnly = false
+            lastQueryText = query
+        }
+        val signature = "$query|${removedKeys.sorted()}|$titlesOnly"
         val current = _search.value
-        if (query == lastSearched && current.errorMessage == null) return
-        lastSearched = query
+        if (!force && signature == lastSearched && current.errorMessage == null) return
+        lastSearched = signature
 
         searchJob?.cancel()
+        structuredPlan = null
+        nextPage = 2
         _search.value = SearchInternal(isSearching = true)
         searchJob = viewModelScope.launch {
             val region = userPreferencesRepository.region.first()
-            // PLAN.md §4/§8 (M3g): Search must respect the active profile's (or Family's
-            // strictest-member) age cap — the same rule the real recommender already enforces.
-            val ageRatingCap = recommendationRepository.resolveAgeRatingCap(activeProfileId)
-            // PLAN.md §5b M3i item 4: published alongside isSearching/results so the empty-state
-            // message can tell "excluded by age cap" apart from the other two reasons — see
-            // SearchUiState.isPlausiblyHiddenByAgeRating's kdoc for the heuristic.
+            // PLAN.md §4/§8 (M3g): the cap comes from the age chip, which defaults to the active
+            // profile's (or Family's strictest-member) cap via resolveAgeRatingCap, the same rule
+            // the recommender enforces. PLAN.md §5f lets the user change it per search.
+            val choice = _ageChoice.value
+            val ageRatingCap = if (choice != null) choice.cap else recommendationRepository.resolveAgeRatingCap(activeProfileId)
             _search.value = _search.value.copy(ageRatingCap = ageRatingCap)
-            searchRepository.search(query, region, ageRatingCap = ageRatingCap)
-                // Flow's `catch` never intercepts `CancellationException` (cancellation
-                // transparency) — only genuine failures (a bad network call, a decode error)
-                // land here, so a cancelled-by-requery job falls straight through to
-                // `onCompletion` below instead of being mistaken for an error.
-                .catch { throwable ->
-                    // .copy, not a fresh SearchInternal(): keeps ageRatingCap set just above
-                    // rather than dropping it — moot for isPlausiblyHiddenByAgeRating (which
-                    // already requires errorMessage == null), but keeps this state internally
-                    // consistent with what search actually ran.
-                    _search.value = _search.value.copy(
-                        isSearching = false,
-                        hasSearched = true,
-                        errorMessage = throwable.message ?: "Search failed",
-                    )
+            try {
+                val parsed = QueryParser.parse(query).without(removedKeys)
+                val plan = when {
+                    titlesOnly -> SearchPlan.Titles(query)
+                    !parsed.hasStructure && removedKeys.isEmpty() -> SearchPlan.Titles(query)
+                    else -> descriptiveSearchRepository.plan(parsed, allowTitleFallback = removedKeys.isEmpty())
                 }
-                .onCompletion { cause ->
-                    // `cause == null` on normal completion; a `CancellationException` here means
-                    // a newer query already replaced this job, in which case leaving the (stale)
-                    // `isSearching = true` state alone is correct — the new job overwrites it.
-                    if (cause == null) {
-                        _search.value = _search.value.copy(isSearching = false, hasSearched = true)
+                when (plan) {
+                    is SearchPlan.Titles -> collectTitles(plan.text, region, ageRatingCap)
+                    is SearchPlan.Structured -> {
+                        structuredPlan = plan
+                        _search.value = _search.value.copy(interpretation = plan.interpretation)
+                        collectStructured(plan, page = 1, base = emptyList(), region = region, cap = ageRatingCap)
                     }
                 }
-                .collect { results ->
-                    // M6: badge-only, cache-only lookups (the availability check just run inside
-                    // SearchRepository.search already detail-fetched every one of these) — safe
-                    // to do per emission, including the progressively-growing intermediate ones.
-                    val paidOnly = results
-                        .filter { searchRepository.isPaidOnly(it.tmdbId, it.mediaType) }
-                        .map { listedKey(it.tmdbId, it.mediaType) }
-                        .toSet()
-                    _search.value = _search.value.copy(results = results, paidOnlyKeys = paidOnly)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _search.value = _search.value.copy(isSearching = false, isLoadingMore = false, hasSearched = true, errorMessage = e.message ?: "Search failed")
+            }
+        }
+    }
+
+    private suspend fun collectTitles(text: String, region: String, ageRatingCap: String?) {
+        searchRepository.search(text, region, ageRatingCap = ageRatingCap)
+            // Flow's `catch` never intercepts `CancellationException` (cancellation transparency).
+            .catch { throwable ->
+                _search.value = _search.value.copy(
+                    isSearching = false,
+                    hasSearched = true,
+                    errorMessage = throwable.message ?: "Search failed",
+                )
+            }
+            .onCompletion { cause ->
+                if (cause == null) {
+                    _search.value = _search.value.copy(isSearching = false, hasSearched = true)
                 }
+            }
+            .collect { results ->
+                // M6: badge-only, cache-only lookups (the availability check inside the search
+                // already detail-fetched every one of these).
+                val paidOnly = results
+                    .filter { searchRepository.isPaidOnly(it.tmdbId, it.mediaType) }
+                    .map { listedKey(it.tmdbId, it.mediaType) }
+                    .toSet()
+                _search.value = _search.value.copy(results = results, paidOnlyKeys = paidOnly)
+            }
+    }
+
+    private suspend fun collectStructured(
+        plan: SearchPlan.Structured,
+        page: Int,
+        base: List<TitleEntity>,
+        region: String,
+        cap: String?,
+    ) {
+        descriptiveSearchRepository.run(plan, page, cap, region)
+            .catch { throwable ->
+                _search.value = _search.value.copy(
+                    isSearching = false,
+                    isLoadingMore = false,
+                    hasSearched = true,
+                    errorMessage = throwable.message ?: "Search failed",
+                )
+            }
+            .onCompletion { cause ->
+                if (cause == null) {
+                    _search.value = _search.value.copy(isSearching = false, isLoadingMore = false, hasSearched = true)
+                }
+            }
+            .collect { result ->
+                val seen = base.map { listedKey(it.tmdbId, it.mediaType) }.toSet()
+                val merged = base + result.titles.filter { listedKey(it.tmdbId, it.mediaType) !in seen }
+                val paidOnly = merged
+                    .filter { searchRepository.isPaidOnly(it.tmdbId, it.mediaType) }
+                    .map { listedKey(it.tmdbId, it.mediaType) }
+                    .toSet()
+                _search.value = _search.value.copy(
+                    results = merged,
+                    paidOnlyKeys = paidOnly,
+                    unratedKeys = _search.value.unratedKeys + result.unratedKeys,
+                    canLoadMore = result.hasMore,
+                )
+            }
+    }
+
+    /** PLAN.md §5f: removing an interpretation chip reruns the search without it. */
+    fun onRemoveChip(key: String) {
+        removedKeys = removedKeys + key
+        runSearch(_query.value.trim())
+    }
+
+    /** PLAN.md §5f: "Search titles for ... instead" runs the original `search/multi` path. */
+    fun onSearchTitlesInstead() {
+        titlesOnly = true
+        runSearch(_query.value.trim())
+    }
+
+    /** PLAN.md §5f: picking an age chip applies to this and later searches, and reruns the current one. */
+    fun onAgeOptionChange(option: AgeOption) {
+        _ageChoice.value = option
+        val query = _query.value.trim()
+        if (query.isNotBlank() && lastSearched != null) runSearch(query, force = true)
+    }
+
+    /** PLAN.md §5f "load more": appends the next page of the structured search. */
+    fun loadMore() {
+        val plan = structuredPlan ?: return
+        val state = _search.value
+        if (!state.canLoadMore || state.isLoadingMore || state.isSearching) return
+        val page = nextPage++
+        _search.value = state.copy(isLoadingMore = true)
+        searchJob = viewModelScope.launch {
+            val region = userPreferencesRepository.region.first()
+            collectStructured(plan, page, base = state.results, region = region, cap = state.ageRatingCap)
         }
     }
 
