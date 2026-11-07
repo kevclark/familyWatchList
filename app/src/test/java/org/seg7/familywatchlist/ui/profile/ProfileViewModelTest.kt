@@ -96,7 +96,13 @@ class ProfileViewModelTest {
     fun `the 11th profile is rejected, surfaces an error event, and does not change the active profile`() = runTest {
         for (i in 0 until 10) {
             viewModel.addProfile("P$i", "🍿|FFC24B", null)
-            viewModel.profiles.first { it.size == i + 1 }
+            val added = viewModel.profiles.first { it.size == i + 1 }
+            // Let this add's active-profile write land before firing the next add. addProfile's
+            // DataStore write happens in a separate coroutine after the insert, so two rapid adds
+            // can write out of order under CPU load (seen in a full-suite run: the 9th profile's
+            // write landed after the 10th's, leaving active=9). Not a product bug: a user cannot add
+            // profiles faster than the write completes.
+            userPreferencesRepository.activeProfileId.first { it == added.maxOf { p -> p.id } }
         }
         // addProfile inserts the row first and only then writes the active-profile id to DataStore,
         // so the profile list can reach 10 entries while the 10th activation is still in flight
