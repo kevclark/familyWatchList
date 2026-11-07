@@ -910,6 +910,52 @@ wants a way to see the next batch.
    banner says whose picks it's on, e.g. "Refreshing Sam's picks (3 of 6)…". Kev's first
    alpha.15 refresh took several minutes behind a bare "Refreshing picks…".
 
+### 5f. Descriptive search with an age filter (Kev, 2026-11-07 — queued as M17)
+
+**Kev's report after a few weeks of use:** finding something for the family to watch is still
+hard, and that is the app's basic job. Search only does a TMDB title lookup (`search/multi`), so
+"slapstick comedies", "action comedies" or "movies with Ryan Reynolds" return nothing useful.
+
+**Hard constraint (Kev):** no inference or AI in the app. Interpretation is deterministic, built-in
+word matching only. The only network calls are TMDB lookups.
+
+**Decided (Kev, 2026-11-07):**
+1. **Query parser** (pure Kotlin, offline, unit-tested). It turns the text into a structured query:
+   - **Media type:** "movie(s)", "film(s)" → movies only. "show(s)", "series", "tv",
+     "programme(s)" → TV only. Neither → both. "comedy movies" must return **no** TV.
+   - **Genres via a phrase lookup table.** This is one Kotlin file mapping common phrases to TMDB
+     genre ids, kept separately for movie and TV because the id sets differ (e.g. action = 28
+     for movies, 10759 "Action & Adventure" for TV; sci-fi = 878 vs 10765). It covers plurals and
+     variants ("comedy/comedies/comic/funny", "romcom/rom com" → Comedy + Romance, "kids/family"
+     → Family, "cartoon/animated/animation" → Animation, "scary" → Horror, "sci fi/scifi/science
+     fiction", "whodunnit/murder mystery" → Mystery/Crime, "documentary/docs", "war",
+     "western", "musical" and so on). A genre with no TV equivalent (e.g. Horror, Romance) is
+     simply dropped from the TV side. Multiple genres combine with AND ("action comedies" = both).
+   - **People:** "with X", "starring X", "featuring X", or a leftover name → TMDB `search/person`,
+     taking the top match by popularity. Movies use discover `with_cast`. TV discover has no cast
+     filter, so TV uses the person's `combined_credits`/`tv_credits`.
+   - **Descriptive words:** leftover meaningful words ("slapstick", "heist", "christmas",
+     "superhero", "zombie") → TMDB `search/keyword`, accepting an exact or near-exact name match
+     → `with_keywords`. Keyword lookups are cached.
+   - **Stop words** are ignored ("find", "me", "some", "a", "the", "good", "for", "please").
+2. **Execution.** If the parser found anything structured (genre, person, keyword or media type
+   plus something else), run TMDB discover with those filters plus `watch_region=GB` and the
+   household's subscribed providers, using the same "available on a service we pay for"
+   semantics as the existing `AvailabilityGate`. Sort by popularity with a minimum vote count so
+   junk doesn't surface, and page with "load more". If nothing structured was found, fall back to
+   today's title search. A structured search also offers a small "Search titles for '<text>'
+   instead" link, so a real title containing a genre word is still reachable.
+3. **Interpretation chips.** Above the results, show what was understood as removable chips, e.g.
+   `Movies` `Comedy` `Action` `Ryan Reynolds` `slapstick`. Removing a chip reruns the search
+   without it. A word the parser couldn't place is shown as "Ignored: …" so Kev can see why.
+4. **Age filter.** A chip row (U, PG, 12, 15, 18, Any) on the search screen. It defaults to the
+   active profile's cap, or the strictest member's cap for Family, and Kev can change it per
+   search. Movies use discover `certification_country=GB` + `certification.lte`. Results are
+   also post-filtered with the shared `CERT_RANK` (FamilyBlend.kt, includes the M12 equivalents),
+   so TV and odd certs are handled consistently. **Unrated titles** (common for UK TV on TMDB) are
+   hidden when the filter is 12 or below and shown with an "Unrated" label otherwise.
+5. Results reuse the existing search result cards and the detail/watchlist flows unchanged.
+
 ---
 
 ## 6. Build environment & preview (agent101)

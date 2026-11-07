@@ -2405,3 +2405,17 @@ ad-hoc blend (`refreshFamilyShortlistRanked`); For You scores on demand on first
 (`rankedExtrasForProfile`, same `scoreProfilePool` as the persisted refresh) and shows "of N" from the
 last recompute's stored eligible count until then. Extras are view-only (HomeViewModel `ExtraRow`),
 reset on selection change / `Finished` / shortlist recompute. No schema change.
+
+## M17 — Descriptive search with an age filter (Kev, 2026-11-07) — see PLAN.md §5f
+
+- [ ] Query parser + phrase→genre lookup table (movie/TV id maps), media-type words, people,
+      keywords, stop words. Exhaustive unit tests incl. "comedy movies" → movies only,
+      "action comedies", "movies with Ryan Reynolds", "slapstick comedies".
+- [ ] TMDB `search/person`, `search/keyword`, person credits, discover cast/keyword/cert params.
+- [ ] Structured search execution on discover (UK + subscribed providers, popularity, vote floor,
+      paging) with title-search fallback and the "Search titles instead" link.
+- [ ] Interpretation chips (removable, rerun) + "Ignored: …" line.
+- [ ] Age filter chip row (default from active profile / Family strictest), cert post-filter via
+      `CERT_RANK`, unrated handling.
+- [ ] Bump to 0.1.0-alpha.17 (versionCode 17); `./gradlew test assembleDebug` green.
+- [ ] Live check on Kev's phone.
