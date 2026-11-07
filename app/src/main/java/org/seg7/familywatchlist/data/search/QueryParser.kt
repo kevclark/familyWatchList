@@ -23,6 +23,8 @@ data class ParsedQuery(
     val candidates: List<Candidate>,
     /** Chip keys the user removed. Applied by [without]; split-word keys ("kw:<word>") are read at resolution time. */
     val removed: Set<String> = emptySet(),
+    /** PLAN.md §5g: themes matched from [PhraseTable.themePhrases]; each is one OR group of fixed keyword ids. */
+    val themes: List<ThemeTerm> = emptyList(),
 ) {
     /** The media types searched. No media word (or both kinds) means both. */
     val mediaTypes: Set<MediaType>
@@ -44,12 +46,14 @@ data class ParsedQuery(
      */
     val hasStructure: Boolean
         get() = genres.isNotEmpty() ||
+            themes.isNotEmpty() ||
             candidates.isNotEmpty()
 
     fun without(keys: Set<String>): ParsedQuery = copy(
         media = media.filter { mediaKey(it) !in keys },
         genres = genres.filter { it.key !in keys },
         candidates = candidates.filter { it.key !in keys },
+        themes = themes.filter { it.key !in keys },
         removed = removed + keys,
     )
 
@@ -60,7 +64,7 @@ data class ParsedQuery(
 
 /**
  * PLAN.md §5f item 1. Deterministic word and phrase matching over [PhraseTable]; no inference.
- * Genre phrases are matched longest-first ("sci fi", "rom com", "murder mystery"), then media
+ * Genre and theme phrases (PLAN.md §5g) are matched longest-first ("sci fi", "rom com", "murder mystery"), then media
  * words, cast cues ("with", "starring"), stop words; whatever remains becomes [Candidate]s.
  */
 object QueryParser {
@@ -68,6 +72,7 @@ object QueryParser {
         val tokens = tokenize(text)
         val media = LinkedHashSet<MediaWord>()
         val genres = LinkedHashMap<String, GenreTerm>()
+        val themes = LinkedHashMap<String, ThemeTerm>()
         val candidates = LinkedHashMap<String, Candidate>()
 
         fun addCandidate(words: List<String>, cued: Boolean) {
@@ -76,27 +81,35 @@ object QueryParser {
             candidates.putIfAbsent(c.key, c)
         }
 
-        /** Index where a genre phrase starts at [i], or null. Returns word count matched. */
-        fun genreAt(i: Int): Pair<Int, List<GenreTerm>>? {
+        /** A genre or theme phrase starting at token [i]: word count, plus the genres or theme it means. */
+        class PhraseHit(val words: Int, val genres: List<GenreTerm>?, val theme: ThemeTerm?)
+
+        /**
+         * Longest phrase first, so "cold war" is the Cold war theme, not the War genre. A theme and a genre never
+         * share a phrase (pinned in PhraseTableTest), so the order inside one length does not matter.
+         */
+        fun phraseAt(i: Int): PhraseHit? {
             for (n in minOf(PhraseTable.maxPhraseWords, tokens.size - i) downTo 1) {
-                val terms = PhraseTable.genrePhrases[tokens.subList(i, i + n).joinToString(" ")]
-                if (terms != null) return n to terms
+                val key = tokens.subList(i, i + n).joinToString(" ")
+                PhraseTable.themePhrases[key]?.let { return PhraseHit(n, null, it) }
+                PhraseTable.genrePhrases[key]?.let { return PhraseHit(n, it, null) }
             }
             return null
         }
 
         fun isPlain(i: Int): Boolean {
             val t = tokens[i]
-            return t !in PhraseTable.stopWords && t !in PhraseTable.mediaWords && t !in PhraseTable.castCueWords && genreAt(i) == null
+            return t !in PhraseTable.stopWords && t !in PhraseTable.mediaWords && t !in PhraseTable.castCueWords && phraseAt(i) == null
         }
 
         var i = 0
         while (i < tokens.size) {
-            val genre = genreAt(i)
+            val phrase = phraseAt(i)
             when {
-                genre != null -> {
-                    genre.second.forEach { genres.putIfAbsent(it.name, it) }
-                    i += genre.first
+                phrase != null -> {
+                    phrase.genres?.forEach { genres.putIfAbsent(it.name, it) }
+                    phrase.theme?.let { themes.putIfAbsent(it.name, it) }
+                    i += phrase.words
                 }
                 tokens[i] in PhraseTable.mediaWords -> {
                     media.add(PhraseTable.mediaWords.getValue(tokens[i]))
@@ -120,7 +133,7 @@ object QueryParser {
                 }
             }
         }
-        return ParsedQuery(text.trim(), media.toList(), genres.values.toList(), candidates.values.toList())
+        return ParsedQuery(text.trim(), media.toList(), genres.values.toList(), candidates.values.toList(), themes = themes.values.toList())
     }
 
     /** Lowercase; hyphens and punctuation become spaces (so "sci-fi" is "sci fi"); apostrophes vanish ("children's"). */

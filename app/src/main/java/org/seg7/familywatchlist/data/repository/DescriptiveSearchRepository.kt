@@ -1,5 +1,6 @@
 package org.seg7.familywatchlist.data.repository
 
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.joinAll
@@ -47,7 +48,13 @@ sealed interface SearchPlan {
 }
 
 /** One page of structured results. [unratedKeys] uses the same `"MEDIATYPE-tmdbId"` format as the search screen's listed keys. */
-data class ResultPage(val titles: List<TitleEntity>, val unratedKeys: Set<String>, val hasMore: Boolean)
+data class ResultPage(
+    val titles: List<TitleEntity>,
+    val unratedKeys: Set<String>,
+    val hasMore: Boolean,
+    /** TMDB pages this load has fetched so far; the caller's next start page is `page + pagesConsumed` (PLAN.md §5g). */
+    val pagesConsumed: Int = 1,
+)
 
 /**
  * PLAN.md §5f: descriptive search. [plan] resolves the parser's person and keyword candidates
@@ -81,10 +88,13 @@ class DescriptiveSearchRepository(
         val ignored = ArrayList<String>()
         parsed.media.forEach { chips += SearchChip(ParsedQuery.mediaKey(it), if (it == MediaWord.MOVIE) "Movies" else "TV") }
         parsed.genres.forEach { chips += SearchChip(it.key, it.name) }
+        // PLAN.md §5g: a theme is one fixed OR group of keyword ids; no lookup, and it ANDs with everything else.
+        parsed.themes.forEach { chips += SearchChip(it.key, it.name) }
 
         val personIds = ArrayList<Int>()
         val keywordIds = ArrayList<List<Int>>()
-        val descriptive = parsed.genres.isNotEmpty() || parsed.media.isNotEmpty()
+        parsed.themes.forEach { keywordIds += it.keywordIds }
+        val descriptive = parsed.genres.isNotEmpty() || parsed.media.isNotEmpty() || parsed.themes.isNotEmpty()
 
         parsed.candidates.forEachIndexed { index, cand ->
             if (index >= MAX_CANDIDATE_LOOKUPS) {
@@ -143,103 +153,133 @@ class DescriptiveSearchRepository(
         )
     }
 
-    /** Runs one page of [plan]. [cap] is the BBFC cap string or null for Any. The last emission is the settled page. */
-    fun run(plan: SearchPlan.Structured, page: Int, cap: String?, region: String = REGION_GB): Flow<ResultPage> = channelFlow {
+    /**
+     * Runs one load of [plan], starting at TMDB page [page] (PLAN.md §5g). A load keeps fetching further
+     * pages until [TARGET_TITLES] titles have passed the local checks, [MAX_PAGES_PER_LOAD] pages have been
+     * fetched, or TMDB has no more pages. Titles whose `"MEDIATYPE-tmdbId"` key is in [exclude] (already on
+     * screen) are skipped before any check. Emissions are progressive and cumulative for this load; the last
+     * one is settled and carries [ResultPage.pagesConsumed] and the final [ResultPage.hasMore].
+     * [cap] is the BBFC cap string or null for Any.
+     */
+    fun run(
+        plan: SearchPlan.Structured,
+        page: Int,
+        cap: String?,
+        region: String = REGION_GB,
+        exclude: Set<String> = emptySet(),
+    ): Flow<ResultPage> = channelFlow {
         val providerIds = providerRepository.getSubscribedIds()
         if (providerIds.isEmpty() || (plan.movie == null && plan.tv == null)) {
-            send(ResultPage(emptyList(), emptySet(), hasMore = false))
+            send(ResultPage(emptyList(), emptySet(), hasMore = false, pagesConsumed = 0))
             return@channelFlow
         }
         val providers = providerIds.sorted().joinToString("|")
         val now = clock.nowMillis()
 
-        var hasMore = false
-        val candidates = ArrayList<Triple<MediaSummaryDto, MediaType, Boolean>>() // dto, type, tvKeywordCheck
-
-        plan.movie?.let { spec ->
-            val response = api.discoverMovies(
-                watchRegion = region,
-                withWatchProviders = providers,
-                monetizationTypes = MONETIZATION,
-                page = page,
-                withGenres = spec.genreIds.csv(),
-                withCast = spec.personIds.csv(),
-                withKeywords = spec.keywordGroups.keywordParam(),
-                voteCountGte = VOTE_FLOOR,
-                certificationCountry = AgeFilter.optionForCap(cap).tmdbCertification?.let { region },
-                certificationLte = AgeFilter.optionForCap(cap).tmdbCertification,
-            )
-            response.results.forEach { candidates += Triple(it, MediaType.MOVIE, false) }
-            if (page < response.totalPages) hasMore = true
+        // TV discover has no with_cast: intersect the people's credits once, filter locally, page locally.
+        val localTv: List<MediaSummaryDto>? = plan.tv?.takeIf { it.personIds.isNotEmpty() }?.let { spec ->
+            val credits = spec.personIds.map { tvCredits(it) }
+            val common = credits.drop(1).fold(credits.first().map { it.id }.toSet()) { acc, list -> acc intersect list.map { it.id }.toSet() }
+            credits.first()
+                .filter { it.id in common }
+                .filter { dto -> spec.genreIds.all { it in dto.genreIds } }
+                .filter { (it.voteCount ?: 0) >= VOTE_FLOOR }
+                .filterNot { it.character?.contains("self", ignoreCase = true) == true }
+                .distinctBy { it.id }
+                .sortedWith(compareByDescending<MediaSummaryDto> { it.popularity ?: 0.0 }.thenBy { it.id })
         }
-        plan.tv?.let { spec ->
-            if (spec.personIds.isEmpty()) {
-                val response = api.discoverTv(
+
+        var movieMore = plan.movie != null
+        var tvMore = plan.tv != null
+        var consumed = 0
+        val accepted = ArrayList<TitleEntity>()
+        val unrated = HashSet<String>()
+        val seen = HashSet(exclude)
+        val sendMutex = Mutex()
+        val limit = Semaphore(MAX_CONCURRENT_CHECKS)
+
+        while (consumed < MAX_PAGES_PER_LOAD && accepted.size < TARGET_TITLES && (movieMore || tvMore)) {
+            val current = page + consumed
+            consumed++
+            val candidates = ArrayList<Triple<MediaSummaryDto, MediaType, Boolean>>() // dto, type, tvKeywordCheck
+
+            if (movieMore) plan.movie?.let { spec ->
+                val response = api.discoverMovies(
                     watchRegion = region,
                     withWatchProviders = providers,
                     monetizationTypes = MONETIZATION,
-                    page = page,
+                    page = current,
                     withGenres = spec.genreIds.csv(),
+                    withCast = spec.personIds.csv(),
                     withKeywords = spec.keywordGroups.keywordParam(),
                     voteCountGte = VOTE_FLOOR,
+                    certificationCountry = AgeFilter.optionForCap(cap).tmdbCertification?.let { region },
+                    certificationLte = AgeFilter.optionForCap(cap).tmdbCertification,
                 )
-                response.results.forEach { candidates += Triple(it, MediaType.TV, false) }
-                if (page < response.totalPages) hasMore = true
-            } else {
-                // TV discover has no with_cast: intersect the people's credits, filter locally, page locally.
-                val credits = spec.personIds.map { tvCredits(it) }
-                val common = credits.drop(1).fold(credits.first().map { it.id }.toSet()) { acc, list -> acc intersect list.map { it.id }.toSet() }
-                val filtered = credits.first()
-                    .filter { it.id in common }
-                    .filter { dto -> spec.genreIds.all { it in dto.genreIds } }
-                    .filter { (it.voteCount ?: 0) >= VOTE_FLOOR }
-                    .filterNot { it.character?.contains("self", ignoreCase = true) == true }
-                    .distinctBy { it.id }
-                    .sortedWith(compareByDescending<MediaSummaryDto> { it.popularity ?: 0.0 }.thenBy { it.id })
-                val from = (page - 1) * PAGE_SIZE
-                filtered.drop(from).take(PAGE_SIZE).forEach { candidates += Triple(it, MediaType.TV, spec.keywordGroups.isNotEmpty()) }
-                if (from + PAGE_SIZE < filtered.size) hasMore = true
+                response.results.forEach { candidates += Triple(it, MediaType.MOVIE, false) }
+                movieMore = current < response.totalPages
             }
-        }
-
-        val ordered = candidates
-            .filter { (dto, _, _) -> !(dto.title ?: dto.name).isNullOrBlank() }
-            .sortedWith(compareByDescending<Triple<MediaSummaryDto, MediaType, Boolean>> { it.first.popularity ?: 0.0 }.thenBy { it.first.id })
-        titleDao.persistStubs(ordered.map { it.first to it.second }, now)
-        val stored = MediaType.entries.associateWith { type ->
-            val ids = ordered.filter { it.second == type }.map { it.first.id }
-            if (ids.isEmpty()) emptyMap() else titleDao.getByIds(ids, type).associateBy { it.tmdbId }
-        }
-
-        val slots = arrayOfNulls<TitleEntity>(ordered.size)
-        val unrated = HashSet<String>()
-        val sendMutex = Mutex()
-        val limit = Semaphore(MAX_CONCURRENT_CHECKS)
-        val moreAtEnd = hasMore
-        ordered.mapIndexed { index, (dto, type, keywordCheck) ->
-            launch {
-                val candidate = stored.getValue(type)[dto.id] ?: return@launch
-                limit.withPermit {
-                    if (!availabilityGate.isAvailableOnSubscribedProvider(dto.id, type, region)) return@withPermit
-                    // Cache-only: the gate call above just ensured freshness.
-                    if (availabilityGate.isPaidOnlyCached(dto.id, type)) return@withPermit
-                    val certification = titleDao.get(dto.id, type)?.certification ?: candidate.certification
-                    val verdict = AgeFilter.evaluate(certification, cap)
-                    if (verdict == AgeVerdict.HIDE) return@withPermit
-                    if (keywordCheck) {
-                        val have = titleAttributeDao.getForTitle(dto.id, type).filter { it.attrType == AttrType.KEYWORD }.map { it.attrId }.toSet()
-                        if (!plan.tv!!.keywordGroups.all { group -> group.any { it in have } }) return@withPermit
-                    }
-                    sendMutex.withLock {
-                        slots[index] = titleDao.get(dto.id, type) ?: candidate
-                        if (verdict == AgeVerdict.SHOW_UNRATED) unrated += "$type-${dto.id}"
-                        send(ResultPage(slots.filterNotNull(), unrated.toSet(), moreAtEnd))
-                    }
+            if (tvMore) plan.tv?.let { spec ->
+                if (localTv == null) {
+                    val response = api.discoverTv(
+                        watchRegion = region,
+                        withWatchProviders = providers,
+                        monetizationTypes = MONETIZATION,
+                        page = current,
+                        withGenres = spec.genreIds.csv(),
+                        withKeywords = spec.keywordGroups.keywordParam(),
+                        voteCountGte = VOTE_FLOOR,
+                    )
+                    response.results.forEach { candidates += Triple(it, MediaType.TV, false) }
+                    tvMore = current < response.totalPages
+                } else {
+                    val from = (current - 1) * PAGE_SIZE
+                    localTv.drop(from).take(PAGE_SIZE).forEach { candidates += Triple(it, MediaType.TV, spec.keywordGroups.isNotEmpty()) }
+                    tvMore = from + PAGE_SIZE < localTv.size
                 }
             }
-        }.joinAll()
-        sendMutex.withLock { send(ResultPage(slots.filterNotNull(), unrated.toSet(), moreAtEnd)) }
+
+            val ordered = candidates
+                .filter { (dto, _, _) -> !(dto.title ?: dto.name).isNullOrBlank() }
+                .filter { (dto, type, _) -> seen.add(listedKeyOf(dto.id, type)) }
+                .sortedWith(compareByDescending<Triple<MediaSummaryDto, MediaType, Boolean>> { it.first.popularity ?: 0.0 }.thenBy { it.first.id })
+            titleDao.persistStubs(ordered.map { it.first to it.second }, now)
+            val stored = MediaType.entries.associateWith { type ->
+                val ids = ordered.filter { it.second == type }.map { it.first.id }
+                if (ids.isEmpty()) emptyMap() else titleDao.getByIds(ids, type).associateBy { it.tmdbId }
+            }
+
+            val slots = arrayOfNulls<TitleEntity>(ordered.size)
+            coroutineScope {
+                ordered.mapIndexed { index, (dto, type, keywordCheck) ->
+                    launch {
+                        val candidate = stored.getValue(type)[dto.id] ?: return@launch
+                        limit.withPermit {
+                            if (!availabilityGate.isAvailableOnSubscribedProvider(dto.id, type, region)) return@withPermit
+                            // Cache-only: the gate call above just ensured freshness.
+                            if (availabilityGate.isPaidOnlyCached(dto.id, type)) return@withPermit
+                            val certification = titleDao.get(dto.id, type)?.certification ?: candidate.certification
+                            val verdict = AgeFilter.evaluate(certification, cap)
+                            if (verdict == AgeVerdict.HIDE) return@withPermit
+                            if (keywordCheck) {
+                                val have = titleAttributeDao.getForTitle(dto.id, type).filter { it.attrType == AttrType.KEYWORD }.map { it.attrId }.toSet()
+                                if (!plan.tv!!.keywordGroups.all { group -> group.any { it in have } }) return@withPermit
+                            }
+                            sendMutex.withLock {
+                                slots[index] = titleDao.get(dto.id, type) ?: candidate
+                                if (verdict == AgeVerdict.SHOW_UNRATED) unrated += listedKeyOf(dto.id, type)
+                                send(ResultPage(accepted + slots.filterNotNull(), unrated.toSet(), movieMore || tvMore, consumed))
+                            }
+                        }
+                    }
+                }.joinAll()
+            }
+            accepted += slots.filterNotNull()
+        }
+        sendMutex.withLock { send(ResultPage(accepted.toList(), unrated.toSet(), movieMore || tvMore, consumed)) }
     }
+
+    private fun listedKeyOf(id: Int, type: MediaType) = "$type-$id"
 
     private suspend fun tvCredits(personId: Int): List<MediaSummaryDto> =
         tvCreditsCache[personId] ?: api.personTvCredits(personId).cast.also { tvCreditsCache[personId] = it }
@@ -315,6 +355,12 @@ class DescriptiveSearchRepository(
         /** Minimum TMDB vote count so unrated junk does not surface. */
         const val VOTE_FLOOR = 50
         const val PAGE_SIZE = 20
+
+        /** PLAN.md §5g: one load (first search or a More tap) aims for this many titles that pass the local checks... */
+        const val TARGET_TITLES = 20
+
+        /** ...but fetches at most this many TMDB pages (or local PAGE_SIZE chunks for TV-with-person). */
+        const val MAX_PAGES_PER_LOAD = 3
         /**
          * Included-with-subscription kinds only, like the existing discover calls. Browsing by genre or
          * actor never nudges towards rent/buy (PLAN.md, Kev 2026-08-22: paid options appear only when
