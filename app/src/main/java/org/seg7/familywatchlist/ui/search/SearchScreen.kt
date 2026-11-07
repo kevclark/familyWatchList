@@ -1,6 +1,8 @@
 package org.seg7.familywatchlist.ui.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,6 +89,7 @@ fun SearchScreen(
                     activeProfileId,
                     container.userPreferencesRepository,
                     container.recommendationRepository,
+                    container.descriptiveSearchRepository,
                 )
             }
         },
@@ -121,7 +124,7 @@ fun SearchScreen(
                 value = state.query,
                 onValueChange = viewModel::onQueryChange,
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Films and series", color = ChalkFaint) },
+                placeholder = { Text("Films and series, or describe: action comedies", color = ChalkFaint) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ChalkMuted) },
                 trailingIcon = {
                     if (state.query.isNotEmpty()) {
@@ -158,6 +161,53 @@ fun SearchScreen(
                         onClick = { viewModel.onFilterChange(filter) },
                     )
                 }
+            }
+            // PLAN.md §5f item 4: age filter, defaulting to the profile's cap (Family: strictest).
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Age", style = MaterialTheme.typography.labelMedium, color = ChalkMuted)
+                state.ageOptions.forEach { option ->
+                    FilterPill(
+                        label = option.label,
+                        selected = state.ageOption == option,
+                        onClick = { viewModel.onAgeOptionChange(option) },
+                    )
+                }
+            }
+            // PLAN.md §5f item 3: what the structured search understood, each removable.
+            state.interpretation?.let { interpretation ->
+                if (interpretation.chips.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        interpretation.chips.forEach { chip ->
+                            FilterPill(
+                                label = "${chip.label}  \u00D7",
+                                selected = false,
+                                onClick = { viewModel.onRemoveChip(chip.key) },
+                            )
+                        }
+                    }
+                }
+                if (interpretation.ignored.isNotEmpty()) {
+                    Text(
+                        text = "Ignored: ${interpretation.ignored.joinToString(", ")}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ChalkFaint,
+                    )
+                }
+            }
+            if (state.showTitleSearchLink) {
+                Text(
+                    text = "Search titles for \u2018${state.query.trim()}\u2019 instead",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Accent,
+                    modifier = Modifier.clickableNoRipple { viewModel.onSearchTitlesInstead() },
+                )
             }
             if (state.isSearching) {
                 LinearProgressIndicator(
@@ -196,6 +246,7 @@ fun SearchScreen(
                     modifier = Modifier.fillMaxSize().imePadding(),
                 ) {
                     items(results, key = { "${it.mediaType}-${it.tmdbId}" }) { title ->
+                      Column {
                         PosterCard(
                             title = title.title,
                             posterPath = title.posterPath,
@@ -207,6 +258,25 @@ fun SearchScreen(
                             onQuickAdd = { viewModel.toggleWatchlist(title) },
                             paidOnly = state.isPaidOnly(title),
                         )
+                        if (state.isUnrated(title)) {
+                            Text(
+                                text = "Unrated",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ChalkFaint,
+                            )
+                        }
+                      }
+                    }
+                    if (state.canLoadMore) {
+                        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                if (state.isLoadingMore) {
+                                    CircularProgressIndicator(color = Accent)
+                                } else {
+                                    FilterPill(label = "Load more", selected = false, onClick = viewModel::loadMore)
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -24,6 +24,7 @@ import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.RefreshLogRepository
 import org.seg7.familywatchlist.data.repository.RegionCatalogRepository
+import org.seg7.familywatchlist.data.repository.DescriptiveSearchRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
@@ -103,6 +104,13 @@ class AppContainer(context: Context) {
 
     val searchRepository: SearchRepository by lazy {
         SearchRepository(database.titleDao(), tmdbApi, clock, availabilityGate)
+    }
+
+    // PLAN.md §5f: descriptive search (genres/people/keywords on TMDB discover).
+    val descriptiveSearchRepository: DescriptiveSearchRepository by lazy {
+        DescriptiveSearchRepository(
+            database.titleDao(), database.titleAttributeDao(), tmdbApi, clock, availabilityGate, providerRepository,
+        )
     }
 
     val watchlistRepository: WatchlistRepository by lazy {
