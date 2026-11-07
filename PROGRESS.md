@@ -2418,6 +2418,12 @@ reset on selection change / `Finished` / shortlist recompute. No schema change.
 - [x] Age filter chip row (default from active profile / Family strictest), cert post-filter via
       `CERT_RANK`, unrated handling.
 - [x] Bump to 0.1.0-alpha.17 (versionCode 17); `./gradlew test assembleDebug` green.
+- [x] Emulator check against live TMDB (2026-11-07, orchestrator): "slapstick comedies",
+      "movies with Ryan Reynolds" (films only), "murder mystery" (Mystery + Crime, plus a
+      "Titles matching" section with both Murder Mystery films) and "comedy movies" (films only,
+      no title section) all behave as specified at cap 12 on a Netflix-only profile. This check
+      found three bugs the unit tests missed: the keyword exact-match pick returned 0 results,
+      browsing included rent/buy, and the title-match section rendered above the viewport.
 - [ ] Live check on Kev's phone.
 
 M17 notes (2026-11-07): pure parser in `data/search` (`PhraseTable`, `QueryParser`, `AgeFilter`);
