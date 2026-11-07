@@ -2435,3 +2435,10 @@ max 6) because TMDB's bare "slapstick" keyword is nearly unused. Structured sear
 and drops rent/buy-only titles (browsing never nudges spending; plain title search keeps rent/buy). A title
 search runs alongside every structured search; up to 3 equal/starts-with matches show as "Titles matching".
 A lone unplaced word is tried as a keyword.
+
+## Queued for alpha.18 (Kev, 2026-11-07)
+
+- [ ] Search "More" returns at least 20 new titles per tap. Today one tap fetches one TMDB
+      page (up to 20) and the local checks (rent/buy-only, live availability, age/unrated)
+      drop about half, so Kev sees 10–12. Fix: keep fetching pages until 20 new titles pass,
+      stopping after 3 pages; More hides when TMDB runs out. Kev, slapstick search, phone.
