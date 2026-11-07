@@ -19,6 +19,8 @@ import org.seg7.familywatchlist.data.local.entity.RatingValue
 import org.seg7.familywatchlist.data.local.entity.ReviewEntity
 import org.seg7.familywatchlist.data.local.entity.TitleAttributeEntity
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
+import org.seg7.familywatchlist.data.repository.MoreLikeThisRepository
+import org.seg7.familywatchlist.data.repository.MoreLikeThisResult
 import org.seg7.familywatchlist.data.repository.RatingRepository
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.TitleRepository
@@ -43,6 +45,10 @@ data class TitleDetailUiState(
     val reasons: List<String>? = null,
     /** PLAN.md §5c (M14): TMDB's own review snippets for this title, free on the same detail call. */
     val reviews: List<ReviewEntity> = emptyList(),
+    /** PLAN.md §5h: the "More like this" row, in TMDB's order; empty hides the row. */
+    val moreLikeThis: List<TitleEntity> = emptyList(),
+    /** True while the row's checks run; with [moreLikeThis] still empty the screen shows a subtle placeholder. */
+    val moreLikeThisLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val errorMessage: String? = null,
 )
@@ -73,12 +79,16 @@ class TitleDetailViewModel(
     private val mediaType: MediaType,
     private val activeProfileId: Long,
     private val userPreferencesRepository: UserPreferencesRepository,
+    private val moreLikeThisRepository: MoreLikeThisRepository,
 ) : ViewModel() {
 
     private val _refreshing = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
     private val _events = MutableSharedFlow<TitleDetailUiEvent>()
     val events = _events.asSharedFlow()
+
+    // PLAN.md §5h: null result = still loading with nothing yet; failure leaves the row hidden.
+    private val _moreLikeThis = MutableStateFlow(MoreLikeThisResult(emptyList(), settled = false))
 
     // A plain one-shot read, not a live Room Flow: the shortlist itself only ever changes via an
     // explicit refresh (Home's pull-to-refresh, a slider recompute), never while this screen sits
@@ -94,9 +104,9 @@ class TitleDetailViewModel(
             ratingRepository.observeForTitle(tmdbId, mediaType),
             _refreshing,
             _error,
-            _reasons,
+            combine(_reasons, _moreLikeThis) { reasons, more -> reasons to more },
             titleRepository.observeReviews(tmdbId, mediaType),
-        ) { ratings, refreshing, error, reasons, reviews -> DetailMeta(ratings, refreshing, error, reasons, reviews) },
+        ) { ratings, refreshing, error, extras, reviews -> DetailMeta(ratings, refreshing, error, extras.first, extras.second, reviews) },
     ) { title, attributes, availability, isListed, meta ->
         TitleDetailUiState(
             title = title,
@@ -107,6 +117,8 @@ class TitleDetailViewModel(
             isListed = isListed,
             myRating = meta.ratings[activeProfileId],
             reasons = meta.reasons,
+            moreLikeThis = meta.more.titles,
+            moreLikeThisLoading = !meta.more.settled,
             reviews = meta.reviews,
             isRefreshing = meta.refreshing,
             errorMessage = meta.error,
@@ -118,6 +130,7 @@ class TitleDetailViewModel(
         viewModelScope.launch {
             _reasons.value = recommendationRepository.reasonsForShortlistEntry(activeProfileId, tmdbId, mediaType)
         }
+        loadMoreLikeThis()
     }
 
     private data class DetailMeta(
@@ -125,8 +138,24 @@ class TitleDetailViewModel(
         val refreshing: Boolean,
         val error: String?,
         val reasons: List<String>?,
+        val more: MoreLikeThisResult,
         val reviews: List<ReviewEntity>,
     )
+
+    /** PLAN.md §5h. Same cap resolution as search; any failure hides the row (offline-first, no error UI). */
+    private fun loadMoreLikeThis() {
+        viewModelScope.launch {
+            try {
+                val region = userPreferencesRepository.region.first()
+                val cap = recommendationRepository.resolveAgeRatingCap(activeProfileId)
+                moreLikeThisRepository.load(tmdbId, mediaType, cap, region).collect { _moreLikeThis.value = it }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _moreLikeThis.value = MoreLikeThisResult(emptyList(), settled = true)
+            }
+        }
+    }
 
     fun refresh() {
         viewModelScope.launch {

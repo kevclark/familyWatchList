@@ -255,12 +255,8 @@ class DescriptiveSearchRepository(
                     launch {
                         val candidate = stored.getValue(type)[dto.id] ?: return@launch
                         limit.withPermit {
-                            if (!availabilityGate.isAvailableOnSubscribedProvider(dto.id, type, region)) return@withPermit
-                            // Cache-only: the gate call above just ensured freshness.
-                            if (availabilityGate.isPaidOnlyCached(dto.id, type)) return@withPermit
-                            val certification = titleDao.get(dto.id, type)?.certification ?: candidate.certification
-                            val verdict = AgeFilter.evaluate(certification, cap)
-                            if (verdict == AgeVerdict.HIDE) return@withPermit
+                            val verdict = passesBrowseGate(availabilityGate, titleDao, dto.id, type, region, cap, candidate.certification)
+                                ?: return@withPermit
                             if (keywordCheck) {
                                 val have = titleAttributeDao.getForTitle(dto.id, type).filter { it.attrType == AttrType.KEYWORD }.map { it.attrId }.toSet()
                                 if (!plan.tv!!.keywordGroups.all { group -> group.any { it in have } }) return@withPermit
@@ -370,16 +366,5 @@ class DescriptiveSearchRepository(
         private const val MAX_CANDIDATE_LOOKUPS = 4
         private const val MAX_KEYWORD_GROUP = 6
         private const val MAX_CONCURRENT_CHECKS = 5
-    }
-}
-
-/** Writes search hits as stubs without overwriting titles that already have full detail (same rule as [SearchRepository]). */
-private suspend fun TitleDao.persistStubs(results: List<Pair<MediaSummaryDto, MediaType>>, now: Long) {
-    MediaType.entries.forEach { type ->
-        val forType = results.filter { it.second == type }.map { it.first }
-        if (forType.isEmpty()) return@forEach
-        val detailed = getByIds(forType.map { it.id }, type).filter { it.runtimeMin != null || it.certification != null }.map { it.tmdbId }.toSet()
-        val stubs = forType.filter { it.id !in detailed }.map { it.toStubTitleEntity(type, now) }
-        if (stubs.isNotEmpty()) upsertAll(stubs)
     }
 }
