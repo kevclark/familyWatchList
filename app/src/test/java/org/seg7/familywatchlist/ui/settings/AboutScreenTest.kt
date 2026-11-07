@@ -35,7 +35,7 @@ class AboutScreenTest {
         }
 
         composeRule.onNodeWithText("Version ${BuildConfig.VERSION_NAME}").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("${BuildStats.TOTAL_PROMPTS} prompts · 12.9h of build time").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("${BuildStats.TOTAL_PROMPTS} prompts · ${"%.1f".format(BuildStats.TOTAL_HOURS)}h of build time").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Snapshot as of ${BuildStats.SNAPSHOT_DATE} — these figures don't update live as development continues.")
             .performScrollTo().assertIsDisplayed()
 

@@ -2438,19 +2438,28 @@ A lone unplaced word is tried as a keyword.
 
 ## Queued for alpha.18 (Kev, 2026-11-07)
 
-- [ ] Search "More" returns at least 20 new titles per tap. Today one tap fetches one TMDB
+- [x] Search "More" returns at least 20 new titles per tap (built 2026-11-07, PLAN.md §5g). Today one tap fetches one TMDB
       page (up to 20) and the local checks (rent/buy-only, live availability, age/unrated)
       drop about half, so Kev sees 10–12. Fix: keep fetching pages until 20 new titles pass,
       stopping after 3 pages; More hides when TMDB runs out. Kev, slapstick search, phone.
-- [ ] Themes section in the phrase table (Kev, 2026-11-07). Maps everyday descriptive words to
+- [x] Themes section in the phrase table (Kev, 2026-11-07; built, 77 themes, PLAN.md §5g). Maps everyday descriptive words to
       TMDB's well-used keyword tags, e.g. dystopian/bleak future → dystopia; superpowers/super
       beings/overpowered → superhero + super power; zombies/undead → zombie; heist/robbery → heist;
       apocalypse → post-apocalyptic future; aliens → alien; cyberpunk; time travel. Start with
       50–80 themes, each verified against live TMDB to point at the main tag (not a near-unused
       variant like "dystopian" or "slapstick"). Pure lookup, no inference. Kev adds misses as found.
-- [ ] Themes also cover (Kev, 2026-11-07, verified against live TMDB keyword usage):
+- [x] Themes also cover (Kev, 2026-11-07, verified against live TMDB keyword usage):
       places (london → "london, england" 212, not the near-empty "london" 382039; other UK
       cities likewise); gritty/dark/bleak → gritty 286125 | neo-noir 207268 | british noir 155451;
       spy/spies/espionage/secret agent/mi6/mi5 → spy 470 | espionage 5265 | secret agent 4289 |
       mi6 14555 | mi5 190904; gangster/gangland/mob → gangster 3149 | organized crime 10291;
       undercover 1568; police procedural 268067. Each theme is one OR group; separate themes AND.
+- [x] Bumped to 0.1.0-alpha.18 / versionCode 18; `BuildStats.kt` re-derived (snapshot 2026-11-07: 249 prompts,
+      48 agent tasks, ~17.0 h; Sonnet 5.5 row added; the running alpha.18 build is not counted yet).
+- [ ] Live check on Kev's phone (More gives 20+ per tap and hides when exhausted; theme chips for "gritty london
+      spy shows", "dystopian movies", "london"; removing a theme chip reruns).
+
+alpha.18 notes (2026-11-07): `run()` now loops pages (target 20, max 3 pages, stops when TMDB is exhausted) and
+returns `pagesConsumed`; the ViewModel advances `nextPage` by it and passes shown keys as `exclude`. `PhraseTable`
+gained `themes`/`themePhrases` (77 themes, ids and film/show counts in comments); `ParsedQuery.themes`; theme chips
+use key `theme:<Name>`. Tests: 629 -> 655 JVM tests, all green. Judgement calls are listed in PLAN.md §5g.
