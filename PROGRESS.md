@@ -2467,9 +2467,16 @@ use key `theme:<Name>`. Tests: 629 -> 655 JVM tests, all green. Judgement calls 
 
 ## Queued for alpha.19 (Kev, 2026-11-07)
 
-- [ ] "More like this" row at the bottom of the title detail screen, from TMDB
+- [x] "More like this" row at the bottom (built 2026-11-07, PLAN.md §5h) of the title detail screen, from TMDB
       `movie|tv/{id}/recommendations` (NOT `/similar`: orchestrator compared both live — for
       Slow Horses, recommendations gave Spooks/The Night Manager/The Capture, similar gave
       unrelated titles). Same gates as search browsing: subscribed providers in GB,
       flatrate/free only (no rent/buy-only), profile/Family age cap, unrated rule. Horizontal
       poster row like Home; hidden when nothing passes; tapping opens that title's detail.
+- [x] Bumped to 0.1.0-alpha.19 / versionCode 19. `BuildStats.kt` left as refreshed for alpha.18 (needs transcript mining, not cheap).
+- [ ] Live check on Kev's phone (More like this on Slow Horses shows Spooks / The Night Manager / The Capture type titles on his services;
+      tapping chains to that title's detail; row hidden when nothing is on his services; no rent/buy-only titles; capped profile hides over-cap).
+
+alpha.19 notes (2026-11-07): `passesBrowseGate` and `persistStubs` factored into `BrowseGating.kt` (shared with search).
+New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes it as a last constructor arg and exposes
+`moreLikeThis` / `moreLikeThisLoading`; `TitleDetailScreen` gained `onOpenTitle`.

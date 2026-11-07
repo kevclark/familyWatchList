@@ -1003,6 +1003,31 @@ variants) finds near-empty tags: "london" is 14 films while "london, england" is
 - Genre words used by the earlier tests as unplaced-keyword examples (heist, zombie, dragons) became themes, so those
   tests now use non-theme words (caper, cozy, gadgets); the mechanism they pin is unchanged.
 
+### 5h. "More like this" on the title detail screen (Kev, 2026-11-07 — alpha.19)
+
+A horizontal poster row titled "More like this" at the bottom of the detail screen (after Reviews).
+
+- **Source:** page 1 of TMDB `movie|tv/{id}/recommendations`, the same endpoints the recommender uses. Not `/similar`:
+  compared live (Slow Horses), recommendations gave Spooks / The Night Manager / The Capture, `/similar` gave unrelated titles.
+- **Gates, shared with structured search:** `passesBrowseGate` (in `BrowseGating.kt`, now also used by
+  `DescriptiveSearchRepository.run`) = `AvailabilityGate.isAvailableOnSubscribedProvider` for the user's region, then
+  `isPaidOnlyCached` drops rent/buy-only, then `AgeFilter.evaluate` against the active profile's cap (Family: strictest
+  member's, via `RecommendationRepository.resolveAgeRatingCap`, same as search) with the usual unrated rule (hidden at a
+  cap of 12 or below, shown above). `persistStubs` (no overwriting detailed rows) moved to the same file.
+- **`MoreLikeThisRepository.load(tmdbId, type, cap, region)`** returns a flow of cumulative `MoreLikeThisResult(titles,
+  settled)`. Checks run concurrently (5 at a time) and results are emitted as they pass but always in TMDB's order.
+  The title itself, blank names and duplicate ids are excluded before any check. A single title whose check throws is dropped.
+- **Cache:** recommendation lists are held in memory per `(type, id)` in the process-scoped repository, so going back to a
+  screen does not refetch. The per-title checks are Room-cached already. No schema change.
+- **UI:** `MoreLikeThisRow` reuses `PosterCarousel` / `PosterCard`; tap calls the existing `onOpenTitle`, so detail screens chain.
+  Hidden when nothing passes. While checks run with nothing passed yet it shows the header over a 2dp hairline progress line.
+  A network failure hides the row with no error UI. Availability badges are not rendered in the row; the "Where to watch"
+  section above already carries the JustWatch credit.
+
+**Judgement calls:** the loading line also shows during the initial recommendations fetch, so on a title with no passing
+recommendations the header briefly appears and then disappears. Failure is not retried until the screen is reopened (the
+failed fetch is not cached).
+
 ## 6. Build environment & preview (agent101)
 
 Everything user-space under `~/android-dev/` unless noted:
