@@ -2464,3 +2464,12 @@ alpha.18 notes (2026-11-07): `run()` now loops pages (target 20, max 3 pages, st
 returns `pagesConsumed`; the ViewModel advances `nextPage` by it and passes shown keys as `exclude`. `PhraseTable`
 gained `themes`/`themePhrases` (77 themes, ids and film/show counts in comments); `ParsedQuery.themes`; theme chips
 use key `theme:<Name>`. Tests: 629 -> 655 JVM tests, all green. Judgement calls are listed in PLAN.md §5g.
+
+## Queued for alpha.19 (Kev, 2026-11-07)
+
+- [ ] "More like this" row at the bottom of the title detail screen, from TMDB
+      `movie|tv/{id}/recommendations` (NOT `/similar`: orchestrator compared both live — for
+      Slow Horses, recommendations gave Spooks/The Night Manager/The Capture, similar gave
+      unrelated titles). Same gates as search browsing: subscribed providers in GB,
+      flatrate/free only (no rent/buy-only), profile/Family age cap, unrated rule. Horizontal
+      poster row like Home; hidden when nothing passes; tapping opens that title's detail.
