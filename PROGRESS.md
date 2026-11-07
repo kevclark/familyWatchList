@@ -2442,3 +2442,9 @@ A lone unplaced word is tried as a keyword.
       page (up to 20) and the local checks (rent/buy-only, live availability, age/unrated)
       drop about half, so Kev sees 10–12. Fix: keep fetching pages until 20 new titles pass,
       stopping after 3 pages; More hides when TMDB runs out. Kev, slapstick search, phone.
+- [ ] Themes section in the phrase table (Kev, 2026-11-07). Maps everyday descriptive words to
+      TMDB's well-used keyword tags, e.g. dystopian/bleak future → dystopia; superpowers/super
+      beings/overpowered → superhero + super power; zombies/undead → zombie; heist/robbery → heist;
+      apocalypse → post-apocalyptic future; aliens → alien; cyberpunk; time travel. Start with
+      50–80 themes, each verified against live TMDB to point at the main tag (not a near-unused
+      variant like "dystopian" or "slapstick"). Pure lookup, no inference. Kev adds misses as found.
