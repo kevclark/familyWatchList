@@ -203,7 +203,8 @@ class SearchViewModel(
     private var titlesOnly = false
     private var lastQueryText: String? = null
     private var structuredPlan: SearchPlan.Structured? = null
-    private var nextPage = 2
+    /** The TMDB page the next load starts at; advances by the pages each load actually consumed (PLAN.md §5g). */
+    private var nextPage = 1
 
     /** Null until the user taps an age chip; then it wins over [defaultAge]. */
     private val _ageChoice = MutableStateFlow<AgeOption?>(null)
@@ -351,7 +352,7 @@ class SearchViewModel(
 
         searchJob?.cancel()
         structuredPlan = null
-        nextPage = 2
+        nextPage = 1
         _search.value = SearchInternal(isSearching = true)
         searchJob = viewModelScope.launch {
             val region = userPreferencesRepository.region.first()
@@ -434,7 +435,8 @@ class SearchViewModel(
         region: String,
         cap: String?,
     ) {
-        descriptiveSearchRepository.run(plan, page, cap, region)
+        val shown = base.map { listedKey(it.tmdbId, it.mediaType) }.toSet()
+        descriptiveSearchRepository.run(plan, page, cap, region, exclude = shown)
             .catch { throwable ->
                 _search.value = _search.value.copy(
                     isSearching = false,
@@ -449,8 +451,8 @@ class SearchViewModel(
                 }
             }
             .collect { result ->
-                val seen = base.map { listedKey(it.tmdbId, it.mediaType) }.toSet()
-                val merged = base + result.titles.filter { listedKey(it.tmdbId, it.mediaType) !in seen }
+                val merged = base + result.titles.filter { listedKey(it.tmdbId, it.mediaType) !in shown }
+                nextPage = page + result.pagesConsumed
                 val paidOnly = (merged + _search.value.titleMatches)
                     .filter { searchRepository.isPaidOnly(it.tmdbId, it.mediaType) }
                     .map { listedKey(it.tmdbId, it.mediaType) }
@@ -488,7 +490,7 @@ class SearchViewModel(
         val plan = structuredPlan ?: return
         val state = _search.value
         if (!state.canLoadMore || state.isLoadingMore || state.isSearching) return
-        val page = nextPage++
+        val page = nextPage
         _search.value = state.copy(isLoadingMore = true)
         searchJob = viewModelScope.launch {
             val region = userPreferencesRepository.region.first()

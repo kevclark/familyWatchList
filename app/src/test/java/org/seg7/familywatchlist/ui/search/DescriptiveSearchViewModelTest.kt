@@ -102,7 +102,7 @@ class DescriptiveSearchViewModelTest {
             )
         }
         runBlocking { db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1))) }
-        routes["/discover/movie"] = { """{"page":1,"results":[{"id":1,"title":"Funny Film","popularity":9.0,"vote_count":500}],"total_pages":2}""" }
+        routes["/discover/movie"] = { """{"page":1,"results":[{"id":1,"title":"Funny Film","popularity":9.0,"vote_count":500}],"total_pages":1}""" }
         routes["/discover/tv"] = { """{"page":1,"results":[],"total_pages":1}""" }
         routes["/search/multi"] = { """{"page":1,"results":[]}""" }
         routes["/movie/1"] = {
@@ -142,6 +142,25 @@ class DescriptiveSearchViewModelTest {
         vm.onRemoveChip("media:movie")
         vm.uiState.first { it.hasSearched && it.interpretation?.chips?.isEmpty() == true }
         assertEquals(2, requestsTo("/discover/movie").size)
+    }
+
+    @Test
+    fun `removing a theme chip reruns the search without that theme`() = runTest {
+        val vm = builder(1L)
+        vm.onQueryChange("london spy movies")
+        vm.onSubmit()
+        val first = vm.uiState.first { it.hasSearched && it.interpretation != null }
+        assertEquals(listOf("Movies", "London", "Spy"), first.interpretation!!.chips.map { it.label })
+        assertEquals("212,470|5265|4289|14555|190904", requestsTo("/discover/movie").last().queryParameter("with_keywords"))
+        // No keyword or person lookup: themes are pure lookup.
+        assertTrue(requestsTo("/search/keyword").isEmpty())
+        assertTrue(requestsTo("/search/person").isEmpty())
+
+        vm.onRemoveChip("theme:Spy")
+
+        val second = vm.uiState.first { it.hasSearched && it.interpretation?.chips?.map { c -> c.label } == listOf("Movies", "London") }
+        assertEquals(listOf("Movies", "London"), second.interpretation!!.chips.map { it.label })
+        assertEquals("212", requestsTo("/discover/movie").last().queryParameter("with_keywords"))
     }
 
     @Test
@@ -227,27 +246,27 @@ class DescriptiveSearchViewModelTest {
     }
 
     @Test
-    fun `load more appends the next page and hides once exhausted`() = runTest {
+    fun `a load consumes up to three pages, load more continues from the next page, and More hides when TMDB runs out`() = runTest {
+        // One title per TMDB page, six pages: each load stops at 3 pages (well under 20 titles).
         routes["/discover/movie"] = {
-            val page = requestsTo("/discover/movie").last().queryParameter("page")
-            if (page == "1") """{"page":1,"results":[{"id":1,"title":"Funny Film","popularity":9.0,"vote_count":500}],"total_pages":2}"""
-            else """{"page":2,"results":[{"id":2,"title":"Funnier Film","popularity":8.0,"vote_count":500}],"total_pages":2}"""
+            val page = requestsTo("/discover/movie").last().queryParameter("page")!!.toInt()
+            """{"page":$page,"results":[{"id":$page,"title":"Film $page","popularity":${10.0 - page},"vote_count":500}],"total_pages":6}"""
         }
-        routes["/movie/2"] = {
-            """{"id":2,"title":"Funnier Film","watch/providers":{"results":{"GB":{"flatrate":[{"provider_id":8,"provider_name":"N"}]}}},
-               "release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"PG","type":3}]}]}}"""
-        }
+        for (id in 1..6) routeAvailableMovie(id, "Film $id")
         val vm = builder(1L)
         vm.onQueryChange("comedy movies")
         vm.onSubmit()
-        val first = vm.uiState.first { it.hasSearched && !it.isSearching && it.results.size == 1 }
+        val first = vm.uiState.first { it.hasSearched && !it.isSearching }
+        assertEquals(listOf("Film 1", "Film 2", "Film 3"), first.results.map { it.title }.sorted())
         assertTrue(first.canLoadMore)
+        assertEquals(listOf("1", "2", "3"), requestsTo("/discover/movie").map { it.queryParameter("page") })
 
         vm.loadMore()
 
-        val second = vm.uiState.first { it.results.size == 2 && !it.isLoadingMore }
-        assertEquals(listOf("Funny Film", "Funnier Film"), second.results.map { it.title })
+        val second = vm.uiState.first { it.results.size == 6 && !it.isLoadingMore }
+        assertEquals((1..6).map { "Film $it" }, second.results.map { it.title }.sorted())
         assertFalse(second.canLoadMore)
+        assertEquals(listOf("1", "2", "3", "4", "5", "6"), requestsTo("/discover/movie").map { it.queryParameter("page") })
     }
 
     private val starWarsMulti = """{"page":1,"results":[

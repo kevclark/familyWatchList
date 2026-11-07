@@ -51,4 +51,62 @@ class PhraseTableTest {
     fun `media words are not stop words`() {
         assertTrue(PhraseTable.stopWords.intersect(PhraseTable.mediaWords.keys).isEmpty())
     }
+
+    // ---- themes (PLAN.md §5g) -----------------------------------------------------------------
+
+    @Test
+    fun `there are 50 to 80 themes with unique names and non-empty id lists`() {
+        assertTrue("themes: ${PhraseTable.themes.size}", PhraseTable.themes.size in 50..80)
+        assertEquals(PhraseTable.themes.size, PhraseTable.themes.map { it.name }.toSet().size)
+        PhraseTable.themes.forEach {
+            assertTrue(it.name, it.keywordIds.isNotEmpty())
+            assertEquals(it.name, it.keywordIds.size, it.keywordIds.toSet().size)
+        }
+    }
+
+    @Test
+    fun `theme phrases are normalised and every phrase maps to a listed theme`() {
+        PhraseTable.themePhrases.keys.forEach { assertEquals(it, QueryParser.tokenize(it).joinToString(" ")) }
+        PhraseTable.themePhrases.values.forEach { assertTrue(it.name, it in PhraseTable.themes) }
+        PhraseTable.themes.forEach { t -> assertTrue(t.name, PhraseTable.themePhrases.values.any { it == t }) }
+    }
+
+    @Test
+    fun `no phrase is both a genre and a theme, and themes never swallow media words`() {
+        assertEquals(emptySet<String>(), PhraseTable.genrePhrases.keys.intersect(PhraseTable.themePhrases.keys))
+        assertEquals(emptySet<String>(), PhraseTable.mediaWords.keys.intersect(PhraseTable.themePhrases.keys))
+        PhraseTable.themePhrases.keys.forEach { phrase ->
+            assertTrue("$phrase contains a media word", phrase.split(' ').none { it in PhraseTable.mediaWords })
+        }
+    }
+
+    @Test
+    fun `the near-unused tags are never chosen`() {
+        val all = PhraseTable.themes.flatMap { it.keywordIds }
+        assertTrue(382039 !in all) // "london" (14 films); the theme uses "london, england" 212
+        assertTrue(386351 !in all) // "dystopian" (6 films); the theme uses "dystopia" 4565
+        assertEquals(listOf(212), PhraseTable.themePhrases.getValue("london").keywordIds)
+        assertEquals(listOf(4565), PhraseTable.themePhrases.getValue("dystopian").keywordIds)
+    }
+
+    @Test
+    fun `the mandated entries map to the verified ids`() {
+        fun ids(phrase: String) = PhraseTable.themePhrases.getValue(phrase).keywordIds
+        assertEquals(listOf(9715, 33637), ids("superpowers"))
+        assertEquals(ids("superpowers"), ids("overpowered"))
+        assertEquals(ids("superpowers"), ids("super beings"))
+        assertEquals(listOf(12190), ids("cyberpunk"))
+        assertEquals(listOf(12377), ids("undead"))
+        assertEquals(listOf(10051), ids("robbery"))
+        assertEquals(listOf(4379), ids("time travel"))
+        assertEquals(listOf(4458), ids("end of the world"))
+        assertEquals(listOf(9951), ids("aliens"))
+        assertEquals(listOf(286125, 207268, 155451), ids("bleak"))
+        assertEquals(listOf(470, 5265, 4289, 14555, 190904), ids("mi5"))
+        assertEquals(listOf(3149, 10291), ids("mob"))
+        assertEquals(listOf(1568), ids("undercover"))
+        assertEquals(listOf(268067), ids("cop"))
+        assertEquals(listOf(208548, 298625), ids("manchester"))
+        listOf("glasgow", "edinburgh", "liverpool", "birmingham").forEach { assertTrue(it, it in PhraseTable.themePhrases) }
+    }
 }

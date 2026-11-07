@@ -87,9 +87,9 @@ class QueryParserTest {
 
     @Test
     fun `unknown words become keyword candidates, stop words vanish`() {
-        val p = QueryParser.parse("find me some good zombie comedies please")
+        val p = QueryParser.parse("find me some good cozy comedies please")
         assertEquals(listOf("Comedy"), p.genres.map { it.name })
-        assertEquals(listOf("zombie"), p.candidates.map { it.text })
+        assertEquals(listOf("cozy"), p.candidates.map { it.text })
     }
 
     @Test
@@ -153,5 +153,107 @@ class QueryParserTest {
         assertTrue(p.media.isEmpty())
         assertEquals(setOf("genre:Action", "media:movie"), p.removed)
         assertEquals(setOf(MediaType.MOVIE, MediaType.TV), p.mediaTypes)
+    }
+
+    // ---- themes (PLAN.md §5g) -----------------------------------------------------------------
+
+    private fun themes(q: String) = QueryParser.parse(q).themes.map { it.name }
+
+    @Test
+    fun `gritty london spy shows is TV only with three theme groups and no leftovers`() {
+        val p = QueryParser.parse("gritty london spy shows")
+        assertEquals(listOf("Gritty", "London", "Spy"), p.themes.map { it.name })
+        assertEquals(listOf(listOf(286125, 207268, 155451), listOf(212), listOf(470, 5265, 4289, 14555, 190904)), p.themes.map { it.keywordIds })
+        assertEquals(setOf(MediaType.TV), p.mediaTypes)
+        assertTrue(p.genres.isEmpty())
+        assertTrue(p.candidates.isEmpty())
+        assertTrue(p.hasStructure)
+    }
+
+    @Test
+    fun `dystopian movies is films with the dystopia group`() {
+        val p = QueryParser.parse("dystopian movies")
+        assertEquals(setOf(MediaType.MOVIE), p.mediaTypes)
+        assertEquals(listOf(listOf(4565)), p.themes.map { it.keywordIds })
+        assertTrue(p.candidates.isEmpty())
+    }
+
+    @Test
+    fun `london is 212 and never reaches the generic keyword lookup`() {
+        val p = QueryParser.parse("london")
+        assertEquals(listOf(listOf(212)), p.themes.map { it.keywordIds })
+        assertTrue(p.candidates.isEmpty())
+    }
+
+    @Test
+    fun `multi-word phrases win over their single words`() {
+        // "cold war" is the Cold war theme, not the War genre; "world war ii" likewise.
+        assertEquals(listOf("Cold war"), themes("cold war"))
+        assertTrue(genres("cold war thrillers").none { it == "War" })
+        assertEquals(listOf("Thriller"), genres("cold war thrillers"))
+        assertEquals(listOf("World War II"), themes("world war ii films"))
+        assertTrue(genres("world war ii films").isEmpty())
+        // "american football" beats "football"; "dark comedy" beats "dark" and "comedy".
+        assertEquals(listOf("American football"), themes("american football"))
+        assertEquals(listOf("Football"), themes("football"))
+        assertEquals(listOf("Dark comedy"), themes("dark comedy"))
+        assertTrue(genres("dark comedy").isEmpty())
+        // ...but "dark" next to a plain "comedy" is two separate things.
+        assertEquals(listOf("Gritty"), themes("dark funny"))
+        assertEquals(listOf("Comedy"), genres("dark funny"))
+        // "psychological thriller" is its own theme, plain "thriller" stays a genre.
+        assertEquals(listOf("Psychological thriller"), themes("psychological thriller"))
+        assertEquals(listOf("Thriller"), genres("thriller"))
+        // Five-word phrase with stop words inside it.
+        assertEquals(listOf("Based on a true story"), themes("based on a true story"))
+        assertTrue(QueryParser.parse("based on a true story").candidates.isEmpty())
+    }
+
+    @Test
+    fun `hyphens and A dot I dot normalise before matching`() {
+        assertEquals(listOf("Time travel"), themes("time-travel"))
+        assertEquals(listOf("Post-apocalyptic"), themes("post-apocalyptic"))
+        assertEquals(listOf("AI"), themes("A.I."))
+    }
+
+    @Test
+    fun `cop show keeps its TV restriction because the theme does not swallow the media word`() {
+        val p = QueryParser.parse("cop show")
+        assertEquals(listOf("Police procedural"), p.themes.map { it.name })
+        assertEquals(setOf(MediaType.TV), p.mediaTypes)
+    }
+
+    @Test
+    fun `the same theme from two phrases appears once`() {
+        assertEquals(listOf("Superhero"), themes("superheroes with superpowers"))
+    }
+
+    @Test
+    fun `clash cases keep genre words genres and theme words themes`() {
+        // Genre words are untouched by themes.
+        assertEquals(listOf("Horror"), genres("scary"))
+        assertTrue(themes("scary").isEmpty())
+        assertEquals(listOf("Music"), genres("musicals")) // deliberately a genre, not a theme
+        assertTrue(themes("musicals").isEmpty())
+        assertEquals(listOf("War"), genres("war films"))
+        assertTrue(themes("war films").isEmpty())
+        // "gangster" moved from the Crime genre to a theme; "crime" itself is still the genre.
+        assertTrue(genres("gangster films").isEmpty())
+        assertEquals(listOf("Gangster"), themes("gangster films"))
+        assertEquals(listOf("Crime"), genres("crime"))
+        assertEquals(listOf("Crime"), genres("gangster crime"))
+        assertEquals(listOf("Gangster"), themes("gangster crime"))
+        // A theme and a genre together are both kept: zombie comedies.
+        val p = QueryParser.parse("zombie comedies")
+        assertEquals(listOf("Comedy"), p.genres.map { it.name })
+        assertEquals(listOf("Zombie"), p.themes.map { it.name })
+    }
+
+    @Test
+    fun `removing a theme chip drops only that theme`() {
+        val p = QueryParser.parse("gritty london spy shows").without(setOf("theme:Spy"))
+        assertEquals(listOf("Gritty", "London"), p.themes.map { it.name })
+        assertEquals(setOf(MediaType.TV), p.mediaTypes)
+        assertTrue("theme:Spy" in p.removed)
     }
 }

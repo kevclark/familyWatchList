@@ -1,6 +1,7 @@
 package org.seg7.familywatchlist.data.repository
 
 import kotlinx.coroutines.flow.last
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
@@ -217,16 +218,186 @@ class DescriptiveSearchRepositoryTest {
     }
 
     @Test
-    fun `paging sends the page number and reports hasMore from total_pages`() = runTest {
+    fun `paging sends consecutive page numbers and reports hasMore from total_pages`() = runTest {
         subscribe()
-        routes["/discover/movie"] = { page(movie(1, "A"), totalPages = 2) }
+        routes["/discover/movie"] = { page(movie(1, "A"), totalPages = 5) }
         routes["/movie/1"] = { movieDetail(1, "A") }
 
         val first = repo.run(structured("comedy movies"), 1, cap = null).last()
         assertTrue(first.hasMore)
-        val second = repo.run(structured("comedy movies"), 2, cap = null).last()
+        assertEquals(3, first.pagesConsumed)
+        val second = repo.run(structured("comedy movies"), 1 + first.pagesConsumed, cap = null).last()
         assertFalse(second.hasMore)
-        assertEquals("2", requestsTo("/discover/movie").last().queryParameter("page"))
+        assertEquals(2, second.pagesConsumed)
+        assertEquals(listOf("1", "2", "3", "4", "5"), requestsTo("/discover/movie").map { it.queryParameter("page") })
+    }
+
+    // ---- one load fetches several pages (PLAN.md §5g) ----------------------------------------------
+
+    /**
+     * Routes /discover/movie as [pages] sparse pages: page p holds [perPage] candidates with ids `p*100 + i`;
+     * only the first [availablePerPage] of each are on a subscribed provider (the rest fail the gate).
+     */
+    private fun routeSparseMovies(pages: Int, perPage: Int, availablePerPage: Int, idOf: (Int, Int) -> Int = { p, i -> p * 100 + i }) {
+        routes["/discover/movie"] = {
+            val p = requestsTo("/discover/movie").last().queryParameter("page")!!.toInt()
+            page(*(0 until perPage).map { i -> movie(idOf(p, i), "Film ${idOf(p, i)}", pop = 1000.0 - p * 100 - i) }.toTypedArray(), totalPages = pages)
+        }
+        for (p in 1..pages) for (i in 0 until perPage) {
+            val id = idOf(p, i)
+            routes["/movie/$id"] = { movieDetail(id, "Film $id", provider = if (i < availablePerPage) 8 else 999) }
+        }
+    }
+
+    private fun moviePages() = requestsTo("/discover/movie").map { it.queryParameter("page") }
+
+    @Test
+    fun `one load keeps fetching pages until 20 titles pass, then stops`() = runTest {
+        subscribe()
+        routeSparseMovies(pages = 10, perPage = 20, availablePerPage = 12) // 12 pass per page: 20 is reached on page 2
+
+        val result = repo.run(structured("comedy movies"), 1, cap = null).last()
+
+        assertEquals(24, result.titles.size)
+        assertEquals(listOf("1", "2"), moviePages())
+        assertEquals(2, result.pagesConsumed)
+        assertTrue(result.hasMore)
+    }
+
+    @Test
+    fun `one load stops after three pages even when fewer than 20 passed`() = runTest {
+        subscribe()
+        routeSparseMovies(pages = 10, perPage = 20, availablePerPage = 2)
+
+        val result = repo.run(structured("comedy movies"), 1, cap = null).last()
+
+        assertEquals(6, result.titles.size)
+        assertEquals(listOf("1", "2", "3"), moviePages())
+        assertEquals(3, result.pagesConsumed)
+        assertTrue(result.hasMore)
+    }
+
+    @Test
+    fun `a later load starts at the page after the last one consumed`() = runTest {
+        subscribe()
+        routeSparseMovies(pages = 10, perPage = 20, availablePerPage = 2)
+
+        val first = repo.run(structured("comedy movies"), 1, cap = null).last()
+        val second = repo.run(structured("comedy movies"), 1 + first.pagesConsumed, cap = null).last()
+
+        assertEquals(listOf("1", "2", "3", "4", "5", "6"), moviePages())
+        assertEquals(setOf(400, 401, 500, 501, 600, 601), second.titles.map { it.tmdbId }.toSet())
+    }
+
+    @Test
+    fun `More is off once TMDB has no further pages`() = runTest {
+        subscribe()
+        routeSparseMovies(pages = 2, perPage = 20, availablePerPage = 3)
+
+        val result = repo.run(structured("comedy movies"), 1, cap = null).last()
+
+        assertEquals(6, result.titles.size)
+        assertEquals(listOf("1", "2"), moviePages()) // never asks for a page that does not exist
+        assertEquals(2, result.pagesConsumed)
+        assertFalse(result.hasMore)
+    }
+
+    @Test
+    fun `no title appears twice across pages or against what is already shown`() = runTest {
+        subscribe()
+        // Every page lists the same 8 ids (TMDB popularity shuffles between calls); all are available.
+        routeSparseMovies(pages = 5, perPage = 8, availablePerPage = 8, idOf = { _, i -> 1 + i })
+
+        val fresh = repo.run(structured("comedy movies"), 1, cap = null).last()
+        assertEquals((1..8).toList(), fresh.titles.map { it.tmdbId }.sorted())
+        assertEquals(fresh.titles.size, fresh.titles.map { it.tmdbId }.toSet().size)
+
+        val more = repo.run(structured("comedy movies"), 4, cap = null, exclude = setOf("MOVIE-1", "MOVIE-2")).last()
+        assertEquals((3..8).toList(), more.titles.map { it.tmdbId }.sorted())
+    }
+
+    @Test
+    fun `progressive emissions grow monotonically and the last one is the full load`() = runTest {
+        subscribe()
+        routeSparseMovies(pages = 10, perPage = 6, availablePerPage = 4)
+
+        val emissions = repo.run(structured("comedy movies"), 1, cap = null).toList()
+
+        val sizes = emissions.map { it.titles.size }
+        assertEquals(sizes.sorted(), sizes)
+        assertTrue(sizes.size > 1)
+        assertEquals(12, sizes.last()) // 3 pages x 4
+    }
+
+    @Test
+    fun `TV for a person pages locally by the same rule`() = runTest {
+        subscribe()
+        routePerson()
+        // 50 credits, popularity-ordered by id; the first 10 of each local page of 20 are available.
+        val cast = (1..50).joinToString(",") { tv(it, "Show $it", pop = 1000.0 - it) }
+        routes["/person/10859/tv_credits"] = { """{"cast":[$cast]}""" }
+        (1..50).forEach { id -> routes["/tv/$id"] = { tvDetail(id, "Show $id", provider = if ((id - 1) % 20 < 10) 8 else 999) } }
+
+        val result = repo.run(structured("comedy shows with Ryan Reynolds"), 1, cap = null).last()
+
+        assertEquals(20, result.titles.size) // two local pages reach 20; the third is not touched
+        assertEquals(2, result.pagesConsumed)
+        assertTrue(result.hasMore)
+        assertTrue(requestsTo("/tv/45").isEmpty())
+
+        val rest = repo.run(structured("comedy shows with Ryan Reynolds"), 3, cap = null).last()
+        assertEquals((41..50).toList(), rest.titles.map { it.tmdbId }.sorted())
+        assertEquals(1, rest.pagesConsumed)
+        assertFalse(rest.hasMore)
+    }
+
+    // ---- themes (PLAN.md §5g) -----------------------------------------------------------------
+
+    @Test
+    fun `themes become removable chips and OR groups without any keyword or person lookup`() = runTest {
+        subscribe()
+        routes["/discover/tv"] = { page() }
+        val plan = structured("gritty london spy shows")
+
+        assertNull(plan.movie)
+        assertEquals(
+            listOf(listOf(286125, 207268, 155451), listOf(212), listOf(470, 5265, 4289, 14555, 190904)),
+            plan.tv!!.keywordGroups,
+        )
+        assertEquals(listOf("TV", "Gritty", "London", "Spy"), plan.interpretation.chips.map { it.label })
+        assertEquals(listOf("media:tv", "theme:Gritty", "theme:London", "theme:Spy"), plan.interpretation.chips.map { it.key })
+        assertTrue(requestsTo("/search/keyword").isEmpty() && requestsTo("/search/person").isEmpty())
+
+        repo.run(plan, 1, cap = null).last()
+        // Groups AND with commas, ids inside a group OR with pipes.
+        assertEquals("286125|207268|155451,212,470|5265|4289|14555|190904", requestsTo("/discover/tv").single().queryParameter("with_keywords"))
+    }
+
+    @Test
+    fun `london alone is the 212 theme, not the near-empty london keyword`() = runTest {
+        routes["/search/keyword"] = { """{"results":[{"id":382039,"name":"london"}]}""" }
+        val plan = structured("london")
+        assertEquals(listOf(listOf(212)), plan.movie!!.keywordGroups)
+        assertEquals(listOf(listOf(212)), plan.tv!!.keywordGroups)
+        assertTrue(requestsTo("/search/keyword").isEmpty())
+    }
+
+    @Test
+    fun `removing a theme chip leaves the rest and a theme ANDs with genres and resolved keywords`() = runTest {
+        routes["/search/keyword"] = { """{"results":[{"id":9,"name":"caper"}]}""" }
+        val plan = structured("caper zombie comedies")
+        assertEquals(listOf(listOf(12377), listOf(9)), plan.movie!!.keywordGroups)
+        assertEquals(listOf(35), plan.movie!!.genreIds)
+
+        val without = structured("caper zombie comedies", removed = setOf("theme:Zombie"))
+        assertEquals(listOf(listOf(9)), without.movie!!.keywordGroups)
+        assertEquals(listOf("Comedy", "caper"), without.interpretation.chips.map { it.label })
+    }
+
+    @Test
+    fun `a theme-only query never falls back to title search`() = runTest {
+        val plan = structured("heist")
+        assertEquals(listOf("Heist"), plan.interpretation.chips.map { it.label })
     }
 
     // ---- keywords -----------------------------------------------------------------------------
@@ -250,8 +421,8 @@ class DescriptiveSearchRepositoryTest {
 
     @Test
     fun `keyword matching accepts a plural but not a loose substring`() = runTest {
-        routes["/search/keyword"] = { """{"results":[{"id":1,"name":"farcical slapstick"},{"id":2,"name":"heists"}]}""" }
-        val plan = structured("heist comedies")
+        routes["/search/keyword"] = { """{"results":[{"id":1,"name":"farcical slapstick"},{"id":2,"name":"capers"}]}""" }
+        val plan = structured("caper comedies")
         assertEquals(listOf(listOf(2)), plan.movie!!.keywordGroups)
 
         val miss = structured("slapstick comedies")
@@ -261,9 +432,9 @@ class DescriptiveSearchRepositoryTest {
 
     @Test
     fun `keyword and person lookups are cached in memory`() = runTest {
-        routes["/search/keyword"] = { """{"results":[{"id":2,"name":"heist"}]}""" }
-        structured("heist comedies")
-        structured("heist comedies")
+        routes["/search/keyword"] = { """{"results":[{"id":2,"name":"caper"}]}""" }
+        structured("caper comedies")
+        structured("caper comedies")
         assertEquals(1, requestsTo("/search/keyword").size)
     }
 
@@ -278,12 +449,12 @@ class DescriptiveSearchRepositoryTest {
     @Test
     fun `a failed multi-word phrase falls back to per-word keywords when the query is descriptive`() = runTest {
         routes["/search/person"] = { """{"results":[]}""" }
-        routes["/search/keyword"] = { """{"results":[{"id":7,"name":"superhero"},{"id":8,"name":"heist"}]}""" }
-        val plan = structured("superhero heist movies")
+        routes["/search/keyword"] = { """{"results":[{"id":7,"name":"swashbuckler"},{"id":8,"name":"caper"}]}""" }
+        val plan = structured("swashbuckler caper movies")
         assertEquals(listOf(listOf(7), listOf(8)), plan.movie!!.keywordGroups)
-        assertEquals(listOf("Movies", "superhero", "heist"), plan.interpretation.chips.map { it.label })
+        assertEquals(listOf("Movies", "swashbuckler", "caper"), plan.interpretation.chips.map { it.label })
         // Removing one split chip drops just that word.
-        val without = structured("superhero heist movies", removed = setOf("kw:superhero"))
+        val without = structured("swashbuckler caper movies", removed = setOf("kw:swashbuckler"))
         assertEquals(listOf(listOf(8)), without.movie!!.keywordGroups)
         assertTrue(without.interpretation.ignored.isEmpty())
     }
@@ -427,8 +598,8 @@ class DescriptiveSearchRepositoryTest {
     @Test
     fun `an unknown person cue falls back to a keyword, else is ignored`() = runTest {
         routes["/search/person"] = { """{"results":[]}""" }
-        routes["/search/keyword"] = { """{"results":[{"id":77,"name":"dragons"}]}""" }
-        val plan = structured("movies with dragons")
+        routes["/search/keyword"] = { """{"results":[{"id":77,"name":"gadgets"}]}""" }
+        val plan = structured("movies with gadgets")
         assertEquals(listOf(listOf(77)), plan.movie!!.keywordGroups)
         assertTrue(plan.movie!!.personIds.isEmpty())
     }
