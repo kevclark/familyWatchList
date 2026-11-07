@@ -2423,3 +2423,9 @@ reset on selection change / `Finished` / shortlist recompute. No schema change.
 M17 notes (2026-11-07): pure parser in `data/search` (`PhraseTable`, `QueryParser`, `AgeFilter`);
 execution in `DescriptiveSearchRepository` (TMDB discover for movies, `person/{id}/tv_credits` for TV
 with a person, in-memory person/keyword caches). No schema change. No inference of any kind.
+
+M17 follow-ups (2026-11-07): a keyword word resolves to an OR group (`|`, exact plus "<word> ..." variants,
+max 6) because TMDB's bare "slapstick" keyword is nearly unused. Structured search is `flatrate|free` only
+and drops rent/buy-only titles (browsing never nudges spending; plain title search keeps rent/buy). A title
+search runs alongside every structured search; up to 3 equal/starts-with matches show as "Titles matching".
+A lone unplaced word is tried as a keyword.

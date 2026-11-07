@@ -230,8 +230,9 @@ fun SearchScreen(
 
         Box(modifier = Modifier.fillMaxSize()) {
             val results = state.visibleResults
+            val matches = state.visibleTitleMatches
             when {
-                results.isNotEmpty() -> LazyVerticalGrid(
+                results.isNotEmpty() || matches.isNotEmpty() -> LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     contentPadding = PaddingValues(
                         start = Dimens.Gutter,
@@ -245,6 +246,37 @@ fun SearchScreen(
                     // results with no way to scroll past it short of dismissing it first.
                     modifier = Modifier.fillMaxSize().imePadding(),
                 ) {
+                    if (matches.isNotEmpty()) {
+                        item(key = "title-matches-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                text = "Titles matching \u2018${state.query.trim()}\u2019",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = ChalkMuted,
+                            )
+                        }
+                        items(matches, key = { "match-${it.mediaType}-${it.tmdbId}" }) { title ->
+                            PosterCard(
+                                title = title.title,
+                                posterPath = title.posterPath,
+                                onClick = { onOpenTitle(title.tmdbId, title.mediaType) },
+                                width = Dimens.PosterWidthLarge,
+                                label = true,
+                                year = title.year,
+                                isListed = state.isListed(title),
+                                onQuickAdd = { viewModel.toggleWatchlist(title) },
+                                paidOnly = state.isPaidOnly(title),
+                            )
+                        }
+                        if (results.isNotEmpty()) {
+                            item(key = "results-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                Text(
+                                    text = "Results",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = ChalkMuted,
+                                )
+                            }
+                        }
+                    }
                     items(results, key = { "${it.mediaType}-${it.tmdbId}" }) { title ->
                       Column {
                         PosterCard(

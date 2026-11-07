@@ -135,7 +135,7 @@ class DescriptiveSearchRepositoryTest {
         assertEquals("28,35", m.queryParameter("with_genres"))
         assertEquals("GB", m.queryParameter("watch_region"))
         assertEquals("8|9", m.queryParameter("with_watch_providers"))
-        assertEquals("flatrate|free|rent|buy", m.queryParameter("with_watch_monetization_types"))
+        assertEquals("flatrate|free", m.queryParameter("with_watch_monetization_types"))
         assertEquals("popularity.desc", m.queryParameter("sort_by"))
         assertEquals("50", m.queryParameter("vote_count.gte"))
         assertEquals("1", m.queryParameter("page"))
@@ -242,20 +242,20 @@ class DescriptiveSearchRepositoryTest {
         repo.run(plan, 1, cap = null).last()
 
         assertEquals("slapstick", requestsTo("/search/keyword").single().queryParameter("query"))
-        assertEquals("222", requestsTo("/discover/movie").single().queryParameter("with_keywords"))
-        assertEquals("222", requestsTo("/discover/tv").single().queryParameter("with_keywords"))
+        assertEquals("111|222", requestsTo("/discover/movie").single().queryParameter("with_keywords"))
+        assertEquals("111|222", requestsTo("/discover/tv").single().queryParameter("with_keywords"))
         assertEquals(listOf("Comedy", "slapstick"), plan.interpretation.chips.map { it.label })
         assertTrue(plan.interpretation.ignored.isEmpty())
     }
 
     @Test
     fun `keyword matching accepts a plural but not a loose substring`() = runTest {
-        routes["/search/keyword"] = { """{"results":[{"id":1,"name":"slapstick comedy"},{"id":2,"name":"heists"}]}""" }
+        routes["/search/keyword"] = { """{"results":[{"id":1,"name":"farcical slapstick"},{"id":2,"name":"heists"}]}""" }
         val plan = structured("heist comedies")
-        assertEquals(listOf(2), plan.movie!!.keywordIds)
+        assertEquals(listOf(listOf(2)), plan.movie!!.keywordGroups)
 
         val miss = structured("slapstick comedies")
-        assertTrue(miss.movie!!.keywordIds.isEmpty())
+        assertTrue(miss.movie!!.keywordGroups.isEmpty())
         assertEquals(listOf("slapstick"), miss.interpretation.ignored)
     }
 
@@ -280,21 +280,51 @@ class DescriptiveSearchRepositoryTest {
         routes["/search/person"] = { """{"results":[]}""" }
         routes["/search/keyword"] = { """{"results":[{"id":7,"name":"superhero"},{"id":8,"name":"heist"}]}""" }
         val plan = structured("superhero heist movies")
-        assertEquals(listOf(7, 8), plan.movie!!.keywordIds)
+        assertEquals(listOf(listOf(7), listOf(8)), plan.movie!!.keywordGroups)
         assertEquals(listOf("Movies", "superhero", "heist"), plan.interpretation.chips.map { it.label })
         // Removing one split chip drops just that word.
         val without = structured("superhero heist movies", removed = setOf("kw:superhero"))
-        assertEquals(listOf(8), without.movie!!.keywordIds)
+        assertEquals(listOf(listOf(8)), without.movie!!.keywordGroups)
         assertTrue(without.interpretation.ignored.isEmpty())
     }
 
     // ---- title fallback ------------------------------------------------------------------------
 
     @Test
-    fun `a bare title with nothing structured falls back to title search without a lookup`() = runTest {
-        val plan = repo.plan(QueryParser.parse("inception"), allowTitleFallback = true)
-        assertEquals(SearchPlan.Titles("inception"), plan)
+    fun `a lone media word falls back to title search without a lookup`() = runTest {
+        val plan = repo.plan(QueryParser.parse("movies"), allowTitleFallback = true)
+        assertEquals(SearchPlan.Titles("movies"), plan)
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `a lone word with no keyword match falls back to title search, and a failed lookup does too`() = runTest {
+        routes["/search/keyword"] = { """{"results":[]}""" }
+        assertEquals(SearchPlan.Titles("inception"), repo.plan(QueryParser.parse("inception"), allowTitleFallback = true))
+        routes.clear() // lookup now 404s
+        assertEquals(SearchPlan.Titles("zzzz"), repo.plan(QueryParser.parse("zzzz"), allowTitleFallback = true))
+    }
+
+    @Test
+    fun `slapstick alone triggers the keyword lookup and a structured plan`() = runTest {
+        routes["/search/keyword"] = { slapstickKeywords }
+        val plan = repo.plan(QueryParser.parse("slapstick"), allowTitleFallback = true) as SearchPlan.Structured
+        assertEquals("slapstick", requestsTo("/search/keyword").single().queryParameter("query"))
+        assertEquals(listOf("slapstick"), plan.interpretation.chips.map { it.label })
+    }
+
+    @Test
+    fun `a rent-only title is excluded from structured search`() = runTest {
+        subscribe()
+        routes["/discover/movie"] = { page(movie(1, "Included", pop = 20.0), movie(2, "Rent Only", pop = 10.0)) }
+        routes["/movie/1"] = { movieDetail(1, "Included") }
+        routes["/movie/2"] = {
+            """{"id":2,"title":"Rent Only","watch/providers":{"results":{"GB":{"rent":[{"provider_id":8,"provider_name":"P"}]}}},
+               "release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"12A","type":3}]}]}}"""
+        }
+        val result = repo.run(structured("comedy movies"), 1, cap = null).last()
+        assertEquals(listOf("Included"), result.titles.map { it.title })
+        assertEquals("flatrate|free", requestsTo("/discover/movie").single().queryParameter("with_watch_monetization_types"))
     }
 
     @Test
@@ -399,7 +429,7 @@ class DescriptiveSearchRepositoryTest {
         routes["/search/person"] = { """{"results":[]}""" }
         routes["/search/keyword"] = { """{"results":[{"id":77,"name":"dragons"}]}""" }
         val plan = structured("movies with dragons")
-        assertEquals(listOf(77), plan.movie!!.keywordIds)
+        assertEquals(listOf(listOf(77)), plan.movie!!.keywordGroups)
         assertTrue(plan.movie!!.personIds.isEmpty())
     }
 
@@ -455,5 +485,64 @@ class DescriptiveSearchRepositoryTest {
         val result = repo.run(structured("comedy"), 1, cap = null).last()
 
         assertEquals(listOf("Show Top", "Movie Mid"), result.titles.map { it.title })
+    }
+
+    // ---- keyword OR groups (real TMDB shape for "slapstick") ------------------------------------
+
+    private val slapstickKeywords = """{"results":[
+        {"id":386752,"name":"slapstick"},{"id":9253,"name":"slapstick comedy"},{"id":368088,"name":"slapstick humor"},
+        {"id":373046,"name":"slapstick sequences"},{"id":374168,"name":"slapstick gore"},{"id":381663,"name":"slapstick thriller"}]}"""
+
+    @Test
+    fun `slapstick resolves to an OR group sent pipe-joined together with the genre`() = runTest {
+        subscribe()
+        routes["/search/keyword"] = { slapstickKeywords }
+        routes["/discover/movie"] = { page() }
+        routes["/discover/tv"] = { page() }
+
+        val plan = structured("slapstick comedies")
+        repo.run(plan, 1, cap = null).last()
+
+        val expected = "386752|9253|368088|373046|374168|381663"
+        val m = requestsTo("/discover/movie").single()
+        assertEquals(expected, m.queryParameter("with_keywords"))
+        assertTrue(m.queryParameter("with_keywords")!!.contains("386752|9253"))
+        assertEquals("35", m.queryParameter("with_genres"))
+        assertEquals(expected, requestsTo("/discover/tv").single().queryParameter("with_keywords"))
+        // The chip shows the user's word, not every variant.
+        assertEquals(listOf("Comedy", "slapstick"), plan.interpretation.chips.map { it.label })
+    }
+
+    @Test
+    fun `the group only takes the exact word and names starting with it plus a space, capped at six`() = runTest {
+        routes["/search/keyword"] = {
+            """{"results":[{"id":1,"name":"gore"},{"id":2,"name":"slapstick gore"},{"id":3,"name":"gory slapstick"},
+               {"id":4,"name":"gore"},{"id":5,"name":"gore movie"},{"id":6,"name":"gore effects"},{"id":7,"name":"gore fest"},
+               {"id":8,"name":"gore galore"},{"id":9,"name":"goreography"}]}"""
+        }
+        val plan = structured("gore comedies")
+        // 4 is a duplicate name but a distinct id, so it is kept; 3, 9 are not "gore ..." and are excluded; cap 6.
+        assertEquals(listOf(listOf(1, 4, 5, 6, 7, 8)), plan.movie!!.keywordGroups)
+
+        routes["/search/keyword"] = { slapstickKeywords }
+        routes["/search/person"] = { """{"results":[]}""" }
+        val gore = structured("slapstick gore comedies")
+        // A two-word run is looked up as the phrase "slapstick gore", which only the exact name matches.
+        assertEquals(listOf(listOf(374168)), gore.movie!!.keywordGroups)
+    }
+
+    @Test
+    fun `TV credits keyword check passes on any id in the group`() = runTest {
+        subscribe()
+        routePerson()
+        routes["/search/keyword"] = { slapstickKeywords }
+        routes["/discover/movie"] = { page() }
+        routes["/person/10859/tv_credits"] = { """{"cast":[${tv(1, "Has Variant", pop = 30.0)},${tv(2, "Has None", pop = 20.0)}]}""" }
+        routes["/tv/1"] = { tvDetail(1, "Has Variant", keywords = listOf(9253)) }
+        routes["/tv/2"] = { tvDetail(2, "Has None", keywords = listOf(5)) }
+
+        val result = repo.run(structured("slapstick comedy shows with Ryan Reynolds"), 1, cap = null).last()
+
+        assertEquals(listOf("Has Variant"), result.titles.map { it.title })
     }
 }

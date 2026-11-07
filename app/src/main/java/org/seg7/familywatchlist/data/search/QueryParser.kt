@@ -37,14 +37,14 @@ data class ParsedQuery(
         }
 
     /**
-     * Whether to attempt a structured search at all (PLAN.md §5f item 2). A genre, a cued name, a
-     * run that looks like a name, or a keyword candidate alongside a media word. A lone media word
-     * ("movies") or a lone single unplaced word ("inception") is a title search.
+     * Whether to attempt a structured search at all (PLAN.md §5f item 2): any genre or unplaced
+     * word or name. A lone single word ("slapstick", "zombie") is tried as a keyword; if nothing
+     * resolves the repository falls back to title search. A lone media word ("movies") has no
+     * structure. A title search always runs alongside (see the search ViewModel).
      */
     val hasStructure: Boolean
         get() = genres.isNotEmpty() ||
-            candidates.any { it.cued || it.personFirst } ||
-            (candidates.isNotEmpty() && media.isNotEmpty())
+            candidates.isNotEmpty()
 
     fun without(keys: Set<String>): ParsedQuery = copy(
         media = media.filter { mediaKey(it) !in keys },

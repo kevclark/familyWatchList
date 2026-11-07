@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.lastOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.stateIn
@@ -28,6 +30,7 @@ import org.seg7.familywatchlist.data.repository.SearchPlan
 import org.seg7.familywatchlist.data.search.AgeFilter
 import org.seg7.familywatchlist.data.search.AgeOption
 import org.seg7.familywatchlist.data.search.QueryParser
+import org.seg7.familywatchlist.data.search.TitleMatch
 import org.seg7.familywatchlist.data.repository.RecommendationRepository
 import org.seg7.familywatchlist.data.repository.SearchRepository
 import org.seg7.familywatchlist.data.repository.UserPreferencesRepository
@@ -90,6 +93,8 @@ data class SearchUiState(
     val unratedKeys: Set<String> = emptySet(),
     val canLoadMore: Boolean = false,
     val isLoadingMore: Boolean = false,
+    /** PLAN.md §5f: up to three title-search hits whose name equals or starts with the query, shown above structured results. */
+    val titleMatches: List<TitleEntity> = emptyList(),
     /** The selected age chip (defaults to the active profile's cap, or Family's strictest). */
     val ageOption: AgeOption = AgeFilter.ANY,
 ) {
@@ -127,6 +132,14 @@ data class SearchUiState(
             SearchFilter.TV -> results.filter { it.mediaType == MediaType.TV }
         }
 
+    /** [titleMatches] under the same Films/Series pill as [visibleResults]. */
+    val visibleTitleMatches: List<TitleEntity>
+        get() = when (filter) {
+            SearchFilter.ALL -> titleMatches
+            SearchFilter.MOVIES -> titleMatches.filter { it.mediaType == MediaType.MOVIE }
+            SearchFilter.TV -> titleMatches.filter { it.mediaType == MediaType.TV }
+        }
+
     fun isListed(title: TitleEntity): Boolean = listedKey(title.tmdbId, title.mediaType) in listedKeys
 
     /** M6: whether [title] should render the "RENT/BUY" tag — see [paidOnlyKeys]'s kdoc. */
@@ -155,6 +168,7 @@ private data class SearchInternal(
     val unratedKeys: Set<String> = emptySet(),
     val canLoadMore: Boolean = false,
     val isLoadingMore: Boolean = false,
+    val titleMatches: List<TitleEntity> = emptyList(),
 )
 
 /**
@@ -241,6 +255,7 @@ class SearchViewModel(
                 unratedKeys = search.unratedKeys,
                 canLoadMore = search.canLoadMore,
                 isLoadingMore = search.isLoadingMore,
+                titleMatches = search.titleMatches,
                 ageOption = ageChoice ?: defaultAge,
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchUiState())
@@ -358,7 +373,11 @@ class SearchViewModel(
                     is SearchPlan.Structured -> {
                         structuredPlan = plan
                         _search.value = _search.value.copy(interpretation = plan.interpretation)
-                        collectStructured(plan, page = 1, base = emptyList(), region = region, cap = ageRatingCap)
+                        coroutineScope {
+                            // PLAN.md §5f: the existing title search runs alongside, with its usual gating and cap.
+                            launch { collectTitleMatches(query, region, ageRatingCap) }
+                            collectStructured(plan, page = 1, base = emptyList(), region = region, cap = ageRatingCap)
+                        }
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -395,6 +414,19 @@ class SearchViewModel(
             }
     }
 
+    private suspend fun collectTitleMatches(query: String, region: String, cap: String?) {
+        val results = try {
+            searchRepository.search(query, region, ageRatingCap = cap).lastOrNull().orEmpty()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val matches = results.filter { TitleMatch.matches(it.title, query) }.take(TitleMatch.MAX_MATCHES)
+        val paid = matches.filter { searchRepository.isPaidOnly(it.tmdbId, it.mediaType) }.map { listedKey(it.tmdbId, it.mediaType) }
+        _search.value = _search.value.copy(titleMatches = matches, paidOnlyKeys = _search.value.paidOnlyKeys + paid)
+    }
+
     private suspend fun collectStructured(
         plan: SearchPlan.Structured,
         page: Int,
@@ -419,7 +451,7 @@ class SearchViewModel(
             .collect { result ->
                 val seen = base.map { listedKey(it.tmdbId, it.mediaType) }.toSet()
                 val merged = base + result.titles.filter { listedKey(it.tmdbId, it.mediaType) !in seen }
-                val paidOnly = merged
+                val paidOnly = (merged + _search.value.titleMatches)
                     .filter { searchRepository.isPaidOnly(it.tmdbId, it.mediaType) }
                     .map { listedKey(it.tmdbId, it.mediaType) }
                     .toSet()

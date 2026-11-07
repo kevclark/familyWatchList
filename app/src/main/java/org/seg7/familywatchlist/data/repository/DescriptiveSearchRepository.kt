@@ -17,7 +17,6 @@ import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.recommend.FamilyBlend
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
-import org.seg7.familywatchlist.data.remote.dto.KeywordDto
 import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
 import org.seg7.familywatchlist.data.remote.dto.PersonDto
 import org.seg7.familywatchlist.data.search.AgeFilter
@@ -33,8 +32,11 @@ data class SearchChip(val key: String, val label: String)
 
 data class Interpretation(val chips: List<SearchChip>, val ignored: List<String>)
 
-/** The filters for one media type. Genre, cast and keyword lists are ANDed. */
-data class MediaSpec(val genreIds: List<Int>, val personIds: List<Int>, val keywordIds: List<Int>)
+/**
+ * The filters for one media type. Genre, cast and keyword groups are ANDed; the ids inside one keyword
+ * group are ORed (one typed word maps to its exact keyword plus "<word> ..." variants).
+ */
+data class MediaSpec(val genreIds: List<Int>, val personIds: List<Int>, val keywordGroups: List<List<Int>>)
 
 sealed interface SearchPlan {
     /** Nothing structured was understood: run the existing title search on [text]. */
@@ -65,7 +67,7 @@ class DescriptiveSearchRepository(
     private val providerRepository: ProviderRepository,
 ) {
     private val personCache = ConcurrentHashMap<String, Optional<PersonDto>>()
-    private val keywordCache = ConcurrentHashMap<String, Optional<KeywordDto>>()
+    private val keywordCache = ConcurrentHashMap<String, Optional<List<Int>>>()
     private val tvCreditsCache = ConcurrentHashMap<Int, List<MediaSummaryDto>>()
 
     /**
@@ -81,7 +83,7 @@ class DescriptiveSearchRepository(
         parsed.genres.forEach { chips += SearchChip(it.key, it.name) }
 
         val personIds = ArrayList<Int>()
-        val keywordIds = ArrayList<Int>()
+        val keywordIds = ArrayList<List<Int>>()
         val descriptive = parsed.genres.isNotEmpty() || parsed.media.isNotEmpty()
 
         parsed.candidates.forEachIndexed { index, cand ->
@@ -99,7 +101,7 @@ class DescriptiveSearchRepository(
             }
             if (!resolved) {
                 keyword(cand.text)?.let {
-                    keywordIds += it.id
+                    keywordIds += it
                     chips += SearchChip(cand.key, cand.text)
                     resolved = true
                 }
@@ -108,7 +110,7 @@ class DescriptiveSearchRepository(
                 cand.words.filter { "kw:$it" !in parsed.removed }.forEach { word ->
                     val kw = keyword(word)
                     if (kw != null) {
-                        keywordIds += kw.id
+                        keywordIds += kw
                         chips += SearchChip("kw:$word", word)
                         resolved = true
                     } else {
@@ -162,7 +164,7 @@ class DescriptiveSearchRepository(
                 page = page,
                 withGenres = spec.genreIds.csv(),
                 withCast = spec.personIds.csv(),
-                withKeywords = spec.keywordIds.csv(),
+                withKeywords = spec.keywordGroups.keywordParam(),
                 voteCountGte = VOTE_FLOOR,
                 certificationCountry = AgeFilter.optionForCap(cap).tmdbCertification?.let { region },
                 certificationLte = AgeFilter.optionForCap(cap).tmdbCertification,
@@ -178,7 +180,7 @@ class DescriptiveSearchRepository(
                     monetizationTypes = MONETIZATION,
                     page = page,
                     withGenres = spec.genreIds.csv(),
-                    withKeywords = spec.keywordIds.csv(),
+                    withKeywords = spec.keywordGroups.keywordParam(),
                     voteCountGte = VOTE_FLOOR,
                 )
                 response.results.forEach { candidates += Triple(it, MediaType.TV, false) }
@@ -195,7 +197,7 @@ class DescriptiveSearchRepository(
                     .distinctBy { it.id }
                     .sortedWith(compareByDescending<MediaSummaryDto> { it.popularity ?: 0.0 }.thenBy { it.id })
                 val from = (page - 1) * PAGE_SIZE
-                filtered.drop(from).take(PAGE_SIZE).forEach { candidates += Triple(it, MediaType.TV, spec.keywordIds.isNotEmpty()) }
+                filtered.drop(from).take(PAGE_SIZE).forEach { candidates += Triple(it, MediaType.TV, spec.keywordGroups.isNotEmpty()) }
                 if (from + PAGE_SIZE < filtered.size) hasMore = true
             }
         }
@@ -219,12 +221,14 @@ class DescriptiveSearchRepository(
                 val candidate = stored.getValue(type)[dto.id] ?: return@launch
                 limit.withPermit {
                     if (!availabilityGate.isAvailableOnSubscribedProvider(dto.id, type, region)) return@withPermit
+                    // Cache-only: the gate call above just ensured freshness.
+                    if (availabilityGate.isPaidOnlyCached(dto.id, type)) return@withPermit
                     val certification = titleDao.get(dto.id, type)?.certification ?: candidate.certification
                     val verdict = AgeFilter.evaluate(certification, cap)
                     if (verdict == AgeVerdict.HIDE) return@withPermit
                     if (keywordCheck) {
                         val have = titleAttributeDao.getForTitle(dto.id, type).filter { it.attrType == AttrType.KEYWORD }.map { it.attrId }.toSet()
-                        if (!plan.tv!!.keywordIds.all { it in have }) return@withPermit
+                        if (!plan.tv!!.keywordGroups.all { group -> group.any { it in have } }) return@withPermit
                     }
                     sendMutex.withLock {
                         slots[index] = titleDao.get(dto.id, type) ?: candidate
@@ -244,9 +248,11 @@ class DescriptiveSearchRepository(
     private suspend fun person(text: String): PersonDto? {
         val key = QueryParser.tokenize(text).joinToString(" ")
         if (key.isEmpty()) return null
+        personCache[key]?.let { return it.orElse(null) }
+        val response = lookupOrNull { api.searchPerson(text).results } ?: return null
         return personCache.getOrPut(key) {
             val wanted = key.split(' ')
-            val match = api.searchPerson(text).results
+            val match = response
                 .filter { p ->
                     val nameTokens = QueryParser.tokenize(p.name)
                     nameTokens == wanted || (wanted.size >= 2 && nameTokens.containsAll(wanted))
@@ -256,14 +262,38 @@ class DescriptiveSearchRepository(
         }.orElse(null)
     }
 
-    /** Exact or near-exact (plural, spacing) keyword name match; cached including misses. */
-    private suspend fun keyword(text: String): KeywordDto? {
+    /**
+     * The OR group for a typed word: near-exact name matches plus keywords whose name starts with
+     * "<word> ", in TMDB's order, capped at [MAX_KEYWORD_GROUP]. TMDB's bare "slapstick" keyword is
+     * barely used while "slapstick comedy" carries the real titles, so exact alone finds nothing.
+     * Null when nothing matches. Cached including misses.
+     */
+    private suspend fun keyword(text: String): List<Int>? {
         val key = QueryParser.tokenize(text).joinToString(" ")
         if (key.isEmpty()) return null
+        keywordCache[key]?.let { return it.orElse(null) }
+        val response = lookupOrNull { api.searchKeyword(text).results } ?: return null
         return keywordCache.getOrPut(key) {
-            Optional.ofNullable(api.searchKeyword(text).results.firstOrNull { nearExact(key, QueryParser.tokenize(it.name).joinToString(" ")) })
+            val ids = response.filter {
+                val name = QueryParser.tokenize(it.name).joinToString(" ")
+                nearExact(key, name) || name.startsWith("$key ")
+            }.map { it.id }.distinct().take(MAX_KEYWORD_GROUP)
+            Optional.ofNullable(ids.takeIf { it.isNotEmpty() })
         }.orElse(null)
     }
+
+    /**
+     * A failed person/keyword lookup must not break a search that may really be a title query
+     * ("inception" is now tried as a keyword first): treat it as "no match" and don't cache it.
+     */
+    private suspend fun <T> lookupOrNull(block: suspend () -> T): T? =
+        try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
 
     private fun nearExact(a: String, b: String): Boolean =
         a == b || a.replace(" ", "") == b.replace(" ", "") || singular(a) == singular(b)
@@ -275,15 +305,24 @@ class DescriptiveSearchRepository(
         else -> s
     }
 
+    /** Groups ANDed with `,`, ids within a group ORed with `|`. */
+    private fun List<List<Int>>.keywordParam(): String? =
+        takeIf { it.isNotEmpty() }?.joinToString(",") { it.joinToString("|") }
+
     private fun List<Int>.csv(): String? = takeIf { it.isNotEmpty() }?.joinToString(",")
 
     companion object {
         /** Minimum TMDB vote count so unrated junk does not surface. */
         const val VOTE_FLOOR = 50
         const val PAGE_SIZE = 20
-        /** Same "available on a service we pay for" kinds as [AvailabilityGate], which counts rent/buy too. */
-        const val MONETIZATION = "flatrate|free|rent|buy"
+        /**
+         * Included-with-subscription kinds only, like the existing discover calls. Browsing by genre or
+         * actor never nudges towards rent/buy (PLAN.md, Kev 2026-08-22: paid options appear only when
+         * someone explicitly searches for a title), so paid-only titles are also dropped after the gate.
+         */
+        const val MONETIZATION = "flatrate|free"
         private const val MAX_CANDIDATE_LOOKUPS = 4
+        private const val MAX_KEYWORD_GROUP = 6
         private const val MAX_CONCURRENT_CHECKS = 5
     }
 }
