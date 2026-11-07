@@ -2408,14 +2408,18 @@ reset on selection change / `Finished` / shortlist recompute. No schema change.
 
 ## M17 — Descriptive search with an age filter (Kev, 2026-11-07) — see PLAN.md §5f
 
-- [ ] Query parser + phrase→genre lookup table (movie/TV id maps), media-type words, people,
+- [x] Query parser + phrase→genre lookup table (movie/TV id maps), media-type words, people,
       keywords, stop words. Exhaustive unit tests incl. "comedy movies" → movies only,
       "action comedies", "movies with Ryan Reynolds", "slapstick comedies".
-- [ ] TMDB `search/person`, `search/keyword`, person credits, discover cast/keyword/cert params.
-- [ ] Structured search execution on discover (UK + subscribed providers, popularity, vote floor,
+- [x] TMDB `search/person`, `search/keyword`, person credits, discover cast/keyword/cert params.
+- [x] Structured search execution on discover (UK + subscribed providers, popularity, vote floor,
       paging) with title-search fallback and the "Search titles instead" link.
-- [ ] Interpretation chips (removable, rerun) + "Ignored: …" line.
-- [ ] Age filter chip row (default from active profile / Family strictest), cert post-filter via
+- [x] Interpretation chips (removable, rerun) + "Ignored: …" line.
+- [x] Age filter chip row (default from active profile / Family strictest), cert post-filter via
       `CERT_RANK`, unrated handling.
-- [ ] Bump to 0.1.0-alpha.17 (versionCode 17); `./gradlew test assembleDebug` green.
+- [x] Bump to 0.1.0-alpha.17 (versionCode 17); `./gradlew test assembleDebug` green.
 - [ ] Live check on Kev's phone.
+
+M17 notes (2026-11-07): pure parser in `data/search` (`PhraseTable`, `QueryParser`, `AgeFilter`);
+execution in `DescriptiveSearchRepository` (TMDB discover for movies, `person/{id}/tv_credits` for TV
+with a person, in-memory person/keyword caches). No schema change. No inference of any kind.
