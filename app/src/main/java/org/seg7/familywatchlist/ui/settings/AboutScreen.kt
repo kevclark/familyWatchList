@@ -143,8 +143,11 @@ fun AboutScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 
             SectionLabel("Main session (orchestrator)")
             Text(
-                text = "The conversation that directs the agents. Hours are active time (gaps over " +
-                    "10 minutes excluded) and run alongside the agent hours above, not on top of them.",
+                text = "The conversation that directs the agents. Prompts handled are Kev's prompts this " +
+                    "model picked up; replies are the messages that end a turn with words for Kev; " +
+                    "actions are the tool calls in between (reading files, running commands, briefing " +
+                    "agents). Hours are active time (gaps over 10 minutes excluded) and run alongside " +
+                    "the agent hours above, not on top of them.",
                 style = MaterialTheme.typography.bodySmall,
                 color = ChalkMuted,
             )
@@ -181,19 +184,47 @@ private fun BuiltWithClaudeSummaryCard() {
             .clip(RoundedCornerShape(14.dp))
             .background(InkRaised)
             .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SummaryStat(
+                value = BuildStats.TOTAL_PROMPTS.toString(),
+                label = "Kev's prompts",
+                modifier = Modifier.weight(1f),
+            )
+            SummaryStat(
+                value = formatTokenCount(BuildStats.TOTAL_TOKENS),
+                label = "Total tokens",
+                modifier = Modifier.weight(1f),
+            )
+            SummaryStat(
+                value = formatHours(BuildStats.HANDS_ON_HOURS),
+                label = "Hands-on time",
+                modifier = Modifier.weight(1f),
+            )
+        }
         Text(
-            text = "${BuildStats.TOTAL_PROMPTS} prompts · ${formatHours(BuildStats.TOTAL_HOURS)} of build time",
-            style = MaterialTheme.typography.titleSmall,
-            color = Chalk,
-        )
-        Text(
-            text = "${BuildStats.TOTAL_AGENT_TASKS} background agent dispatches across " +
-                "${BuildStats.MODEL_BREAKDOWN.count { !it.isOrchestrator }} Claude models",
+            text = "Tokens cover the background agents and the main session together, cache reads excluded. " +
+                "Hands-on time counts a stretch once even when the main session and an agent were both " +
+                "running, so it is less than the two added up.",
             style = MaterialTheme.typography.bodySmall,
             color = ChalkMuted,
         )
+        Text(
+            text = "${BuildStats.TOTAL_AGENT_TASKS} background agent dispatches across " +
+                "${BuildStats.MODEL_BREAKDOWN.count { !it.isOrchestrator }} Claude models · " +
+                "${formatHours(BuildStats.TOTAL_HOURS)} of cumulative agent build time",
+            style = MaterialTheme.typography.bodySmall,
+            color = ChalkMuted,
+        )
+    }
+}
+
+@Composable
+private fun SummaryStat(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(text = value, style = MaterialTheme.typography.titleLarge, color = Chalk)
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = ChalkFaint)
     }
 }
 
@@ -215,13 +246,16 @@ private fun ModelStatsCard(model: BuildStats.ModelStats) {
             Text(text = model.modelName, style = MaterialTheme.typography.titleSmall, color = Chalk)
             Text(
                 text = if (model.isOrchestrator) {
-                    "${model.messageCount} messages · ${formatHours(model.hours)} active"
+                    "${formatHours(model.hours)} active"
                 } else {
                     "${model.taskCount} task${if (model.taskCount == 1) "" else "s"} · ${formatHours(model.hours)}"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = Accent,
             )
+        }
+        if (model.isOrchestrator) {
+            Text(text = formatOrchestratorCounts(model), style = MaterialTheme.typography.labelSmall, color = Accent)
         }
         val tokensAndCalls = formatTokensAndCalls(model.tokens, model.toolCalls)
         if (tokensAndCalls != null) {
@@ -232,13 +266,21 @@ private fun ModelStatsCard(model: BuildStats.ModelStats) {
 }
 
 /** e.g. 2.8 -> "2.8h", and the Haiku 4.5 sub-tenth-hour figure -> "36min" rather than a misleading "0.0h". */
-private fun formatHours(hours: Double): String {
+internal fun formatHours(hours: Double): String {
     if (hours < 0.1) {
         val minutes = (hours * 60).let { if (it < 1) "<1" else "%.0f".format(it) }
         return "${minutes}min"
     }
     return "%.1fh".format(hours)
 }
+
+/** e.g. "178 prompts handled · 223 replies · 1,060 actions". Defined precisely in [BuildStats.SNAPSHOT_DATE]'s doc. */
+internal fun formatOrchestratorCounts(model: BuildStats.ModelStats): String =
+    "%,d prompts handled · %,d replies · %,d actions".format(
+        model.promptsHandled ?: 0,
+        model.replies ?: 0,
+        model.actions ?: 0,
+    )
 
 private fun formatTokensAndCalls(tokens: Long?, toolCalls: Int?): String? {
     val parts = mutableListOf<String>()
@@ -247,7 +289,7 @@ private fun formatTokensAndCalls(tokens: Long?, toolCalls: Int?): String? {
     return if (parts.isEmpty()) null else parts.joinToString(" · ")
 }
 
-private fun formatTokenCount(tokens: Long): String = when {
+internal fun formatTokenCount(tokens: Long): String = when {
     tokens >= 1_000_000L -> "%.2fM".format(tokens / 1_000_000.0)
     tokens >= 1_000L -> "%.0fk".format(tokens / 1_000.0)
     else -> tokens.toString()
