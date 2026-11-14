@@ -1057,6 +1057,12 @@ user's subscribed providers in the user's region (GB by default).
   `<queryHash>#pages` of the same table (its `tmdbId` holds the count), so no schema change and the hide decision needs no
   probe request; a page cached without that entry is refetched once. Dedupe by TMDB id across pages (popularity can shift
   between fetches), the age cap and dismissals apply to every page, and a refresh drops any in-flight page.
+- **Auto-advance (emulator finding, alpha.21):** a capped profile can have every page-1 title filtered out (15/18 or
+  unrated), and an empty row is hidden together with its More card, leaving later pages unreachable. So when a load
+  (the initial one, after certification enrichment, or a More tap) yields no visible new title while TMDB has more pages, the
+  next page is loaded automatically, enriched the same way, until something is visible, TMDB runs out, or 3 pages have been
+  consumed by that load (the same fill idea as search). The card shows its loading state throughout. A row that is truly
+  empty still hides; a row with visible titles never auto-advances, so uncapped profiles are unaffected.
 - **Paid-only past page 1 (exact):** the narrow result is the wide one minus paid-only titles, same order, so a title at
   wide rank r has narrow rank at most r. Wide page p covers ranks below 20p, hence every included title on it sits on
   narrow pages 1..p. `newMovies(page = p)` therefore reads narrow pages 1..p (pages 1..p-1 are cache hits from earlier taps,

@@ -67,6 +67,7 @@ class HomeViewModelNewRowsTest {
     /** Detail payload certifications by "movie/ID" or "tv/ID"; requests are counted in [detailRequests]. */
     private val detailCerts = mutableMapOf<String, String>()
     private val detailRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
+    private val discoverTargets = java.util.concurrent.CopyOnWriteArrayList<String>()
 
     private val activeProfile = ActiveProfile.Individual(
         ProfileEntity(id = 7L, name = "P", avatarKey = "a", ageRatingCap = null, createdAt = 0),
@@ -79,6 +80,7 @@ class HomeViewModelNewRowsTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val t = request.target
+                if (t.startsWith("/discover")) discoverTargets += t
                 val body = when {
                     t.startsWith("/discover/movie") && t.contains("primary_release_date") -> {
                         if (failNewMovies) return MockResponse(code = 500)
@@ -381,5 +383,63 @@ class HomeViewModelNewRowsTest {
         vm.dismissTitle(25, MediaType.MOVIE)         // a page 2 title
         val after = vm.uiState.first { st -> st.newMovies.none { it.tmdbId == 25 } }
         assertEquals((1..30).filter { it != 5 && it != 25 }, after.newMovies.map { it.tmdbId })
+    }
+
+    @Test
+    fun `a capped profile whose page 1 is all filtered gets page 2 loaded automatically`() = runTest {
+        newMovies = films(1..25)
+        newMoviesIncluded = newMovies
+        (1..25).forEach { detailCerts["movie/$it"] = if (it == 22) "PG" else "18" }
+
+        val state = viewModel(kid()).uiState.first { it.newMovies.isNotEmpty() }
+
+        assertEquals(listOf(22), state.newMovies.map { it.tmdbId })
+        assertTrue(discoverTargets.any { it.contains("rent") && it.contains("page=2") })
+        // Page 2 was the last page, so the card is gone rather than stuck on a loading state.
+        val settled = viewModel(kid()).uiState.first { it.newMovies.isNotEmpty() }
+        assertEquals(null, settled.newMoviesMore)
+    }
+
+    @Test
+    fun `the auto-advance stops after 3 pages, and a More tap then carries on`() = runTest {
+        newMovies = films(1..100)
+        newMoviesIncluded = newMovies
+        (1..100).forEach { detailCerts["movie/$it"] = if (it == 90) "PG" else "18" }
+        val vm = viewModel(kid())
+
+        val stopped = vm.uiState.first { it.newMoviesMore?.nextPage == 4 && !it.newMoviesMore.loading }
+
+        assertTrue(stopped.newMovies.isEmpty())
+        assertEquals(0, discoverTargets.count { it.contains("rent") && it.contains("page=4") })
+        assertTrue(detailRequests.none { it.removePrefix("movie/").toInt() > 60 })
+
+        // The row is hidden by the carousel while empty, so the card is reachable only through the view model here.
+        vm.showMoreNewFilms()
+        val found = vm.uiState.first { it.newMovies.isNotEmpty() }
+        assertEquals(listOf(90), found.newMovies.map { it.tmdbId })
+    }
+
+    @Test
+    fun `an uncapped profile does not auto-advance when page 1 has titles`() = runTest {
+        newMovies = films(1..45)
+        newMoviesIncluded = newMovies
+        newTv = (100..130).map { it to "S$it" }
+
+        val state = viewModel().uiState.first { it.newMovies.isNotEmpty() && it.newTv.isNotEmpty() }
+
+        assertEquals(20, state.newMovies.size)
+        assertEquals(20, state.newTv.size)
+        assertTrue(discoverTargets.none { it.contains("page=2") })
+    }
+
+    @Test
+    fun `a capped profile with a passing title on page 1 does not auto-advance either`() = runTest {
+        newMovies = films(1..45)
+        newMoviesIncluded = newMovies
+        (1..45).forEach { detailCerts["movie/$it"] = "PG" }
+
+        viewModel(kid()).uiState.first { it.newMovies.size == 20 }
+
+        assertTrue(discoverTargets.none { it.contains("page=2") })
     }
 }

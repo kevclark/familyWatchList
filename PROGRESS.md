@@ -2521,6 +2521,8 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
       page in `discover_cache`, `total_pages` kept in a `<hash>#pages` row (no schema change), card hides on the last page.
       Paid-only stays exact: wide page p is checked against narrow pages 1..p (explained in §5i). Age cap, cert enrichment for
       capped profiles (20 per new page), dismissals and dedupe apply across pages.
+- [x] Emulator finding fixed: a capped profile whose page 1 is entirely filtered no longer hides the row. The load
+      auto-advances (enrichment included) until a title is visible, TMDB runs out, or 3 pages are consumed (PLAN.md §5i).
 - [x] New rows window: 2 months for both rows (was 4 and 3), popularity order kept. Cache keys carry the window.
 - [x] Bumped to 0.1.0-alpha.21 / versionCode 21.
 - [ ] Live check on Kev's phone (New films / New series: tap Show more, pages append, card hides at the end, rent/buy tags
