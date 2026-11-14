@@ -2525,3 +2525,5 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
       of the same query. The New films paid-only detection (wide vs narrow page) must stay
       exact past page 1: fetch narrow pages far enough to cover the wide page's range.
       Same age cap, cert enrichment for capped profiles, dismissals and 24h cache per page.
+- [ ] New rows window: 2 months for both New films and New series (Kev, 2026-11-14; was 4 and
+      3). Keep popularity order: Kev wants the most popular of the last 2 months on top.
