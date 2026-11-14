@@ -2481,3 +2481,17 @@ use key `theme:<Name>`. Tests: 629 -> 655 JVM tests, all green. Judgement calls 
 alpha.19 notes (2026-11-07): `passesBrowseGate` and `persistStubs` factored into `BrowseGating.kt` (shared with search).
 New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes it as a last constructor arg and exposes
 `moreLikeThis` / `moreLikeThisLoading`; `TitleDetailScreen` gained `onOpenTitle`.
+
+## Queued for alpha.20 (Kev, 2026-11-14)
+
+- [ ] "New films" and "New series" rows on Home, below the popular rows (Kev chose two rows).
+      TMDB has no "date added to provider", so "new" means recently released and on the user's
+      services in GB. Films: primary release in the last ~4 months, subscribed providers,
+      monetization flatrate|free|rent|buy; rent/buy-only titles carry the existing Rent/Buy badge.
+      This row is Kev's one sign-off exception to the 2026-08-22 "no rent/buy in browsing" rule;
+      every other browse surface keeps it. Series: first aired in the last ~3 months, subscribed
+      providers, flatrate|free. Both: popularity order with a vote-count floor (an unfloored
+      probe returned mostly obscure titles), profile/Family age cap, refreshed on the popular
+      rows' daily TTL, + to add to watch list. Returning seasons are out of scope (live probe was
+      dominated by soaps, wrestling and procedurals); "new seasons of shows you've watched" is a
+      possible later item.
