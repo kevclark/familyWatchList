@@ -35,8 +35,8 @@ These are the rules that shape every design choice. Each one is enforced in a sp
 
 | Constraint | What it means in practice |
 |---|---|
-| Offline-first | The UI reads Room only. TMDB responses fill the cache; screens never render a network response directly. A passive Home visit makes no network call for the For You row, because it reads the persisted weekly shortlist. |
-| UK region | `watch_region=GB` is the default and the intended region everywhere. The region is held in `UserPreferencesRepository.region` and threaded through as a call-time parameter (see the discrepancy note on region). |
+| Offline-first ([ADR 0001](adr/0001-offline-first-the-ui-reads-room-only-tmdb.md)) | The UI reads Room only. TMDB responses fill the cache; screens never render a network response directly. A passive Home visit makes no network call for the For You row, because it reads the persisted weekly shortlist. |
+| UK region | `watch_region=GB` is the default and the intended region everywhere. The region is held in `UserPreferencesRepository.region` and threaded through as a call-time parameter (see the discrepancy note on region). See [ADR 0019](adr/0019-region-defaults-to-gb-uk-but-is-a.md). |
 | No inference in the app | There is no on-device model and no LLM call. Descriptive search is a deterministic parser over lookup tables (`PhraseTable`) plus TMDB `search/person` and `search/keyword` lookups. Recommendation is plain content-based scoring (`data/recommend`). |
 | At most 10 profiles | `ProfileRepository.MAX_PROFILES = 10`, checked in `addProfile`. The Family profile is a separate singleton and does not count. |
 | Attribution | "Streaming data by JustWatch" must appear wherever availability renders (`ui/components/AvailabilityRow` pairs badges with the credit, and Home, Search, My List, Settings and onboarding carry it). The TMDB logo and the required not-endorsed notice appear in Settings, About and on onboarding. |
@@ -315,6 +315,8 @@ Notes:
 
 ### Migration history
 
+Decisions: [ADR 0028](adr/0028-explicit-room-migrations-schemas-exported-no-destructive-fallback.md).
+
 Registered in `AppContainer` (`Room.databaseBuilder(...).addMigrations(...)`); there is no
 destructive fallback. Each one is defined in `data/local/AppDatabase.kt`.
 
@@ -337,6 +339,8 @@ All four flows share the same shape: **gate and cache first, network second, UI 
 repository flow**. TMDB calls always go through the `ThrottleInterceptor`, so the diagrams omit it.
 
 ### (a) Weekly refresh
+
+Decisions: [ADR 0010](adr/0010-weekly-refresh-re-anchored-one-time-unique-work.md).
 
 One refresh code path serves three triggers (scheduled, catch-up, manual). A single `Mutex` in
 `RefreshCoordinator` means two refreshes never run at once. Only the `SCHEDULED` trigger posts a
@@ -410,6 +414,8 @@ What to remember:
   Activity screen.
 
 ### (b) Descriptive search
+
+Decisions: [ADR 0007](adr/0007-descriptive-search-no-inference-a-phrase-table-keyword.md), [ADR 0008](adr/0008-themes-table-hard-coded-live-verified-tmdb-keyword.md), [ADR 0013](adr/0013-search-load-more-fills-to-20-titles-within.md).
 
 The search box takes free text ("scary films with Tom Cruise", "slapstick comedy"). It is parsed
 locally into chips, resolved against TMDB, and run as discover queries. A title-name search always
@@ -487,6 +493,8 @@ What to remember:
 
 ### (c) Home rows
 
+Decisions: [ADR 0014](adr/0014-show-more-on-new-rows-exact-paid-only.md), [ADR 0005](adr/0005-new-films-exception-rent-buy-allowed-on-the.md).
+
 Home is one feed. The popular rows and the New rows share `DiscoverRepository`, the 24 hour
 `discover_cache` and the same age rule. The New rows add paging and a paid-only detection trick.
 
@@ -562,6 +570,8 @@ What to remember:
 
 ### (d) Title detail: More like this
 
+Decisions: [ADR 0009](adr/0009-more-like-this-uses-tmdb-recommendations-not-similar.md).
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -601,24 +611,26 @@ surfaces share. When changing a rule, change it there.
 
 | Rule | Class and function | Notes |
 |---|---|---|
-| Max 10 profiles | `ProfileRepository.addProfile`, `MAX_PROFILES` | Returns `Result.failure(MaxProfilesReachedException)`. Family does not count. UI never enforces this on its own. |
-| Age cap, permissive form ("unknown is not unsafe") | `FamilyBlend.isOverCap(certification, cap)` | A null or unrecognised certification is never excluded. Used by `SearchRepository` (title search). |
-| Age cap, strict form (confirmed cert required when capped) | `FamilyBlend.isConfirmedUnderCap(certification, cap)` | A capped profile needs a known certification at or under the cap. Uncapped (cap null) is unaffected. Used by `RecommendationRepository.scoreCandidates` (For You and Family Night) and by Home through `HomeViewModel.survivesAgeCap`, a thin private delegate. Applies to the popular rows, the cold-start row and both New rows. |
-| Age cap for browse surfaces | `AgeFilter.evaluate(certification, cap)` returning `SHOW`, `SHOW_UNRATED` or `HIDE`; `AgeFilter.optionForCap` | Used inside `passesBrowseGate` (descriptive search, More like this). Unrated is hidden at a cap of 12 or below, otherwise shown with a label. Ranking comes from `FamilyBlend.certRank`, so there is one cert ordering. |
-| Which cap applies to whom | `RecommendationRepository.resolveAgeRatingCap(profileId)`; `FamilyBlend.strictestCap` | A real profile's own cap; for Family, the strictest cap among its curated members; null means no filtering. |
-| Availability gate | `AvailabilityGate.isAvailableOnSubscribedProvider` | The one definition of "can this be watched on a service we pay for, in this region": any subscribed provider has any kind (FLATRATE, FREE, BUY, RENT). With nothing subscribed, nothing passes. Used by title search, the watch list add path, `scoreCandidates`, and `passesBrowseGate`. It refreshes the title through `TitleRepository.ensureFresh` if stale. |
-| Rent/buy is not browsable | `AvailabilityGate.isPaidOnlyCached` and `isPaidOnlyOnSubscribedProvider`; `passesBrowseGate`; `DescriptiveSearchRepository.MONETIZATION = "flatrate\|free"`; `TmdbApi` discover default `flatrate\|free` | Paid-only means every subscribed row is BUY or RENT. Browse surfaces drop such titles. `isPaidOnlyCached` is a cache-only read for callers that just ran the availability check. For badge wording only, never a gate, outside the browse gate. |
-| The single rent/buy exception | `DiscoverRepository.newMovies`, `NEW_FILMS_MONETIZATION = "flatrate\|free\|rent\|buy"` | Signed off by Kev (2026-11-14). Only New films asks for rent and buy; paid-only films carry the RENT or BUY poster tag (`HomeUiState.newMoviePaidOnlyIds`). A test pins that every other discover call stays `flatrate\|free`. Explicit title search may also show paid-only titles with a badge, because the user named the title. |
-| TMDB throttle, 4 req/s | `ThrottleInterceptor` (installed by `TmdbClient.create`) | Sliding one-second window, blocks the calling thread, retries up to 3 times on HTTP 429 honouring `Retry-After`. Everything that talks to TMDB inherits it. Image requests deliberately do not. |
+| Max 10 profiles | `ProfileRepository.addProfile`, `MAX_PROFILES` | Returns `Result.failure(MaxProfilesReachedException)`. Family does not count. UI never enforces this on its own. See [ADR 0018](adr/0018-maximum-of-10-real-profiles-enforced-in-the.md). |
+| Age cap, permissive form ("unknown is not unsafe") | `FamilyBlend.isOverCap(certification, cap)` | A null or unrecognised certification is never excluded. Used by `SearchRepository` (title search). See [ADR 0003](adr/0003-age-cap-shared-rule-and-confirmed-certification-for.md). |
+| Age cap, strict form (confirmed cert required when capped) | `FamilyBlend.isConfirmedUnderCap(certification, cap)` | A capped profile needs a known certification at or under the cap. Uncapped (cap null) is unaffected. Used by `RecommendationRepository.scoreCandidates` (For You and Family Night) and by Home through `HomeViewModel.survivesAgeCap`, a thin private delegate. Applies to the popular rows, the cold-start row and both New rows. See [ADR 0003](adr/0003-age-cap-shared-rule-and-confirmed-certification-for.md). |
+| Age cap for browse surfaces | `AgeFilter.evaluate(certification, cap)` returning `SHOW`, `SHOW_UNRATED` or `HIDE`; `AgeFilter.optionForCap` | Used inside `passesBrowseGate` (descriptive search, More like this). Unrated is hidden at a cap of 12 or below, otherwise shown with a label. Ranking comes from `FamilyBlend.certRank`, so there is one cert ordering. See [ADR 0003](adr/0003-age-cap-shared-rule-and-confirmed-certification-for.md). |
+| Which cap applies to whom | `RecommendationRepository.resolveAgeRatingCap(profileId)`; `FamilyBlend.strictestCap` | A real profile's own cap; for Family, the strictest cap among its curated members; null means no filtering. See [ADR 0003](adr/0003-age-cap-shared-rule-and-confirmed-certification-for.md). |
+| Availability gate | `AvailabilityGate.isAvailableOnSubscribedProvider` | The one definition of "can this be watched on a service we pay for, in this region": any subscribed provider has any kind (FLATRATE, FREE, BUY, RENT). With nothing subscribed, nothing passes. Used by title search, the watch list add path, `scoreCandidates`, and `passesBrowseGate`. It refreshes the title through `TitleRepository.ensureFresh` if stale. See [ADR 0006](adr/0006-search-is-search-then-check-gated-to-subscribed.md). |
+| Rent/buy is not browsable | `AvailabilityGate.isPaidOnlyCached` and `isPaidOnlyOnSubscribedProvider`; `passesBrowseGate`; `DescriptiveSearchRepository.MONETIZATION = "flatrate\|free"`; `TmdbApi` discover default `flatrate\|free` | Paid-only means every subscribed row is BUY or RENT. Browse surfaces drop such titles. `isPaidOnlyCached` is a cache-only read for callers that just ran the availability check. For badge wording only, never a gate, outside the browse gate. See [ADR 0004](adr/0004-no-rent-buy-in-browsing-paid-titles-only.md). |
+| The single rent/buy exception | `DiscoverRepository.newMovies`, `NEW_FILMS_MONETIZATION = "flatrate\|free\|rent\|buy"` | Signed off by Kev (2026-11-14). Only New films asks for rent and buy; paid-only films carry the RENT or BUY poster tag (`HomeUiState.newMoviePaidOnlyIds`). A test pins that every other discover call stays `flatrate\|free`. Explicit title search may also show paid-only titles with a badge, because the user named the title. See [ADR 0005](adr/0005-new-films-exception-rent-buy-allowed-on-the.md). |
+| TMDB throttle, 4 req/s | `ThrottleInterceptor` (installed by `TmdbClient.create`) | Sliding one-second window, blocks the calling thread, retries up to 3 times on HTTP 429 honouring `Retry-After`. Everything that talks to TMDB inherits it. Image requests deliberately do not. See [ADR 0020](adr/0020-tmdb-requests-throttled-to-4-per-second.md). |
 | TMDB auth | `AuthInterceptor`, `BuildConfig.TMDB_ACCESS_TOKEN` | Token from git-ignored `local.properties`. Never print or commit. |
-| Cache freshness | `TitleRepository`, `DiscoverRepository`; see the table below | One detail call refreshes metadata, attributes, availability and reviews together. |
-| Offline-first | UI reads Room-backed flows (`observe*`); repositories call TMDB only to fill Room | For You reads `shortlist_entries`; title detail reads `titles` and friends. |
-| One refresh at a time | `RefreshCoordinator.guard` (a `Mutex`); `runIfIdle` | Scheduled waits, catch-up and manual yield. |
+| Cache freshness | `TitleRepository`, `DiscoverRepository`; see the table below | One detail call refreshes metadata, attributes, availability and reviews together. See [ADR 0001](adr/0001-offline-first-the-ui-reads-room-only-tmdb.md). |
+| Offline-first | UI reads Room-backed flows (`observe*`); repositories call TMDB only to fill Room | For You reads `shortlist_entries`; title detail reads `titles` and friends. See [ADR 0001](adr/0001-offline-first-the-ui-reads-room-only-tmdb.md). |
+| One refresh at a time | `RefreshCoordinator.guard` (a `Mutex`); `runIfIdle` | Scheduled waits, catch-up and manual yield. See [ADR 0010](adr/0010-weekly-refresh-re-anchored-one-time-unique-work.md). |
 | Notification gating | `NotificationGate.profilesToNotify`, `NotificationGate.describe`; `ShortlistNotifier` | Master switch, per-profile switch, OS permission. A failed profile is never notified. |
-| Dismissal is durable and per scope | `RecommendationRepository.dismissForScope`, `excludeDismissed` | DISMISSED rows are read across every `weekStart`, so a dismissal lasts until undone. A group (Family Night) dismissal never feeds an individual's affinity vector. |
+| Dismissal is durable and per scope | `RecommendationRepository.dismissForScope`, `excludeDismissed` | DISMISSED rows are read across every `weekStart`, so a dismissal lasts until undone. A group (Family Night) dismissal never feeds an individual's affinity vector. See [ADR 0011](adr/0011-dismiss-is-a-lasting-negative-signal.md). |
 | Provider subscription change | `ProviderRepository.setSubscribed` then `DiscoverRepository.invalidateAllCachedPages` | Stops a stale "popular on your services" page being served for up to 24 hours. |
 
 ### Cache TTLs and `discover_cache` keys
+
+Decisions: [ADR 0001](adr/0001-offline-first-the-ui-reads-room-only-tmdb.md).
 
 TTLs come from PLAN.md section 3 and are constants in code.
 
