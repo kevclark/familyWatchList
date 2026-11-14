@@ -26,6 +26,10 @@ Working rules:
 - Never touch the toolchain (SDK/JDK/Gradle versions, licences, emulator config). If the
   environment itself is broken, stop and report that toolchain-setup is needed.
 - Update `PROGRESS.md` checkboxes for what you completed before reporting back.
+- Docs travel with the code, in the same change: update `docs/ARCHITECTURE.md` (parts,
+  flows, rule-enforcement table, ER diagram/migrations if the schema moved), add or update
+  an ADR in `docs/adr/` (plus its README index) for any significant decision, and update
+  `docs/TESTING.md` with the new tests and the rule or bug each one pins.
 
 Report back: what was built (files + one-line purpose each), test/build results verbatim
 summary, PROGRESS.md updates, and any spec questions for Kev.

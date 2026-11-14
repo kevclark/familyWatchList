@@ -29,3 +29,6 @@ doing work inline:
 - Offline-first: UI reads Room only; TMDB fills the cache (TTLs in PLAN.md §3).
 - JustWatch attribution on every availability UI; TMDB attribution in About (terms require it).
 - UK region (`watch_region=GB`) everywhere; max 10 profiles enforced in the repository layer.
+- Docs travel with the code (Kev, 2026-11-14): every feature updates `docs/ARCHITECTURE.md`,
+  adds or updates ADRs in `docs/adr/` (and the index), and updates `docs/TESTING.md` in the
+  same change. Put this in every feature-builder brief.
