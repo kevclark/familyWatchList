@@ -136,7 +136,19 @@ fun AboutScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 
             BuiltWithClaudeSummaryCard()
 
-            BuildStats.MODEL_BREAKDOWN.forEach { model ->
+            SectionLabel("Background agents")
+            BuildStats.MODEL_BREAKDOWN.filter { !it.isOrchestrator }.forEach { model ->
+                ModelStatsCard(model)
+            }
+
+            SectionLabel("Main session (orchestrator)")
+            Text(
+                text = "The conversation that directs the agents. Hours are active time (gaps over " +
+                    "10 minutes excluded) and run alongside the agent hours above, not on top of them.",
+                style = MaterialTheme.typography.bodySmall,
+                color = ChalkMuted,
+            )
+            BuildStats.MODEL_BREAKDOWN.filter { it.isOrchestrator }.forEach { model ->
                 ModelStatsCard(model)
             }
 
@@ -149,6 +161,16 @@ fun AboutScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             )
         }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = ChalkFaint,
+        modifier = Modifier.padding(top = 10.dp),
+    )
 }
 
 @Composable
@@ -167,7 +189,8 @@ private fun BuiltWithClaudeSummaryCard() {
             color = Chalk,
         )
         Text(
-            text = "${BuildStats.TOTAL_AGENT_TASKS} background agent dispatches across 3 Claude models",
+            text = "${BuildStats.TOTAL_AGENT_TASKS} background agent dispatches across " +
+                "${BuildStats.MODEL_BREAKDOWN.count { !it.isOrchestrator }} Claude models",
             style = MaterialTheme.typography.bodySmall,
             color = ChalkMuted,
         )
@@ -191,7 +214,11 @@ private fun ModelStatsCard(model: BuildStats.ModelStats) {
         ) {
             Text(text = model.modelName, style = MaterialTheme.typography.titleSmall, color = Chalk)
             Text(
-                text = "${model.taskCount} task${if (model.taskCount == 1) "" else "s"} · ${formatHours(model.hours)}",
+                text = if (model.isOrchestrator) {
+                    "${model.messageCount} messages · ${formatHours(model.hours)} active"
+                } else {
+                    "${model.taskCount} task${if (model.taskCount == 1) "" else "s"} · ${formatHours(model.hours)}"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = Accent,
             )
