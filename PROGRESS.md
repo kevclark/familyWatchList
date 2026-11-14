@@ -2525,6 +2525,11 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
       auto-advances (enrichment included) until a title is visible, TMDB runs out, or 3 pages are consumed (PLAN.md §5i).
 - [x] New rows window: 2 months for both rows (was 4 and 3), popularity order kept. Cache keys carry the window.
 - [x] Bumped to 0.1.0-alpha.21 / versionCode 21.
+- [x] Emulator check (2026-11-14, orchestrator, Netflix-only, cap 12): first pass showed both
+      New rows hidden (every page-1 title 15/18 or no UK cert, so the More card was
+      unreachable); fixed in ef3f1e2. Re-check: auto-advance found page-2 titles. New films:
+      Best of the Best, Schumacher '94. New series: LEGO ONE PIECE, Wonka's The Golden Ticket.
+      About summary card: 235 prompts, 25.21M tokens, 31.2h hands-on.
 - [ ] Live check on Kev's phone (New films / New series: tap Show more, pages append, card hides at the end, rent/buy tags
       still right on page 2, capped profile fills in; rows now cover the last 2 months; About page summary card and the
       per-model prompts/replies/actions lines).
