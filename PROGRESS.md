@@ -2520,3 +2520,8 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
       - Per main-session model: Kev's prompts it handled, its replies to Kev, and its
         actions in between (tool-call steps: file reads, commands, agent briefings), next
         to time and tokens. Mine real numbers from the transcripts; same 10-minute gap rule.
+- [ ] "More" card at the end of the New films and New series rows (Kev, 2026-11-14), matching
+      the For You / Family Night show-more design (M16). Each tap loads the next TMDB page (20)
+      of the same query. The New films paid-only detection (wide vs narrow page) must stay
+      exact past page 1: fetch narrow pages far enough to cover the wide page's range.
+      Same age cap, cert enrichment for capped profiles, dismissals and 24h cache per page.
