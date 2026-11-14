@@ -2484,7 +2484,7 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
 
 ## Queued for alpha.20 (Kev, 2026-11-14)
 
-- [ ] "New films" and "New series" rows on Home, below the popular rows (Kev chose two rows).
+- [x] "New films" and "New series" rows on Home, below the popular rows (Kev chose two rows; built 2026-11-14, PLAN.md §5i).
       TMDB has no "date added to provider", so "new" means recently released and on the user's
       services in GB. Films: primary release in the last ~4 months, subscribed providers,
       monetization flatrate|free|rent|buy; rent/buy-only titles carry the existing Rent/Buy badge.
@@ -2495,3 +2495,10 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
       rows' daily TTL, + to add to watch list. Returning seasons are out of scope (live probe was
       dominated by soaps, wrestling and procedurals); "new seasons of shows you've watched" is a
       possible later item.
+- [x] Bumped to 0.1.0-alpha.20 / versionCode 20. Vote floor 10 for both rows (live probe in PLAN.md §5i).
+- [x] About this build refreshed (BuildStats snapshot 2026-11-14): alpha.18 and alpha.19 builds added, orchestrator
+      rows (main-session transcript, method in BuildStats.kt kdoc), 254 prompts, 50 agent tasks, ~17.6 h agent time.
+      The alpha.20 build is not counted (not measurable until finished).
+- [ ] Live check on Kev's phone (New films and New series appear below the popular rows; a rent/buy-only film shows
+      the RENT/BUY tag; + adds to the watch list; a capped profile sees only confirmed-under-cap titles; About this
+      build shows the orchestrator rows).

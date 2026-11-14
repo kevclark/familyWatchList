@@ -1028,6 +1028,39 @@ A horizontal poster row titled "More like this" at the bottom of the detail scre
 recommendations the header briefly appears and then disappears. Failure is not retried until the screen is reopened (the
 failed fetch is not cached).
 
+### 5i. "New films" and "New series" rows on Home (Kev, 2026-11-14 — alpha.20)
+
+Two rows below the popular rows. TMDB has no "date added to provider", so "new" means recently released and on the
+user's subscribed providers in the user's region (GB by default).
+
+- **New films:** `discover/movie`, `primary_release_date.gte` = today minus 4 months, `.lte` = today (dates from the
+  injected `AppClock`, UTC), `with_watch_providers` = subscribed (pipe-OR), `with_watch_monetization_types=
+  flatrate|free|rent|buy`, `sort_by=popularity.desc`, `vote_count.gte=10`.
+- **New series:** `discover/tv`, `first_air_date.gte` = today minus 3 months, subscribed providers, `flatrate|free` only,
+  popularity order, `vote_count.gte=10`. Returning seasons are out of scope.
+- **Vote floor (live probe, 2026-11-14, six big UK providers):** films, 0 votes gave 329 hits with a 3-vote title ranked
+  6th; 5 gave 138, 10 gave 103, 25 gave 69 but hid releases from the last few days (17 votes), 50 gave 47. TV: 0 gave
+  209, 5 gave 105, 10 gave 74, 25 gave 39, with the leading titles identical across floors. 10 for both.
+- **The rent/buy exception:** Kev's ONE sign-off exception to the 2026-08-22 "no rent/buy in browsing" rule. Only
+  `DiscoverRepository.newMovies` asks for rent/buy; popular, New series, recommendations, search and More like this are
+  unchanged, and `DiscoverRepositoryTest` pins that. Rent/buy-only films carry the existing RENT/BUY poster tag.
+- **How paid-only is known without a detail fetch per card:** `newMovies` also fetches (and caches) the same query with
+  `flatrate|free` only. A film in the wide page but not the narrow one is paid-only. This is exact, since the narrow
+  result is the wide one minus paid-only titles in the same order. Cost: one extra request per refresh.
+- **Cache/TTL:** same `discover_cache` table and 24 h TTL as the popular rows, keyed `discover_new_movie`,
+  `discover_new_movie_included`, `discover_new_tv`; cleared by `invalidateAllCachedPages` (provider changes). No schema
+  change, no migration. UI reads Room via the repository; the network only refreshes it.
+- **Gates:** same as the popular rows. Age cap is applied locally after fetch (TV discover has no certification
+  filter), using the "confirmed at or under cap" rule, so a capped profile sees only titles whose certification is cached.
+  Dismissed titles are removed immediately. A failure fetching a New row leaves the popular rows untouched.
+- **UI:** `NewFilmsRow` / `NewSeriesRow` (`ui/home/NewRows.kt`) reuse `PosterCarousel` / `PosterCard`: tap opens detail,
+  long-press dismisses, a + / check button toggles the watch list (same availability gate and attribution as Search's
+  quick-add). An empty row renders nothing, not even a header.
+
+**Judgement calls:** the + button is new to Home (the popular rows have none); the New rows get it as specified. The
+cold-start "For You" row and the hero still draw only from the popular rows. A capped child's New rows can be sparse
+until titles have been opened once (stubs carry no certification), the same limitation as the popular rows.
+
 ## 6. Build environment & preview (buildhost)
 
 Everything user-space under `~/android-dev/` unless noted:
