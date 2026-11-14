@@ -5,6 +5,7 @@ import org.seg7.familywatchlist.data.local.entity.MediaType
 import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.ui.components.PosterCard
 import org.seg7.familywatchlist.ui.components.PosterCarousel
+import org.seg7.familywatchlist.ui.components.ShowMoreCard
 
 /**
  * PLAN.md §5i: "New films" / "New series", below the popular rows. [PosterCarousel] renders nothing for
@@ -17,11 +18,13 @@ internal fun NewFilmsRow(
     onOpenTitle: (Int, MediaType) -> Unit,
     onToggleWatchlist: (TitleEntity) -> Unit,
     onLongPressDismiss: (TitleEntity) -> Unit,
+    onShowMore: () -> Unit = {},
 ) {
     PosterCarousel(
         title = "New films",
         items = state.newMovies,
         key = { "new-movie-${it.tmdbId}" },
+        endContent = state.newMoviesMore?.let { more -> { NewRowMoreCard(more, onShowMore) } },
     ) { title ->
         PosterCard(
             title = title.title,
@@ -41,11 +44,13 @@ internal fun NewSeriesRow(
     onOpenTitle: (Int, MediaType) -> Unit,
     onToggleWatchlist: (TitleEntity) -> Unit,
     onLongPressDismiss: (TitleEntity) -> Unit,
+    onShowMore: () -> Unit = {},
 ) {
     PosterCarousel(
         title = "New series",
         items = state.newTv,
         key = { "new-tv-${it.tmdbId}" },
+        endContent = state.newSeriesMore?.let { more -> { NewRowMoreCard(more, onShowMore) } },
     ) { title ->
         PosterCard(
             title = title.title,
@@ -56,4 +61,10 @@ internal fun NewSeriesRow(
             isListed = (title.tmdbId to title.mediaType) in state.listedKeys,
         )
     }
+}
+
+/** The end card of a New row: the For You / Family Night card's look ([ShowMoreCard]) with page-based copy. */
+@Composable
+internal fun NewRowMoreCard(state: NewMoreCardState, onClick: () -> Unit) {
+    ShowMoreCard(title = "Show more", caption = state.caption, loading = state.loading, onClick = onClick)
 }

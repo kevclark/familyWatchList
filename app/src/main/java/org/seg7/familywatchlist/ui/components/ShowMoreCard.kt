@@ -35,6 +35,15 @@ import org.seg7.familywatchlist.ui.theme.InkRaised
  */
 @Composable
 fun ShowMoreCard(state: MoreCardState, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    ShowMoreCard(title = "Show 30 more", caption = state.rangeLabel, loading = state.loading, onClick = onClick, modifier = modifier)
+}
+
+/**
+ * The same card with its own copy, for rows paged by TMDB pages rather than ranked picks: the New films / New series
+ * "Show more" / "Page 2 of 5" (PLAN.md §5i). One look, so the rows match.
+ */
+@Composable
+fun ShowMoreCard(title: String, caption: String, loading: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(10.dp)
     Box(
         modifier = modifier
@@ -43,22 +52,22 @@ fun ShowMoreCard(state: MoreCardState, onClick: () -> Unit, modifier: Modifier =
             .clip(shape)
             .background(InkRaised)
             .border(1.dp, InkHairline, shape)
-            .clickableNoRipple { if (!state.loading) onClick() }
+            .clickableNoRipple { if (!loading) onClick() }
             .padding(12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = "Show 30 more",
+                text = title,
                 style = MaterialTheme.typography.titleSmall,
                 color = Chalk,
                 textAlign = TextAlign.Center,
             )
-            if (state.loading) {
+            if (loading) {
                 CircularProgressIndicator(color = Accent, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
             } else {
                 Text(
-                    text = state.rangeLabel,
+                    text = caption,
                     style = MaterialTheme.typography.labelMedium,
                     color = ChalkMuted,
                     textAlign = TextAlign.Center,

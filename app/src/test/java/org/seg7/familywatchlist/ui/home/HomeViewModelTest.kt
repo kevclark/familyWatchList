@@ -545,10 +545,14 @@ class HomeViewModelTest {
         // (the "nothing subscribed" comment further down still holds for the *transient* A+C
         // selection's request count, just not for whether B's candidate can ever be available).
         db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
-        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV, "discover_new_movie" to MediaType.MOVIE, "discover_new_movie_included" to MediaType.MOVIE, "discover_new_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
+        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV, "discover_new_movie_2m" to MediaType.MOVIE, "discover_new_movie_included_2m" to MediaType.MOVIE, "discover_new_tv_2m" to MediaType.TV).forEach { (endpoint, mediaType) ->
             (1..RecommendationRepository.CANDIDATE_PAGES).forEach { page ->
                 db.discoverCacheDao().upsertAll(
-                    listOf(DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis())),
+                    // The "#pages" row is the page count New-row pages are cached with (see DiscoverRepository.cachedPage).
+                    listOf(
+                        DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis()),
+                        DiscoverCacheEntity("$endpoint:8:GB:$page#pages", tmdbId = 1, mediaType, ord = 0, fetchedAt = clock.nowMillis()),
+                    ),
                 )
             }
         }
@@ -860,10 +864,14 @@ class HomeViewModelTest {
         val b = profileRepository.addProfile("B", "avatar", null).getOrThrow()
         db.ratingDao().upsert(RatingEntity(b, 1, MediaType.MOVIE, RatingValue.UP, clock.current))
         db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
-        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV, "discover_new_movie" to MediaType.MOVIE, "discover_new_movie_included" to MediaType.MOVIE, "discover_new_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
+        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV, "discover_new_movie_2m" to MediaType.MOVIE, "discover_new_movie_included_2m" to MediaType.MOVIE, "discover_new_tv_2m" to MediaType.TV).forEach { (endpoint, mediaType) ->
             (1..RecommendationRepository.CANDIDATE_PAGES).forEach { page ->
                 db.discoverCacheDao().upsertAll(
-                    listOf(DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis())),
+                    // The "#pages" row is the page count New-row pages are cached with (see DiscoverRepository.cachedPage).
+                    listOf(
+                        DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis()),
+                        DiscoverCacheEntity("$endpoint:8:GB:$page#pages", tmdbId = 1, mediaType, ord = 0, fetchedAt = clock.nowMillis()),
+                    ),
                 )
             }
         }

@@ -303,6 +303,8 @@ class HomeViewModel(
             newMovies = discover.newMovies.withoutDismissed(),
             newTv = discover.newTv.withoutDismissed(),
             newMoviePaidOnlyIds = discover.newMoviePaidOnlyIds,
+            newMoviesMore = discover.newMoviesPaging.cardState(),
+            newSeriesMore = discover.newTvPaging.cardState(),
             listedKeys = listed,
             forYouTitles = visibleForYouTitles,
             forYouMore = if (coldStart || shortlist.isEmpty()) null else {
@@ -577,30 +579,41 @@ class HomeViewModel(
                 val newFilms = runCatching { discoverRepository.newMovies(subscribed, region) }
                     .getOrNull()
                 val newSeries = runCatching { discoverRepository.newTv(subscribed, region) }
-                    .getOrDefault(emptyList())
+                    .getOrNull()
                 NewRows(
                     hasServices = subscribed.isNotEmpty(),
                     movies = filteredMovies,
                     tv = filteredTv,
-                    rawNewMovies = newFilms?.titles.orEmpty(),
-                    rawNewTv = newSeries,
-                    ageCap = ageCap,
-                    region = region,
-                    newMovies = newFilms?.titles.orEmpty().filter { it.survivesAgeCap(ageCap) },
-                    newMoviePaidOnlyIds = newFilms?.paidOnlyIds.orEmpty(),
-                    newTv = newSeries.filter { it.survivesAgeCap(ageCap) },
+                    session = NewRowsSession(
+                        subscribed = subscribed,
+                        region = region,
+                        ageCap = ageCap,
+                        rawMovies = newFilms?.titles.orEmpty(),
+                        rawTv = newSeries?.titles.orEmpty(),
+                        paidOnlyIds = newFilms?.paidOnlyIds.orEmpty(),
+                    ),
+                    moviesPaging = NewRowPaging(newFilms?.page ?: 1, newFilms?.totalPages ?: 1),
+                    tvPaging = NewRowPaging(newSeries?.page ?: 1, newSeries?.totalPages ?: 1),
                 )
             }.onSuccess { rows ->
+                val session = rows.session
+                newSession = session
                 _discover.value = DiscoverState(
                     movies = rows.movies,
                     tv = rows.tv,
-                    newMovies = rows.newMovies,
-                    newTv = rows.newTv,
-                    newMoviePaidOnlyIds = rows.newMoviePaidOnlyIds,
+                    newMovies = session.rawMovies.filter { it.survivesAgeCap(session.ageCap) },
+                    newTv = session.rawTv.filter { it.survivesAgeCap(session.ageCap) },
+                    newMoviePaidOnlyIds = session.paidOnlyIds,
+                    newMoviesPaging = rows.moviesPaging,
+                    newTvPaging = rows.tvPaging,
                     isLoading = false,
                     hasSubscribedServices = rows.hasServices,
                 )
-                enrichNewRowCertifications(rows)
+                enrichCertifications(
+                    session,
+                    session.rawMovies.take(NEW_ROW_CERT_FETCH_LIMIT) + session.rawTv.take(NEW_ROW_CERT_FETCH_LIMIT),
+                    replaceRunning = true,
+                )
             }.onFailure { throwable ->
                 _discover.value = _discover.value.copy(
                     isLoading = false,
@@ -715,36 +728,118 @@ class HomeViewModel(
     private fun TitleEntity.survivesAgeCap(cap: String?): Boolean =
         FamilyBlend.isConfirmedUnderCap(certification, cap)
 
-    private var enrichJob: Job? = null
+    private val enrichJobs = mutableListOf<Job>()
+
+    /**
+     * The live New-rows data behind [_discover]: everything loaded so far for the current refresh, unfiltered by
+     * age cap, plus what a "More" tap needs to ask for the next page the same way. A new session replaces it (a
+     * refresh), which is how a stale in-flight page load or enrichment knows to drop its result.
+     */
+    private class NewRowsSession(
+        val subscribed: List<Int>,
+        val region: String,
+        val ageCap: String?,
+        var rawMovies: List<TitleEntity>,
+        var rawTv: List<TitleEntity>,
+        var paidOnlyIds: Set<Int>,
+    )
+
+    private var newSession: NewRowsSession? = null
 
     /**
      * PLAN.md §5i: New releases are bare discover stubs, and the capped rule ([survivesAgeCap]) needs a
      * confirmed certification, so for a capped profile nothing would ever show. Fetch details (the same
-     * [TitleRepository.ensureFresh] path and throttle as everywhere else) for up to [NEW_ROW_CERT_FETCH_LIMIT]
-     * cert-less candidates per row, republishing from Room after each one so the rows fill progressively.
-     * Uncapped profiles never get here. ensureFresh is a cache read for a title that already has detail, so
-     * nothing refetches inside the TTL. The confirmed-cert rule itself is untouched.
+     * [TitleRepository.ensureFresh] path and throttle as everywhere else) for the given cert-less [candidates]
+     * (callers pass at most [NEW_ROW_CERT_FETCH_LIMIT] per newly loaded page), republishing from Room after each one
+     * so the rows fill progressively. Uncapped profiles never get here. ensureFresh is a cache read for a title
+     * that already has detail, so nothing refetches inside the TTL. The confirmed-cert rule itself is untouched.
+     * [replaceRunning] cancels earlier enrichment (a refresh); a "More" page leaves earlier pages' work running.
      */
-    private fun enrichNewRowCertifications(rows: NewRows) {
-        enrichJob?.cancel()
-        if (rows.ageCap == null) return
-        val candidates = (rows.rawNewMovies.take(NEW_ROW_CERT_FETCH_LIMIT) + rows.rawNewTv.take(NEW_ROW_CERT_FETCH_LIMIT))
-            .filter { it.certification == null }
-        if (candidates.isEmpty()) return
-        enrichJob = viewModelScope.launch {
-            for (c in candidates) {
-                val fetched = runCatching { titleRepository.ensureFresh(c.tmdbId, c.mediaType, rows.region) }.getOrNull() ?: continue
+    private fun enrichCertifications(session: NewRowsSession, candidates: List<TitleEntity>, replaceRunning: Boolean) {
+        if (replaceRunning) {
+            enrichJobs.forEach { it.cancel() }
+            enrichJobs.clear()
+        }
+        if (session.ageCap == null) return
+        val needing = candidates.filter { it.certification == null }
+        if (needing.isEmpty()) return
+        enrichJobs += viewModelScope.launch {
+            for (c in needing) {
+                val fetched = runCatching { titleRepository.ensureFresh(c.tmdbId, c.mediaType, session.region) }.getOrNull() ?: continue
                 if (fetched.certification == null) continue
+                if (newSession !== session) return@launch
                 suspend fun reload(raw: List<TitleEntity>) =
                     titleRepository.getTitles(raw.map { it.tmdbId to it.mediaType })
                         .associateBy { it.tmdbId }
                         .let { byId -> raw.mapNotNull { byId[it.tmdbId] } }
-                        .filter { it.survivesAgeCap(rows.ageCap) }
-                _discover.value = _discover.value.copy(
-                    newMovies = reload(rows.rawNewMovies),
-                    newTv = reload(rows.rawNewTv),
-                )
+                        .filter { it.survivesAgeCap(session.ageCap) }
+                val movies = reload(session.rawMovies)
+                val tv = reload(session.rawTv)
+                if (newSession !== session) return@launch
+                _discover.value = _discover.value.copy(newMovies = movies, newTv = tv)
             }
+        }
+    }
+
+    /** PLAN.md §5i (alpha.21): the New films "More" card. Loads the next TMDB page (20) of the same query. */
+    fun showMoreNewFilms() = showMoreNewRow(movies = true)
+
+    /** PLAN.md §5i (alpha.21): the New series "More" card. */
+    fun showMoreNewSeries() = showMoreNewRow(movies = false)
+
+    private fun showMoreNewRow(movies: Boolean) {
+        val session = newSession ?: return
+        val paging = if (movies) _discover.value.newMoviesPaging else _discover.value.newTvPaging
+        if (paging.loading || !paging.hasMore) return
+        setNewPaging(movies) { it.copy(loading = true) }
+        viewModelScope.launch {
+            val nextPage = paging.page + 1
+            val loaded = runCatching {
+                if (movies) {
+                    discoverRepository.newMovies(session.subscribed, session.region, nextPage)
+                        .let { Triple(it.titles, it.paidOnlyIds, it.totalPages) }
+                } else {
+                    discoverRepository.newTv(session.subscribed, session.region, nextPage)
+                        .let { Triple(it.titles, emptySet<Int>(), it.totalPages) }
+                }
+            }.getOrNull()
+            if (newSession !== session) return@launch // a refresh replaced the rows while this page was loading
+            if (loaded == null) {
+                // Leave the card as it was so another tap retries; the rows already shown are untouched.
+                setNewPaging(movies) { it.copy(loading = false) }
+                return@launch
+            }
+            val (titles, paidOnly, totalPages) = loaded
+            // A page can repeat a title if popularity shifted between page fetches; show each once.
+            val seen = (if (movies) session.rawMovies else session.rawTv).map { it.tmdbId }.toHashSet()
+            val fresh = titles.filter { seen.add(it.tmdbId) }
+            if (movies) {
+                session.rawMovies = session.rawMovies + fresh
+                session.paidOnlyIds = session.paidOnlyIds + paidOnly
+            } else {
+                session.rawTv = session.rawTv + fresh
+            }
+            _discover.value = _discover.value.let { d ->
+                if (movies) {
+                    d.copy(
+                        newMovies = d.newMovies + fresh.filter { it.survivesAgeCap(session.ageCap) },
+                        newMoviePaidOnlyIds = session.paidOnlyIds,
+                        newMoviesPaging = NewRowPaging(nextPage, totalPages),
+                    )
+                } else {
+                    d.copy(
+                        newTv = d.newTv + fresh.filter { it.survivesAgeCap(session.ageCap) },
+                        newTvPaging = NewRowPaging(nextPage, totalPages),
+                    )
+                }
+            }
+            enrichCertifications(session, fresh.take(NEW_ROW_CERT_FETCH_LIMIT), replaceRunning = false)
+        }
+    }
+
+    private fun setNewPaging(movies: Boolean, change: (NewRowPaging) -> NewRowPaging) {
+        _discover.value = _discover.value.let {
+            if (movies) it.copy(newMoviesPaging = change(it.newMoviesPaging)) else it.copy(newTvPaging = change(it.newTvPaging))
         }
     }
 
@@ -752,13 +847,9 @@ class HomeViewModel(
         val hasServices: Boolean,
         val movies: List<TitleEntity>,
         val tv: List<TitleEntity>,
-        val newMovies: List<TitleEntity>,
-        val newMoviePaidOnlyIds: Set<Int>,
-        val newTv: List<TitleEntity>,
-        val rawNewMovies: List<TitleEntity>,
-        val rawNewTv: List<TitleEntity>,
-        val ageCap: String?,
-        val region: String,
+        val session: NewRowsSession,
+        val moviesPaging: NewRowPaging,
+        val tvPaging: NewRowPaging,
     )
 
     private data class DiscoverState(
@@ -767,6 +858,8 @@ class HomeViewModel(
         val newMovies: List<TitleEntity> = emptyList(),
         val newTv: List<TitleEntity> = emptyList(),
         val newMoviePaidOnlyIds: Set<Int> = emptySet(),
+        val newMoviesPaging: NewRowPaging = NewRowPaging(),
+        val newTvPaging: NewRowPaging = NewRowPaging(),
         val isLoading: Boolean = false,
         val error: String? = null,
         val hasSubscribedServices: Boolean = false,
@@ -793,6 +886,9 @@ data class HomeUiState(
     val newMovies: List<TitleEntity> = emptyList(),
     val newTv: List<TitleEntity> = emptyList(),
     val newMoviePaidOnlyIds: Set<Int> = emptySet(),
+    /** PLAN.md §5i (alpha.21): the "More" end cards on the New rows; null when TMDB has no more pages. */
+    val newMoviesMore: NewMoreCardState? = null,
+    val newSeriesMore: NewMoreCardState? = null,
     /** Active watch-list entries, for the New rows' + / check state. */
     val listedKeys: Set<Pair<Int, MediaType>> = emptySet(),
     val forYouTitles: List<TitleEntity> = emptyList(),
@@ -826,4 +922,16 @@ data class HomeUiState(
     /** True when there is genuinely nothing to render — drives the first-run empty state. */
     val isEmpty: Boolean
         get() = hero == null && myList.isEmpty() && popularMovies.isEmpty() && popularTv.isEmpty() && forYouTitles.isEmpty()
+}
+
+/** Which TMDB page of a New row is loaded, how many exist, and whether the next one is being fetched. */
+data class NewRowPaging(val page: Int = 1, val totalPages: Int = 1, val loading: Boolean = false) {
+    val hasMore: Boolean get() = page < totalPages
+
+    fun cardState(): NewMoreCardState? = if (hasMore) NewMoreCardState(page + 1, totalPages, loading) else null
+}
+
+/** The New rows' "More" end card: [nextPage] of [totalPages] is what a tap loads (20 titles). */
+data class NewMoreCardState(val nextPage: Int, val totalPages: Int, val loading: Boolean) {
+    val caption: String get() = "Page $nextPage of $totalPages"
 }

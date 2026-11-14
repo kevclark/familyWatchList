@@ -11,6 +11,7 @@ import org.seg7.familywatchlist.data.local.entity.TitleEntity
 import org.seg7.familywatchlist.data.remote.TmdbApi
 import org.seg7.familywatchlist.data.remote.TmdbApi.Companion.REGION_GB
 import org.seg7.familywatchlist.data.remote.dto.MediaSummaryDto
+import org.seg7.familywatchlist.data.remote.dto.PagedResponseDto
 
 /**
  * Candidate pool for the recommender (PLAN.md §4, wired up in M3) — /discover and
@@ -56,25 +57,31 @@ class DiscoverRepository(
     }
 
     /**
-     * PLAN.md §5i: Home's "New films" row. TMDB has no "date added to provider", so "new" is a
-     * recent theatrical/primary release (last [NEW_FILMS_WINDOW_MONTHS] months, relative to the
-     * injected clock) that is on a subscribed provider in [region].
+     * PLAN.md §5i: Home's "New films" row, [page] 1 first and then one page (20) per "More" tap. TMDB has no
+     * "date added to provider", so "new" is a recent theatrical/primary release (last
+     * [NEW_FILMS_WINDOW_MONTHS] months, relative to the injected clock) that is on a subscribed provider in
+     * [region], most popular first.
      *
-     * This is Kev's ONE sign-off exception to the 2026-08-22 "no rent/buy in browsing" rule: the
-     * query asks for flatrate|free|rent|buy. Every other discover call keeps flatrate|free
-     * (see `DiscoverRepositoryTest`, which pins that). To badge rent/buy-only titles without a
-     * detail fetch per card, a second query with flatrate|free only is cached alongside; a title
-     * in the wide page but not in the narrow one is paid-only. That is exact, not heuristic: the
-     * narrow result is the wide one minus paid-only titles in the same popularity order, so
-     * anything in the wide top page that is included with a subscription is also in the narrow
-     * top page.
+     * This is Kev's ONE sign-off exception to the 2026-08-22 "no rent/buy in browsing" rule: the query asks for
+     * flatrate|free|rent|buy. Every other discover call keeps flatrate|free (see `DiscoverRepositoryTest`, which
+     * pins that). To badge rent/buy-only titles without a detail fetch per card, the same query with
+     * flatrate|free only (the narrow query) is cached alongside; a title in the wide page but not in the narrow
+     * pages is paid-only.
+     *
+     * Why that stays exact past page 1: the narrow result is the wide result minus the paid-only titles, in the
+     * same popularity order. So a title at wide rank r (0-based) has narrow rank at most r. Wide page p covers
+     * ranks below 20p, hence any of its titles that is included with a subscription sits within the first 20p
+     * narrow ranks, i.e. narrow pages 1..p. This fetches (or reads from cache) narrow pages 1..p, stopping early
+     * only when TMDB says the narrow query has no more pages. A wide title absent from all of those is
+     * provably not in the narrow result at all, so paid-only. Pages 1..p-1 are cache hits from the earlier
+     * taps, so each tap costs one wide request plus one narrow request.
      */
-    suspend fun newMovies(subscribedProviderIds: List<Int>, region: String = REGION_GB): NewMovies {
+    suspend fun newMovies(subscribedProviderIds: List<Int>, region: String = REGION_GB, page: Int = 1): NewMovies {
         if (subscribedProviderIds.isEmpty()) return NewMovies(emptyList(), emptySet())
         val from = clock.today().minusMonths(NEW_FILMS_WINDOW_MONTHS).toString()
         val to = clock.today().toString()
         val providers = subscribedProviderIds.toProviderParam()
-        val all = cachedOrFetch(queryHash("discover_new_movie", subscribedProviderIds, region, 1), MediaType.MOVIE) {
+        val wide = cachedPage(queryHash(NEW_MOVIE_WIDE_KEY, subscribedProviderIds, region, page), MediaType.MOVIE) {
             api.discoverMovies(
                 watchRegion = region,
                 withWatchProviders = providers,
@@ -82,37 +89,66 @@ class DiscoverRepository(
                 voteCountGte = NEW_VOTE_FLOOR,
                 primaryReleaseDateGte = from,
                 primaryReleaseDateLte = to,
-            ).results
+                page = page,
+            )
         }
-        if (all.isEmpty()) return NewMovies(emptyList(), emptySet())
-        val included = cachedOrFetch(queryHash("discover_new_movie_included", subscribedProviderIds, region, 1), MediaType.MOVIE) {
-            api.discoverMovies(
-                watchRegion = region,
-                withWatchProviders = providers,
-                voteCountGte = NEW_VOTE_FLOOR,
-                primaryReleaseDateGte = from,
-                primaryReleaseDateLte = to,
-            ).results
-        }.map { it.tmdbId }.toSet()
-        return NewMovies(all, paidOnlyIds = all.map { it.tmdbId }.filterNot { it in included }.toSet())
+        if (wide.titles.isEmpty()) return NewMovies(emptyList(), emptySet(), page, wide.totalPages)
+        val includedIds = HashSet<Int>()
+        for (narrowPage in 1..page) {
+            val narrow = cachedPage(queryHash(NEW_MOVIE_NARROW_KEY, subscribedProviderIds, region, narrowPage), MediaType.MOVIE) {
+                api.discoverMovies(
+                    watchRegion = region,
+                    withWatchProviders = providers,
+                    voteCountGte = NEW_VOTE_FLOOR,
+                    primaryReleaseDateGte = from,
+                    primaryReleaseDateLte = to,
+                    page = narrowPage,
+                )
+            }
+            narrow.titles.forEach { includedIds += it.tmdbId }
+            if (narrowPage >= narrow.totalPages) break
+        }
+        return NewMovies(
+            wide.titles,
+            paidOnlyIds = wide.titles.map { it.tmdbId }.filterNot { it in includedIds }.toSet(),
+            page = page,
+            totalPages = wide.totalPages,
+        )
     }
 
     /** PLAN.md §5i: Home's "New series" row — first aired in the last [NEW_SERIES_WINDOW_MONTHS] months, flatrate|free only. */
-    suspend fun newTv(subscribedProviderIds: List<Int>, region: String = REGION_GB): List<TitleEntity> {
-        if (subscribedProviderIds.isEmpty()) return emptyList()
+    suspend fun newTv(subscribedProviderIds: List<Int>, region: String = REGION_GB, page: Int = 1): NewTv {
+        if (subscribedProviderIds.isEmpty()) return NewTv(emptyList())
         val from = clock.today().minusMonths(NEW_SERIES_WINDOW_MONTHS).toString()
-        return cachedOrFetch(queryHash("discover_new_tv", subscribedProviderIds, region, 1), MediaType.TV) {
+        val result = cachedPage(queryHash(NEW_TV_KEY, subscribedProviderIds, region, page), MediaType.TV) {
             api.discoverTv(
                 watchRegion = region,
                 withWatchProviders = subscribedProviderIds.toProviderParam(),
                 voteCountGte = NEW_VOTE_FLOOR,
                 firstAirDateGte = from,
-            ).results
+                page = page,
+            )
         }
+        return NewTv(result.titles, page, result.totalPages)
     }
 
-    /** [paidOnlyIds] are TMDB ids in [titles] offered on a subscribed provider only to rent/buy. */
-    data class NewMovies(val titles: List<TitleEntity>, val paidOnlyIds: Set<Int>)
+    /**
+     * One page of New films. [paidOnlyIds] are TMDB ids in [titles] offered on a subscribed provider only to
+     * rent/buy. [hasMore] is TMDB's own page count: false on the last page, which is when the More card hides.
+     */
+    data class NewMovies(
+        val titles: List<TitleEntity>,
+        val paidOnlyIds: Set<Int>,
+        val page: Int = 1,
+        val totalPages: Int = 1,
+    ) {
+        val hasMore: Boolean get() = page < totalPages
+    }
+
+    /** One page of New series; see [NewMovies]. */
+    data class NewTv(val titles: List<TitleEntity>, val page: Int = 1, val totalPages: Int = 1) {
+        val hasMore: Boolean get() = page < totalPages
+    }
 
     /**
      * Subscribed-provider changes must invalidate previously-cached discover pages: otherwise
@@ -133,6 +169,36 @@ class DiscoverRepository(
     suspend fun tvRecommendations(tmdbId: Int, page: Int = 1): List<TitleEntity> {
         val queryHash = queryHash("tv_recs_$tmdbId", emptyList(), region = "-", page)
         return cachedOrFetch(queryHash, MediaType.TV) { api.tvRecommendations(tmdbId, page).results }
+    }
+
+    private class CachedPage(val titles: List<TitleEntity>, val totalPages: Int)
+
+    /**
+     * [cachedOrFetch] for a paged query that must also remember TMDB's `total_pages`, so the More card knows when
+     * to hide without probing a page past the end. There is no column for it and no schema change: the count
+     * lives in a one-row `discover_cache` entry under `<queryHash>#pages` (its `tmdbId` holds the count), written
+     * with the page and so sharing its 24 h TTL and [invalidateAllCachedPages]. A page cached before the count was
+     * recorded (an alpha.20 install) is dropped and refetched once.
+     */
+    private suspend fun cachedPage(
+        queryHash: String,
+        mediaType: MediaType,
+        fetch: suspend () -> PagedResponseDto<MediaSummaryDto>,
+    ): CachedPage {
+        val metaHash = "$queryHash#pages"
+        if (discoverCacheDao.fetchedAtForQuery(metaHash) == null) discoverCacheDao.deleteForQuery(queryHash)
+        var fetchedTotal: Int? = null
+        val titles = cachedOrFetch(queryHash, mediaType) {
+            val response = fetch()
+            fetchedTotal = response.totalPages
+            response.results
+        }
+        val fetched = fetchedTotal
+        if (fetched != null) {
+            discoverCacheDao.replaceForQuery(metaHash, listOf(DiscoverCacheEntity(metaHash, fetched, mediaType, 0, clock.nowMillis())))
+            return CachedPage(titles, fetched)
+        }
+        return CachedPage(titles, discoverCacheDao.getForQuery(metaHash).firstOrNull()?.tmdbId ?: 1)
     }
 
     private suspend fun cachedOrFetch(
@@ -177,8 +243,17 @@ class DiscoverRepository(
     companion object {
         val DISCOVER_TTL_MS: Long = TimeUnit.HOURS.toMillis(24)
 
-        const val NEW_FILMS_WINDOW_MONTHS = 4L
-        const val NEW_SERIES_WINDOW_MONTHS = 3L
+        /** PLAN.md §5i (alpha.21): both New rows look back two months, most popular first. */
+        const val NEW_FILMS_WINDOW_MONTHS = 2L
+        const val NEW_SERIES_WINDOW_MONTHS = 2L
+
+        /**
+         * Cache keys carry the window so a changed window never serves pages from the old one (alpha.20 cached
+         * 4- and 3-month pages that would otherwise be served for up to 24 h and then mixed with 2-month page 2s).
+         */
+        private const val NEW_MOVIE_WIDE_KEY = "discover_new_movie_${NEW_FILMS_WINDOW_MONTHS}m"
+        private const val NEW_MOVIE_NARROW_KEY = "discover_new_movie_included_${NEW_FILMS_WINDOW_MONTHS}m"
+        private const val NEW_TV_KEY = "discover_new_tv_${NEW_SERIES_WINDOW_MONTHS}m"
 
         /**
          * Live probe 2026-11-14 (GB, six big providers): unfloored, the film page's tail was

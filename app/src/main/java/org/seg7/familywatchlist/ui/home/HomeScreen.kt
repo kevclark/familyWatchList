@@ -292,11 +292,11 @@ fun HomeScreen(
             }
 
             item(key = "new-movies") {
-                NewFilmsRow(state, onOpenTitle, viewModel::toggleWatchlist, onLongPressDismiss)
+                NewFilmsRow(state, onOpenTitle, viewModel::toggleWatchlist, onLongPressDismiss, viewModel::showMoreNewFilms)
             }
 
             item(key = "new-tv") {
-                NewSeriesRow(state, onOpenTitle, viewModel::toggleWatchlist, onLongPressDismiss)
+                NewSeriesRow(state, onOpenTitle, viewModel::toggleWatchlist, onLongPressDismiss, viewModel::showMoreNewSeries)
             }
 
             item(key = "footer") { HomeFooter() }

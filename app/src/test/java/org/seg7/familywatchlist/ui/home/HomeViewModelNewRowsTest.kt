@@ -82,11 +82,11 @@ class HomeViewModelNewRowsTest {
                 val body = when {
                     t.startsWith("/discover/movie") && t.contains("primary_release_date") -> {
                         if (failNewMovies) return MockResponse(code = 500)
-                        page(if (t.contains("rent")) newMovies else newMoviesIncluded)
+                        page(if (t.contains("rent")) newMovies else newMoviesIncluded, t)
                     }
-                    t.startsWith("/discover/movie") -> page(popularMovies)
-                    t.startsWith("/discover/tv") && t.contains("first_air_date") -> page(newTv)
-                    t.startsWith("/discover/tv") -> page(popularTv)
+                    t.startsWith("/discover/movie") -> page(popularMovies, t)
+                    t.startsWith("/discover/tv") && t.contains("first_air_date") -> page(newTv, t)
+                    t.startsWith("/discover/tv") -> page(popularTv, t)
                     Regex("^/(movie|tv)/(\\d+)").find(t) != null -> {
                         val m = Regex("^/(movie|tv)/(\\d+)").find(t)!!
                         val key = "${m.groupValues[1]}/${m.groupValues[2]}"
@@ -131,11 +131,14 @@ class HomeViewModelNewRowsTest {
         db.close()
     }
 
-    private fun page(entries: List<Pair<Int, String>>): String {
-        val results = entries.joinToString(",") { (id, title) ->
+    /** One 20-title TMDB page of [entries], honouring the request's `page` param and reporting a real `total_pages`. */
+    private fun page(entries: List<Pair<Int, String>>, target: String): String {
+        val pageNo = Regex("[?&]page=(\\d+)").find(target)?.groupValues?.get(1)?.toInt() ?: 1
+        val results = entries.drop((pageNo - 1) * 20).take(20).joinToString(",") { (id, title) ->
             """{"id": $id, "title": "$title", "name": "$title", "poster_path": "/p.jpg", "release_date": "2026-10-01", "popularity": 50.0}"""
         }
-        return """{"page":1,"results":[$results],"total_pages":1,"total_results":${entries.size}}"""
+        val totalPages = maxOf(1, (entries.size + 19) / 20)
+        return """{"page":$pageNo,"results":[$results],"total_pages":$totalPages,"total_results":${entries.size}}"""
     }
 
     private fun watchlist() = WatchlistRepository(db.watchlistDao(), clock, isAvailable = { _, _, _ -> true })
@@ -281,5 +284,102 @@ class HomeViewModelNewRowsTest {
         viewModel(kid).uiState.first { it.newMovies.isNotEmpty() }
 
         assertEquals(1, detailRequests.count { it == "movie/10" })
+    }
+
+    private fun films(ids: IntRange) = ids.map { it to "F$it" }
+
+    @Test
+    fun `More appends the next page to New films and the card hides on the last page`() = runTest {
+        newMovies = films(1..45)
+        newMoviesIncluded = newMovies
+        val vm = viewModel()
+
+        val first = vm.uiState.first { it.newMovies.isNotEmpty() }
+        assertEquals(20, first.newMovies.size)
+        assertEquals(NewMoreCardState(nextPage = 2, totalPages = 3, loading = false), first.newMoviesMore)
+        assertEquals("Page 2 of 3", first.newMoviesMore!!.caption)
+
+        vm.showMoreNewFilms()
+        val second = vm.uiState.first { it.newMovies.size == 40 }
+        assertEquals((1..40).toList(), second.newMovies.map { it.tmdbId })
+        assertEquals(NewMoreCardState(3, 3, false), second.newMoviesMore)
+
+        vm.showMoreNewFilms()
+        val third = vm.uiState.first { it.newMovies.size == 45 }
+        assertEquals((1..45).toList(), third.newMovies.map { it.tmdbId })
+        assertEquals(null, third.newMoviesMore)
+
+        // Nothing left: a stray call is a no-op, no further request.
+        val requests = server.requestCount
+        vm.showMoreNewFilms()
+        assertEquals(requests, server.requestCount)
+    }
+
+    @Test
+    fun `More on New series appends page 2 and is independent of the films row`() = runTest {
+        newMovies = films(1..5)
+        newMoviesIncluded = newMovies
+        newTv = (100..125).map { it to "S$it" }
+        val vm = viewModel()
+        val first = vm.uiState.first { it.newTv.isNotEmpty() }
+        assertEquals(null, first.newMoviesMore)
+        assertEquals(NewMoreCardState(2, 2, false), first.newSeriesMore)
+
+        vm.showMoreNewSeries()
+
+        val state = vm.uiState.first { it.newTv.size == 26 }
+        assertEquals((100..125).toList(), state.newTv.map { it.tmdbId })
+        assertEquals(null, state.newSeriesMore)
+        assertEquals(5, state.newMovies.size)
+    }
+
+    @Test
+    fun `paid-only flags stay exact for films that arrive on page 2`() = runTest {
+        newMovies = films(1..45)
+        val paid = (1..45).filter { it % 3 == 0 }.toSet()
+        newMoviesIncluded = newMovies.filter { it.first !in paid }
+        val vm = viewModel()
+        vm.uiState.first { it.newMovies.isNotEmpty() }
+
+        vm.showMoreNewFilms()
+
+        val state = vm.uiState.first { it.newMovies.size == 40 }
+        assertEquals(paid.filter { it <= 40 }.toSet(), state.newMoviePaidOnlyIds)
+    }
+
+    @Test
+    fun `a capped profile has certifications fetched for the newly loaded page`() = runTest {
+        newMovies = films(1..40)
+        newMoviesIncluded = newMovies
+        (1..40).forEach { detailCerts["movie/$it"] = if (it % 2 == 0) "PG" else "18" }
+        val vm = viewModel(kid())
+        vm.uiState.first { it.newMovies.isNotEmpty() && "movie/20" in detailRequests }
+        assertTrue(detailRequests.none { it == "movie/21" })
+
+        vm.showMoreNewFilms()
+
+        val state = vm.uiState.first { st -> st.newMovies.any { it.tmdbId == 40 } }
+        // Only page 2's confirmed under-cap (even, PG) films were added; its adults were fetched yet stay hidden.
+        assertEquals((2..40 step 2).toList(), state.newMovies.map { it.tmdbId })
+        assertEquals(20, detailRequests.count { it.removePrefix("movie/").toInt() > 20 })
+        assertEquals(40, detailRequests.size)
+    }
+
+    @Test
+    fun `a title repeated across pages is shown once, and dismissals hold on every page`() = runTest {
+        // Popularity shifted between the two page fetches, so 20 appears at the end of page 1 and again on page 2.
+        newMovies = films(1..20) + films(20..30)
+        newMoviesIncluded = newMovies
+        val vm = viewModel()
+        vm.uiState.first { it.newMovies.size == 20 }
+
+        vm.dismissTitle(5, MediaType.MOVIE)          // a page 1 title
+        vm.showMoreNewFilms()
+        val state = vm.uiState.first { st -> st.newMovies.any { it.tmdbId == 30 } }
+        assertEquals((1..30).filter { it != 5 }, state.newMovies.map { it.tmdbId })
+
+        vm.dismissTitle(25, MediaType.MOVIE)         // a page 2 title
+        val after = vm.uiState.first { st -> st.newMovies.none { it.tmdbId == 25 } }
+        assertEquals((1..30).filter { it != 5 && it != 25 }, after.newMovies.map { it.tmdbId })
     }
 }
