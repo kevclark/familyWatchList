@@ -1033,11 +1033,14 @@ failed fetch is not cached).
 Two rows below the popular rows. TMDB has no "date added to provider", so "new" means recently released and on the
 user's subscribed providers in the user's region (GB by default).
 
-- **New films:** `discover/movie`, `primary_release_date.gte` = today minus 4 months, `.lte` = today (dates from the
+- **New films:** `discover/movie`, `primary_release_date.gte` = today minus 2 months, `.lte` = today (dates from the
   injected `AppClock`, UTC), `with_watch_providers` = subscribed (pipe-OR), `with_watch_monetization_types=
   flatrate|free|rent|buy`, `sort_by=popularity.desc`, `vote_count.gte=10`.
-- **New series:** `discover/tv`, `first_air_date.gte` = today minus 3 months, subscribed providers, `flatrate|free` only,
+- **New series:** `discover/tv`, `first_air_date.gte` = today minus 2 months, subscribed providers, `flatrate|free` only,
   popularity order, `vote_count.gte=10`. Returning seasons are out of scope.
+- **Window (alpha.21, Kev 2026-11-14):** 2 months for both rows (was 4 and 3), popularity order kept, so the most popular
+  of the last two months floats to the top. The cache keys carry the window (`discover_new_movie_2m`, ...) so alpha.20's
+  4- and 3-month pages are never served or mixed with 2-month ones.
 - **Vote floor (live probe, 2026-11-14, six big UK providers):** films, 0 votes gave 329 hits with a 3-vote title ranked
   6th; 5 gave 138, 10 gave 103, 25 gave 69 but hid releases from the last few days (17 votes), 50 gave 47. TV: 0 gave
   209, 5 gave 105, 10 gave 74, 25 gave 39, with the leading titles identical across floors. 10 for both.
@@ -1047,6 +1050,19 @@ user's subscribed providers in the user's region (GB by default).
 - **How paid-only is known without a detail fetch per card:** `newMovies` also fetches (and caches) the same query with
   `flatrate|free` only. A film in the wide page but not the narrow one is paid-only. This is exact, since the narrow
   result is the wide one minus paid-only titles in the same order. Cost: one extra request per refresh.
+- **"More" on both rows (alpha.21):** the last card in each row is the M16 `ShowMoreCard` look (`PosterCarousel`
+  `endContent`) reading "Show more" over a muted "Page 2 of 5". Each tap loads the next TMDB page (20) of the same
+  query, appends it, and the card hides when TMDB has no more pages. Pages are cached 24 h in `discover_cache` like page 1
+  (`discover_new_*` keys with the page in the hash). TMDB's `total_pages` is kept in a one-row entry
+  `<queryHash>#pages` of the same table (its `tmdbId` holds the count), so no schema change and the hide decision needs no
+  probe request; a page cached without that entry is refetched once. Dedupe by TMDB id across pages (popularity can shift
+  between fetches), the age cap and dismissals apply to every page, and a refresh drops any in-flight page.
+- **Paid-only past page 1 (exact):** the narrow result is the wide one minus paid-only titles, same order, so a title at
+  wide rank r has narrow rank at most r. Wide page p covers ranks below 20p, hence every included title on it sits on
+  narrow pages 1..p. `newMovies(page = p)` therefore reads narrow pages 1..p (pages 1..p-1 are cache hits from earlier taps,
+  stopping early only at the narrow query's own last page) and flags a wide title paid-only only if it is on none of them.
+  Cost: one wide plus one narrow request per tap. Chosen over fetching "narrow page p only", which would wrongly flag
+  included films whose narrow rank falls on an earlier page.
 - **Cache/TTL:** same `discover_cache` table and 24 h TTL as the popular rows, keyed `discover_new_movie`,
   `discover_new_movie_included`, `discover_new_tv`; cleared by `invalidateAllCachedPages` (provider changes). No schema
   change, no migration. UI reads Room via the repository; the network only refreshes it.
@@ -1061,11 +1077,27 @@ user's subscribed providers in the user's region (GB by default).
   confirmed-cert rule hid nearly all of them. After a refresh, for a capped profile only, `HomeViewModel` calls
   `TitleRepository.ensureFresh` for up to 20 cert-less candidates per row (same throttle), republishing from Room after
   each so the rows fill progressively. `ensureFresh` is a cache read once a title has detail, so nothing refetches
-  inside the TTL. Uncapped profiles never fetch. The confirmed-cert rule is unchanged.
+  inside the TTL. Uncapped profiles never fetch. The confirmed-cert rule is unchanged. A "More" page gets the same
+  treatment for its own newly loaded titles (cap 20 per page).
 
 **Judgement calls:** the + button is new to Home (the popular rows have none); the New rows get it as specified. The
 cold-start "For You" row and the hero still draw only from the popular rows. A capped child's New rows can be sparse
 until titles have been opened once (stubs carry no certification), the same limitation as the popular rows.
+
+### 5j. About page usage breakdown (Kev, 2026-11-14 — alpha.21)
+
+Kev asked what the orchestrator "messages" count meant. It was Claude's own steps (replies plus the actions between them),
+not his messages and not the sub-agents'. The About page now says what each number is. Method and exact definitions live in
+the `BuildStats.kt` kdoc; numbers are re-mined from the session transcripts, aggregate only.
+
+- **Summary card (top of "Built with Claude"):** Kev's prompts; total tokens (agents plus main session, cache reads
+  excluded); hands-on time as the UNION of main-session active intervals (10-minute gap rule) and agent run intervals, so
+  time when both ran counts once. The two are not added.
+- **Per main-session model:** prompts handled (the model of the first assistant message after the prompt), replies to Kev
+  (assistant messages ending a turn with text), actions in between (tool calls), plus time and tokens as before.
+- **Counted:** the alpha.20 build and its fix-up resume (one dispatch, two runs). **Not counted:** the alpha.21 build.
+- Prompts are `origin.kind = human` entries; the harness's own marker, and it gives 235 (the old 254 also counted a
+  recovery session whose transcript is empty on disk).
 
 ## 6. Build environment & preview (buildhost)
 

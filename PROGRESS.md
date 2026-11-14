@@ -2508,22 +2508,21 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
       the RENT/BUY tag; + adds to the watch list; a capped profile sees only confirmed-under-cap titles; About this
       build shows the orchestrator rows).
 
-## Queued for alpha.21 (Kev, 2026-11-14) — don't build until Kev says
+## alpha.21 (Kev, 2026-11-14; built 2026-11-14)
 
-- [ ] About page usage breakdown (BuildStats). Kev asked what the orchestrator "messages"
-      count meant; it is Claude's own steps (replies plus actions between replies), not his
-      messages and not sub-agents. Add:
-      - Summary card at the top: Kev's prompts (254 at 2026-11-14), total tokens (agents +
-        main session, cache reads excluded as now), and total hands-on time computed as the
-        union of main-session active intervals and agent run intervals, so overlap isn't
-        double-counted (17.6h agents and 16.9h main active must not simply be added).
-      - Per main-session model: Kev's prompts it handled, its replies to Kev, and its
-        actions in between (tool-call steps: file reads, commands, agent briefings), next
-        to time and tokens. Mine real numbers from the transcripts; same 10-minute gap rule.
-- [ ] "More" card at the end of the New films and New series rows (Kev, 2026-11-14), matching
-      the For You / Family Night show-more design (M16). Each tap loads the next TMDB page (20)
-      of the same query. The New films paid-only detection (wide vs narrow page) must stay
-      exact past page 1: fetch narrow pages far enough to cover the wide page's range.
-      Same age cap, cert enrichment for capped profiles, dismissals and 24h cache per page.
-- [ ] New rows window: 2 months for both New films and New series (Kev, 2026-11-14; was 4 and
-      3). Keep popularity order: Kev wants the most popular of the last 2 months on top.
+- [x] About page usage breakdown (BuildStats, PLAN.md §5j). Summary card: Kev's prompts 235, total tokens ~25.2M (agents
+      plus main session, cache reads excluded), hands-on time 31.2 h as the union of main-session active time (17.4 h) and
+      agent run time (18.3 h union), overlap counted once. Per main-session model: prompts handled / replies / actions
+      (Sonnet 5 178/223/1,060; Opus 5.5 34/42/187; Sonnet 5.5 4/7/25; Fable 5 19/21/47). alpha.20 build and its fix-up
+      resume counted as one task (1,965 s, 145,032 tokens, 69 tool calls); the alpha.21 build is not. The prompt count
+      moved from 254 to 235: the old figure also included a recovery session whose transcript is empty on disk (see
+      BuildStats kdoc).
+- [x] "More" card at the end of the New films and New series rows (PLAN.md §5i). Next TMDB page (20) per tap, cached 24 h per
+      page in `discover_cache`, `total_pages` kept in a `<hash>#pages` row (no schema change), card hides on the last page.
+      Paid-only stays exact: wide page p is checked against narrow pages 1..p (explained in §5i). Age cap, cert enrichment for
+      capped profiles (20 per new page), dismissals and dedupe apply across pages.
+- [x] New rows window: 2 months for both rows (was 4 and 3), popularity order kept. Cache keys carry the window.
+- [x] Bumped to 0.1.0-alpha.21 / versionCode 21.
+- [ ] Live check on Kev's phone (New films / New series: tap Show more, pages append, card hides at the end, rent/buy tags
+      still right on page 2, capped profile fills in; rows now cover the last 2 months; About page summary card and the
+      per-model prompts/replies/actions lines).
