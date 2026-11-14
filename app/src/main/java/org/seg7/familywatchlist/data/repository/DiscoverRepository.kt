@@ -2,6 +2,7 @@ package org.seg7.familywatchlist.data.repository
 
 import java.util.concurrent.TimeUnit
 import org.seg7.familywatchlist.common.AppClock
+import org.seg7.familywatchlist.common.today
 import org.seg7.familywatchlist.data.local.dao.DiscoverCacheDao
 import org.seg7.familywatchlist.data.local.dao.TitleDao
 import org.seg7.familywatchlist.data.local.entity.DiscoverCacheEntity
@@ -53,6 +54,65 @@ class DiscoverRepository(
             api.discoverTv(watchRegion = region, withWatchProviders = subscribedProviderIds.toProviderParam(), page = page).results
         }
     }
+
+    /**
+     * PLAN.md §5i: Home's "New films" row. TMDB has no "date added to provider", so "new" is a
+     * recent theatrical/primary release (last [NEW_FILMS_WINDOW_MONTHS] months, relative to the
+     * injected clock) that is on a subscribed provider in [region].
+     *
+     * This is Kev's ONE sign-off exception to the 2026-08-22 "no rent/buy in browsing" rule: the
+     * query asks for flatrate|free|rent|buy. Every other discover call keeps flatrate|free
+     * (see `DiscoverRepositoryTest`, which pins that). To badge rent/buy-only titles without a
+     * detail fetch per card, a second query with flatrate|free only is cached alongside; a title
+     * in the wide page but not in the narrow one is paid-only. That is exact, not heuristic: the
+     * narrow result is the wide one minus paid-only titles in the same popularity order, so
+     * anything in the wide top page that is included with a subscription is also in the narrow
+     * top page.
+     */
+    suspend fun newMovies(subscribedProviderIds: List<Int>, region: String = REGION_GB): NewMovies {
+        if (subscribedProviderIds.isEmpty()) return NewMovies(emptyList(), emptySet())
+        val from = clock.today().minusMonths(NEW_FILMS_WINDOW_MONTHS).toString()
+        val to = clock.today().toString()
+        val providers = subscribedProviderIds.toProviderParam()
+        val all = cachedOrFetch(queryHash("discover_new_movie", subscribedProviderIds, region, 1), MediaType.MOVIE) {
+            api.discoverMovies(
+                watchRegion = region,
+                withWatchProviders = providers,
+                monetizationTypes = NEW_FILMS_MONETIZATION,
+                voteCountGte = NEW_VOTE_FLOOR,
+                primaryReleaseDateGte = from,
+                primaryReleaseDateLte = to,
+            ).results
+        }
+        if (all.isEmpty()) return NewMovies(emptyList(), emptySet())
+        val included = cachedOrFetch(queryHash("discover_new_movie_included", subscribedProviderIds, region, 1), MediaType.MOVIE) {
+            api.discoverMovies(
+                watchRegion = region,
+                withWatchProviders = providers,
+                voteCountGte = NEW_VOTE_FLOOR,
+                primaryReleaseDateGte = from,
+                primaryReleaseDateLte = to,
+            ).results
+        }.map { it.tmdbId }.toSet()
+        return NewMovies(all, paidOnlyIds = all.map { it.tmdbId }.filterNot { it in included }.toSet())
+    }
+
+    /** PLAN.md §5i: Home's "New series" row — first aired in the last [NEW_SERIES_WINDOW_MONTHS] months, flatrate|free only. */
+    suspend fun newTv(subscribedProviderIds: List<Int>, region: String = REGION_GB): List<TitleEntity> {
+        if (subscribedProviderIds.isEmpty()) return emptyList()
+        val from = clock.today().minusMonths(NEW_SERIES_WINDOW_MONTHS).toString()
+        return cachedOrFetch(queryHash("discover_new_tv", subscribedProviderIds, region, 1), MediaType.TV) {
+            api.discoverTv(
+                watchRegion = region,
+                withWatchProviders = subscribedProviderIds.toProviderParam(),
+                voteCountGte = NEW_VOTE_FLOOR,
+                firstAirDateGte = from,
+            ).results
+        }
+    }
+
+    /** [paidOnlyIds] are TMDB ids in [titles] offered on a subscribed provider only to rent/buy. */
+    data class NewMovies(val titles: List<TitleEntity>, val paidOnlyIds: Set<Int>)
 
     /**
      * Subscribed-provider changes must invalidate previously-cached discover pages: otherwise
@@ -116,5 +176,19 @@ class DiscoverRepository(
 
     companion object {
         val DISCOVER_TTL_MS: Long = TimeUnit.HOURS.toMillis(24)
+
+        const val NEW_FILMS_WINDOW_MONTHS = 4L
+        const val NEW_SERIES_WINDOW_MONTHS = 3L
+
+        /**
+         * Live probe 2026-11-14 (GB, six big providers): unfloored, the film page's tail was
+         * obscure (a 3-vote title ranked 6th); 10 drops those but keeps releases from the last
+         * few days (17 votes) that 25 would hide. TV: 0 -> 209 hits, 10 -> 74, 25 -> 39, with
+         * the leading titles identical, so 10 trims noise without losing fresh shows.
+         */
+        const val NEW_VOTE_FLOOR = 10
+
+        /** The single rent/buy exception to browse gating; only [newMovies] may use it. */
+        const val NEW_FILMS_MONETIZATION = "flatrate|free|rent|buy"
     }
 }

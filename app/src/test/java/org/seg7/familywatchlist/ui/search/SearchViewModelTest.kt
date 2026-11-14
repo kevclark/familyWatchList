@@ -517,6 +517,8 @@ class SearchViewModelTest {
             voteCountGte: Int?,
             certificationCountry: String?,
             certificationLte: String?,
+            primaryReleaseDateGte: String?,
+            primaryReleaseDateLte: String?,
         ): PagedResponseDto<MediaSummaryDto> = error("not used in this test")
 
         override suspend fun searchPerson(query: String, page: Int): PagedResponseDto<org.seg7.familywatchlist.data.remote.dto.PersonDto> =
@@ -537,6 +539,7 @@ class SearchViewModelTest {
             withGenres: String?,
             withKeywords: String?,
             voteCountGte: Int?,
+            firstAirDateGte: String?,
         ): PagedResponseDto<MediaSummaryDto> = error("not used in this test")
 
         override suspend fun movieRecommendations(id: Int, page: Int): PagedResponseDto<MediaSummaryDto> =

@@ -291,6 +291,14 @@ fun HomeScreen(
                 }
             }
 
+            item(key = "new-movies") {
+                NewFilmsRow(state, onOpenTitle, viewModel::toggleWatchlist, onLongPressDismiss)
+            }
+
+            item(key = "new-tv") {
+                NewSeriesRow(state, onOpenTitle, viewModel::toggleWatchlist, onLongPressDismiss)
+            }
+
             item(key = "footer") { HomeFooter() }
         }
 

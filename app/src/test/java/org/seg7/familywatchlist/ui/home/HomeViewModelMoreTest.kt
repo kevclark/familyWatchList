@@ -88,6 +88,8 @@ class HomeViewModelMoreTest {
         db = buildInMemoryDb()
         server = MockWebServer()
         server.start()
+        // PLAN.md §5i: Home now also asks for the New rows. These tests only script the popular pages, so an unscripted request must fail fast (404, caught by Home) rather than block.
+        (server.dispatcher as mockwebserver3.QueueDispatcher).setFailFast(true)
         clock = FakeClock(startMillis = today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
         val api = TmdbClient.create(
             baseUrl = server.url("/").toString(),
@@ -123,7 +125,7 @@ class HomeViewModelMoreTest {
             clock = clock,
         )
         db.providerDao().upsertAll(listOf(ProviderEntity(8, "Netflix", null, subscribed = true, displayPriority = 1)))
-        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
+        listOf("discover_movie" to MediaType.MOVIE, "discover_tv" to MediaType.TV, "discover_new_movie" to MediaType.MOVIE, "discover_new_movie_included" to MediaType.MOVIE, "discover_new_tv" to MediaType.TV).forEach { (endpoint, mediaType) ->
             (1..RecommendationRepository.CANDIDATE_PAGES).forEach { page ->
                 db.discoverCacheDao().upsertAll(
                     listOf(DiscoverCacheEntity("$endpoint:8:GB:$page", tmdbId = -1, mediaType, ord = 0, fetchedAt = clock.nowMillis())),

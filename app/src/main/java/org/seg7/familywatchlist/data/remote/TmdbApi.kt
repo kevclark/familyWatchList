@@ -53,6 +53,8 @@ interface TmdbApi {
         @Query("vote_count.gte") voteCountGte: Int? = null,
         @Query("certification_country") certificationCountry: String? = null,
         @Query("certification.lte") certificationLte: String? = null,
+        @Query("primary_release_date.gte") primaryReleaseDateGte: String? = null,
+        @Query("primary_release_date.lte") primaryReleaseDateLte: String? = null,
     ): PagedResponseDto<MediaSummaryDto>
 
     /** TV discover has no cast or certification filter (PLAN.md §5f); people come from [personTvCredits]. */
@@ -66,6 +68,7 @@ interface TmdbApi {
         @Query("with_genres") withGenres: String? = null,
         @Query("with_keywords") withKeywords: String? = null,
         @Query("vote_count.gte") voteCountGte: Int? = null,
+        @Query("first_air_date.gte") firstAirDateGte: String? = null,
     ): PagedResponseDto<MediaSummaryDto>
 
     @GET("search/person")

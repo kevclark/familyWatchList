@@ -234,6 +234,11 @@ class HomeViewModel(
      */
     private val _dismissedKeys = MutableStateFlow<Set<Pair<Int, MediaType>>>(emptySet())
 
+    /** PLAN.md §5i: every active watch-list entry, for the New rows' + / check state (not filtered by profile, like Search). */
+    private val listedKeys: StateFlow<Set<Pair<Int, MediaType>>> = watchlistRepository.observeActive()
+        .map { entries -> entries.map { it.tmdbId to it.mediaType }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     private data class HomeCore(
         val myList: List<WatchlistItemAvailability>,
         val discover: DiscoverState,
@@ -264,11 +269,12 @@ class HomeViewModel(
         combine(familyNightProfiles, _familyNightSelection, _familyNightTitles, _familyNightLoading) { profiles, selectedIds, titles, isLoading ->
             FamilyNightState(profiles, selectedIds, titles, isLoading)
         },
-        _dismissedKeys,
+        combine(_dismissedKeys, listedKeys) { dismissed, listed -> dismissed to listed },
         combine(_familyNightProgress, refreshState, _forYouExtra, _familyNightExtra, _forYouEligible) { progress, refresh, forYouExtra, familyExtra, eligible ->
             Extras(progress, refresh, forYouExtra, familyExtra, eligible)
         },
-    ) { core, family, dismissed, extras ->
+    ) { core, family, dismissedAndListed, extras ->
+        val (dismissed, listed) = dismissedAndListed
         val familyProgress = extras.progress
         val refreshUi = extras.refresh
         val (list, discover, shortlist, coldStart, ageRatingCap) = core
@@ -294,6 +300,10 @@ class HomeViewModel(
             myList = list,
             popularMovies = visiblePopularMovies,
             popularTv = visiblePopularTv,
+            newMovies = discover.newMovies.withoutDismissed(),
+            newTv = discover.newTv.withoutDismissed(),
+            newMoviePaidOnlyIds = discover.newMoviePaidOnlyIds,
+            listedKeys = listed,
             forYouTitles = visibleForYouTitles,
             forYouMore = if (coldStart || shortlist.isEmpty()) null else {
                 val pager = extras.forYou.pager
@@ -561,13 +571,30 @@ class HomeViewModel(
                 _ageRatingCap.value = ageCap
                 val filteredMovies = movies.filter { it.survivesAgeCap(ageCap) }
                 val filteredTv = tv.filter { it.survivesAgeCap(ageCap) }
-                Triple(subscribed.isNotEmpty(), filteredMovies, filteredTv)
-            }.onSuccess { (hasServices, movies, tv) ->
+                // PLAN.md §5i: the New rows ride on the same cache/TTL and the same age-cap
+                // rule, but a failure there must never blank the popular rows (or vice versa),
+                // so they are fetched in their own runCatching and simply come back empty.
+                val newFilms = runCatching { discoverRepository.newMovies(subscribed, region) }
+                    .getOrNull()
+                val newSeries = runCatching { discoverRepository.newTv(subscribed, region) }
+                    .getOrDefault(emptyList())
+                NewRows(
+                    hasServices = subscribed.isNotEmpty(),
+                    movies = filteredMovies,
+                    tv = filteredTv,
+                    newMovies = newFilms?.titles.orEmpty().filter { it.survivesAgeCap(ageCap) },
+                    newMoviePaidOnlyIds = newFilms?.paidOnlyIds.orEmpty(),
+                    newTv = newSeries.filter { it.survivesAgeCap(ageCap) },
+                )
+            }.onSuccess { rows ->
                 _discover.value = DiscoverState(
-                    movies = movies,
-                    tv = tv,
+                    movies = rows.movies,
+                    tv = rows.tv,
+                    newMovies = rows.newMovies,
+                    newTv = rows.newTv,
+                    newMoviePaidOnlyIds = rows.newMoviePaidOnlyIds,
                     isLoading = false,
-                    hasSubscribedServices = hasServices,
+                    hasSubscribedServices = rows.hasServices,
                 )
             }.onFailure { throwable ->
                 _discover.value = _discover.value.copy(
@@ -608,6 +635,16 @@ class HomeViewModel(
             // A failed shortlist recompute leaves whatever was already persisted/cached on
             // screen (same offline-first posture as the discover half above) rather than
             // blanking the row — no separate error surface for this half is needed.
+        }
+    }
+
+    /** PLAN.md §5i: the New rows' + button. Same attribution and availability gate as Search's quick-add. */
+    fun toggleWatchlist(title: TitleEntity) {
+        viewModelScope.launch {
+            runCatching {
+                val region = userPreferencesRepository.region.first()
+                watchlistRepository.toggle(title.tmdbId, title.mediaType, activeProfile.id, region)
+            }
         }
     }
 
@@ -673,9 +710,21 @@ class HomeViewModel(
     private fun TitleEntity.survivesAgeCap(cap: String?): Boolean =
         FamilyBlend.isConfirmedUnderCap(certification, cap)
 
+    private data class NewRows(
+        val hasServices: Boolean,
+        val movies: List<TitleEntity>,
+        val tv: List<TitleEntity>,
+        val newMovies: List<TitleEntity>,
+        val newMoviePaidOnlyIds: Set<Int>,
+        val newTv: List<TitleEntity>,
+    )
+
     private data class DiscoverState(
         val movies: List<TitleEntity> = emptyList(),
         val tv: List<TitleEntity> = emptyList(),
+        val newMovies: List<TitleEntity> = emptyList(),
+        val newTv: List<TitleEntity> = emptyList(),
+        val newMoviePaidOnlyIds: Set<Int> = emptySet(),
         val isLoading: Boolean = false,
         val error: String? = null,
         val hasSubscribedServices: Boolean = false,
@@ -695,6 +744,12 @@ data class HomeUiState(
     val myList: List<WatchlistItemAvailability> = emptyList(),
     val popularMovies: List<TitleEntity> = emptyList(),
     val popularTv: List<TitleEntity> = emptyList(),
+    /** PLAN.md §5i: recent releases on the user's services; rent/buy-only films are in [newMoviePaidOnlyIds]. */
+    val newMovies: List<TitleEntity> = emptyList(),
+    val newTv: List<TitleEntity> = emptyList(),
+    val newMoviePaidOnlyIds: Set<Int> = emptySet(),
+    /** Active watch-list entries, for the New rows' + / check state. */
+    val listedKeys: Set<Pair<Int, MediaType>> = emptySet(),
     val forYouTitles: List<TitleEntity> = emptyList(),
     /** PLAN.md §5e: the For You "Show 30 more" end card; null when there is nothing more to show. */
     val forYouMore: MoreCardState? = null,
