@@ -2499,6 +2499,11 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
 - [x] About this build refreshed (BuildStats snapshot 2026-11-14): alpha.18 and alpha.19 builds added, orchestrator
       rows (main-session transcript, method in BuildStats.kt kdoc), 254 prompts, 50 agent tasks, ~17.6 h agent time.
       The alpha.20 build is not counted (not measurable until finished).
+- [x] Emulator check (2026-11-14, orchestrator, Netflix-only, cap 12): first pass found capped New rows
+      near-empty because new-release stubs never got certifications; fixed in 88170dc. Re-check:
+      all 40 candidates now carry fetched certs; rows show Vishwanath & Sons (12A) and Crew Girl
+      (12). The rest are correctly hidden: 15/18, or no UK rating (confirmed-cert rule, M3h).
+      About page shows agent and orchestrator sections, 254 prompts, 17.6h, alpha.20.
 - [ ] Live check on Kev's phone (New films and New series appear below the popular rows; a rent/buy-only film shows
       the RENT/BUY tag; + adds to the watch list; a capped profile sees only confirmed-under-cap titles; About this
       build shows the orchestrator rows).
