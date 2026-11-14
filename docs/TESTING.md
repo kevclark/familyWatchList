@@ -88,7 +88,7 @@ Each entry names the rule or bug pinned. "PLAN" is PLAN.md; commit hashes are in
 - **DAO tests** (`data/local/*DaoTest`): round trips against in-memory Room for
   titles, watch events, ratings, reviews, watchlist, providers, provider availability, shortlist,
   profiles, family profiles, refresh log, title attributes and the discover cache (PLAN section 2).
-- **`AppDatabaseMigrationTest`** (4 tests) runs the real migration SQL against the real exported
+- **`AppDatabaseMigrationTest`** (4 tests; [ADR 0028](adr/0028-explicit-room-migrations-schemas-exported-no-destructive-fallback.md)) runs the real migration SQL against the real exported
   schemas, not hand-rolled fixtures.
   - `7to8`: widened `provider_availability`'s primary key. This pins the M6 data-loss bug found
     by `d414035` (paid rows were colliding with free ones).
@@ -118,7 +118,7 @@ provider-change cache invalidation.
   provider filter TMDB would return an unfiltered UK popular page.
 - Region and provider set are part of the query hash, so switching either never serves stale
   data. Region is sent as given, never hardcoded to GB.
-- **Rent/buy exception (M6, PLAN section 5 "Paid titles" addendum and section 5i).** Popular
+- **Rent/buy exception ([ADR 0004](adr/0004-no-rent-buy-in-browsing-paid-titles-only.md), [ADR 0005](adr/0005-new-films-exception-rent-buy-allowed-on-the.md); M6, PLAN section 5 "Paid titles" addendum and section 5i).** Popular
   rows must request only `flatrate|free`. Only **New films** asks for `flatrate|free|rent|buy`
   (the "wide" query) and flags a film as paid-only when it appears in the wide page but not in
   the narrow flatrate/free page. The test `rent and buy are requested by New films only, never by
@@ -126,9 +126,9 @@ provider-change cache invalidation.
   `buy`; two older tests assert popular movies and TV never widen.
 - New rows: a 2-month window relative to the injected clock, vote floor, 24 h cache with dates
   moving on, empty wide page skips the narrow query, provider change drops the New rows.
-- **Paging (alpha.21, PLAN section 5i).** More loads the next TMDB page, hides after the last
+- **Paging (alpha.21, PLAN section 5i, [ADR 0014](adr/0014-show-more-on-new-rows-exact-paid-only.md)).** More loads the next TMDB page, hides after the last
   page (`total_pages` is kept in a `<hash>#pages` row, no schema change), and each page is cached
-  24 h. **`paid-only stays exact past page 1`**: wide page p is compared with narrow pages 1..p, so
+  24 h. **`paid-only stays exact past page 1`** ([ADR 0014](adr/0014-show-more-on-new-rows-exact-paid-only.md)): wide page p is compared with narrow pages 1..p, so
   a paid-only film on page 2 is not mislabelled as included. `each More tap costs one wide and one
   narrow request` pins the cost. A page cached by alpha.20 without its page count is refetched
   once (this is the cache-key compatibility test).
@@ -138,12 +138,12 @@ Other repository tests:
 - `RecommendationRepositoryTest` (47): shortlist building, cold start (fewer than 5 events falls
   back to "Popular on your services"), dismissals, family scope, availability, capped profiles
   (PLAN section 4).
-- `AvailabilityGateTest` (12): a title is shown only if available on the user's services; paid
+- `AvailabilityGateTest` (12, search gating, [ADR 0006](adr/0006-search-is-search-then-check-gated-to-subscribed.md)): a title is shown only if available on the user's services; paid
   availability widened by M6 (PLAN "Search and watchlist availability gating").
-- `ProfileRepositoryTest`: the **11th profile is rejected**, hard cap of 10 enforced in the
+- `ProfileRepositoryTest`: the **11th profile is rejected**, hard cap of 10 ([ADR 0018](adr/0018-maximum-of-10-real-profiles-enforced-in-the.md)), enforced in the
   repository (PLAN section 2, CLAUDE.md quality bar). `FamilyProfileRepositoryTest` covers the
   independent Family profile (PLAN 4b).
-- `MoreLikeThisRepositoryTest` (9): "More like this" from TMDB recommendations (PLAN 5h). It
+- `MoreLikeThisRepositoryTest` (9, [ADR 0009](adr/0009-more-like-this-uses-tmdb-recommendations-not-similar.md)): "More like this" from TMDB recommendations (PLAN 5h). It
   asks for no rent/buy; unavailable titles are filtered.
 - `UserPreferencesRepositoryTest` (24), `NotificationPreferencesRepositoryTest`,
   `WatchEventRepositoryTest`, `WatchlistRepositoryTest`, `TitleRepositoryTest` (stubs never
@@ -155,17 +155,17 @@ Other repository tests:
 `FamilyBlendTest`, `ShortlistAssemblerTest`, `ShortlistDiffTest`, `ExtraPicksTest`,
 `SliderSettingsTest`, `SliderAcceptanceBarTest`. They pin the content-based scoring spec in
 PLAN section 4, the tunable sliders (4a), the Family blend, dismiss as a lasting negative signal
-(4c, M13), the shortlist diff that drives notifications, and the "Show 30 more" extra batches
+(4c, M13, [ADR 0011](adr/0011-dismiss-is-a-lasting-negative-signal.md)), the shortlist diff that drives notifications, and the "Show 30 more" extra batches
 (5e, M16). Everything is local; the TMDB client is not involved.
 
 ### Search
 
-- **`QueryParserTest`** (28) and **`PhraseTableTest`** (11) pin M17 / PLAN 5f and 5g: the parser
+- **`QueryParserTest`** (28) and **`PhraseTableTest`** (11) ([ADR 0007](adr/0007-descriptive-search-no-inference-a-phrase-table-keyword.md)) pin M17 / PLAN 5f and 5g: the parser
   is deterministic with no model calls. "find action comedies" is two ANDed genres; "with A and B"
   yields two cued people; unknown words become keyword candidates; hyphens and "A.I." normalise;
   multi-word phrases beat their single words; theme and genre words never clash; "cop show" keeps
   its TV restriction. `PhraseTableTest` checks every mapped genre id is a valid TMDB movie/TV id.
-- **Alpha.18 themes table sanity test** (`there are 50 to 80 themes with unique names and
+- **Alpha.18 themes table sanity test** ([ADR 0008](adr/0008-themes-table-hard-coded-live-verified-tmdb-keyword.md)) (`there are 50 to 80 themes with unique names and
   non-empty id lists`, plus `no phrase is both a genre and a theme, and themes never swallow media
   words`, plus `the near-unused tags are never chosen`). Why: the themes table (commit `1991ea0`,
   PLAN 5g) was verified against live TMDB keyword counts. Tags with almost no titles return
@@ -189,11 +189,11 @@ PLAN section 4, the tunable sliders (4a), the Family blend, dismiss as a lasting
 - `HomeViewModelTest` (22): popular rows, For You, cold start, capped profile filtering.
 - `HomeViewModelNewRowsTest` (18) and `NewRowsTest` (4), PLAN 5i:
   - A capped profile sees only confirmed at-or-under-cap titles in both New rows.
-  - **Capped New rows cert enrichment (commit `88170dc`).** Discover results are stubs without
+  - **Capped New rows cert enrichment (commit `88170dc`; [ADR 0003](adr/0003-age-cap-shared-rule-and-confirmed-certification-for.md), [ADR 0014](adr/0014-show-more-on-new-rows-exact-paid-only.md)).** Discover results are stubs without
     certifications, so capped rows were empty. The VM now fetches certifications for stub-only
     titles (20 per page) and only shows at-or-under-cap ones. Tests: an uncapped profile never
     triggers a detail fetch, and certifications are not refetched within the TTL.
-  - **Auto-advance (commit `ef3f1e2`).** An emulator check (Netflix-only, cap 12) showed every
+  - **Auto-advance (commit `ef3f1e2`; [ADR 0014](adr/0014-show-more-on-new-rows-exact-paid-only.md)).** An emulator check (Netflix-only, cap 12) showed every
     page-1 title was 15/18 or had no UK cert, so both rows were hidden and the More card was
     unreachable. A capped profile whose page 1 is all filtered now loads page 2 automatically; it
     stops after 3 pages and a More tap carries on. Tests also assert an uncapped profile, or a
@@ -209,7 +209,7 @@ PLAN section 4, the tunable sliders (4a), the Family blend, dismiss as a lasting
 (video selection priority from M4a, the in-app player dialog), plus `AvailabilityRowTest`
 (JustWatch attribution and paid badges, M6) and `PosterCardTest`.
 
-### Work and scheduling (M15, PLAN 5d)
+### Work and scheduling (M15, PLAN 5d, [ADR 0010](adr/0010-weekly-refresh-re-anchored-one-time-unique-work.md))
 
 - `RecommendationSchedulerTest` (11): pure delay maths. 6 am Monday boundaries (just before, just
   after, exactly at the hour must delay a full week and not zero), mid-week, Sunday just before
@@ -283,8 +283,8 @@ Re-deriving `BuildStats.kt` and bumping `versionName` is a manual milestone step
   (`RecommendationRepositoryTest.setUp` builds `"$endpoint:$providers:$region:$page"` by copying
   `DiscoverRepositoryTest`'s private `queryHash`; `ProviderRepositoryTest` seeds
   `discover_movie:9:1`) break silently or fail when the key format changes, and there is no public
-  seam to reuse the real hash. This happened twice, in alpha.20 (New rows) and alpha.21 (window and
-  page keys). When you change a cache key, grep for `queryHash`, `discover_cache` and
+  seam to reuse the real hash. Seen during the alpha.20 and alpha.21 builds (builder reports, 2026-11-14); PROGRESS.md does not
+  record it. When you change a cache key, grep for `queryHash`, `discover_cache` and
   `DiscoverCacheEntity` in `app/src/test` and update them in the same change.
 - **No `@Ignore`d tests.** `grep` finds none.
 - **No test hits the real network.** All TMDB traffic goes to MockWebServer. This means TMDB
@@ -314,5 +314,5 @@ Re-deriving `BuildStats.kt` and bumping `versionName` is a manual milestone step
    TMDB.
 4. If you change a cache key, TTL or window, update every test that seeds `discover_cache`.
 5. Finish with `./gradlew test assembleDebug` green, and report the real output.
-6. In the same change, update this file, `docs/ARCHITECTURE.md` and the ADRs in
+6. In the same change, update this file, [ARCHITECTURE.md](ARCHITECTURE.md) and the ADRs in
    [docs/adr/README.md](adr/README.md) if a decision changed. Update PROGRESS.md.
