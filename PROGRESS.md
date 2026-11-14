@@ -2507,3 +2507,16 @@ New `MoreLikeThisRepository` (in `AppContainer`), `TitleDetailViewModel` takes i
 - [ ] Live check on Kev's phone (New films and New series appear below the popular rows; a rent/buy-only film shows
       the RENT/BUY tag; + adds to the watch list; a capped profile sees only confirmed-under-cap titles; About this
       build shows the orchestrator rows).
+
+## Queued for alpha.21 (Kev, 2026-11-14) — don't build until Kev says
+
+- [ ] About page usage breakdown (BuildStats). Kev asked what the orchestrator "messages"
+      count meant; it is Claude's own steps (replies plus actions between replies), not his
+      messages and not sub-agents. Add:
+      - Summary card at the top: Kev's prompts (254 at 2026-11-14), total tokens (agents +
+        main session, cache reads excluded as now), and total hands-on time computed as the
+        union of main-session active intervals and agent run intervals, so overlap isn't
+        double-counted (17.6h agents and 16.9h main active must not simply be added).
+      - Per main-session model: Kev's prompts it handled, its replies to Kev, and its
+        actions in between (tool-call steps: file reads, commands, agent briefings), next
+        to time and tokens. Mine real numbers from the transcripts; same 10-minute gap rule.
