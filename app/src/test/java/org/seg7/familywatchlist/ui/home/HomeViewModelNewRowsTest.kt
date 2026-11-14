@@ -64,6 +64,9 @@ class HomeViewModelNewRowsTest {
     private var popularTv = emptyList<Pair<Int, String>>()
     private var newTv = emptyList<Pair<Int, String>>()
     private var failNewMovies = false
+    /** Detail payload certifications by "movie/ID" or "tv/ID"; requests are counted in [detailRequests]. */
+    private val detailCerts = mutableMapOf<String, String>()
+    private val detailRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
 
     private val activeProfile = ActiveProfile.Individual(
         ProfileEntity(id = 7L, name = "P", avatarKey = "a", ageRatingCap = null, createdAt = 0),
@@ -84,6 +87,15 @@ class HomeViewModelNewRowsTest {
                     t.startsWith("/discover/movie") -> page(popularMovies)
                     t.startsWith("/discover/tv") && t.contains("first_air_date") -> page(newTv)
                     t.startsWith("/discover/tv") -> page(popularTv)
+                    Regex("^/(movie|tv)/(\\d+)").find(t) != null -> {
+                        val m = Regex("^/(movie|tv)/(\\d+)").find(t)!!
+                        val key = "${m.groupValues[1]}/${m.groupValues[2]}"
+                        detailRequests += key
+                        val cert = detailCerts[key] ?: return MockResponse(code = 404)
+                        val prov = """"watch/providers":{"results":{"GB":{"flatrate":[{"provider_id":8,"provider_name":"P"}]}}}"""
+                        return if (m.groupValues[1] == "movie") MockResponse(body = """{"id":${m.groupValues[2]},"title":"T","runtime":100,$prov,"release_dates":{"results":[{"iso_3166_1":"GB","release_dates":[{"certification":"$cert","type":3}]}]}}""")
+                        else MockResponse(body = """{"id":${m.groupValues[2]},"name":"T",$prov,"content_ratings":{"results":[{"iso_3166_1":"GB","rating":"$cert"}]}}""")
+                    }
                     else -> return MockResponse(code = 404)
                 }
                 return MockResponse(body = body)
@@ -220,5 +232,54 @@ class HomeViewModelNewRowsTest {
 
         val state = vm.uiState.first { (20 to MediaType.TV) in it.listedKeys }
         assertTrue((20 to MediaType.TV) in state.listedKeys)
+    }
+
+    private suspend fun kid() = ActiveProfile.Individual(
+        profileRepository.getById(profileRepository.addProfile("Kid", "avatar", "12").getOrThrow())!!,
+    )
+
+    @Test
+    fun `a capped profile gets certifications fetched for stub-only New titles, and only at-or-under-cap ones show`() = runTest {
+        newMovies = listOf(10 to "Kids film", 11 to "Adult film")
+        newMoviesIncluded = newMovies
+        newTv = listOf(20 to "Kids show", 21 to "Adult show")
+        detailCerts["movie/10"] = "PG"; detailCerts["movie/11"] = "18"
+        detailCerts["tv/20"] = "12"; detailCerts["tv/21"] = "18"
+
+        val state = viewModel(kid()).uiState.first { it.newMovies.isNotEmpty() && it.newTv.isNotEmpty() }
+
+        assertEquals(listOf(10), state.newMovies.map { it.tmdbId })
+        assertEquals(listOf(20), state.newTv.map { it.tmdbId })
+        // Over-cap ones were fetched (that is how we know) yet stay hidden.
+        val settled = viewModel(kid()).uiState.first { "movie/11" in detailRequests && "tv/21" in detailRequests }
+        assertTrue(settled.newMovies.none { it.tmdbId == 11 })
+        assertTrue(settled.newTv.none { it.tmdbId == 21 })
+    }
+
+    @Test
+    fun `an uncapped profile never triggers a detail fetch for New titles`() = runTest {
+        newMovies = listOf(10 to "A")
+        newMoviesIncluded = newMovies
+        newTv = listOf(20 to "S")
+        detailCerts["movie/10"] = "PG"; detailCerts["tv/20"] = "PG"
+
+        val state = viewModel().uiState.first { it.newMovies.isNotEmpty() && it.newTv.isNotEmpty() }
+
+        assertEquals(emptyList<String>(), detailRequests.toList())
+        assertEquals(listOf(10), state.newMovies.map { it.tmdbId })
+    }
+
+    @Test
+    fun `certifications are not refetched on a second open within the TTL`() = runTest {
+        newMovies = listOf(10 to "Kids film")
+        newMoviesIncluded = newMovies
+        detailCerts["movie/10"] = "PG"
+        val kid = kid()
+        viewModel(kid).uiState.first { it.newMovies.isNotEmpty() }
+        assertEquals(1, detailRequests.count { it == "movie/10" })
+
+        viewModel(kid).uiState.first { it.newMovies.isNotEmpty() }
+
+        assertEquals(1, detailRequests.count { it == "movie/10" })
     }
 }

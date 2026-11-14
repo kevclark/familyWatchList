@@ -582,6 +582,10 @@ class HomeViewModel(
                     hasServices = subscribed.isNotEmpty(),
                     movies = filteredMovies,
                     tv = filteredTv,
+                    rawNewMovies = newFilms?.titles.orEmpty(),
+                    rawNewTv = newSeries,
+                    ageCap = ageCap,
+                    region = region,
                     newMovies = newFilms?.titles.orEmpty().filter { it.survivesAgeCap(ageCap) },
                     newMoviePaidOnlyIds = newFilms?.paidOnlyIds.orEmpty(),
                     newTv = newSeries.filter { it.survivesAgeCap(ageCap) },
@@ -596,6 +600,7 @@ class HomeViewModel(
                     isLoading = false,
                     hasSubscribedServices = rows.hasServices,
                 )
+                enrichNewRowCertifications(rows)
             }.onFailure { throwable ->
                 _discover.value = _discover.value.copy(
                     isLoading = false,
@@ -710,6 +715,39 @@ class HomeViewModel(
     private fun TitleEntity.survivesAgeCap(cap: String?): Boolean =
         FamilyBlend.isConfirmedUnderCap(certification, cap)
 
+    private var enrichJob: Job? = null
+
+    /**
+     * PLAN.md §5i: New releases are bare discover stubs, and the capped rule ([survivesAgeCap]) needs a
+     * confirmed certification, so for a capped profile nothing would ever show. Fetch details (the same
+     * [TitleRepository.ensureFresh] path and throttle as everywhere else) for up to [NEW_ROW_CERT_FETCH_LIMIT]
+     * cert-less candidates per row, republishing from Room after each one so the rows fill progressively.
+     * Uncapped profiles never get here. ensureFresh is a cache read for a title that already has detail, so
+     * nothing refetches inside the TTL. The confirmed-cert rule itself is untouched.
+     */
+    private fun enrichNewRowCertifications(rows: NewRows) {
+        enrichJob?.cancel()
+        if (rows.ageCap == null) return
+        val candidates = (rows.rawNewMovies.take(NEW_ROW_CERT_FETCH_LIMIT) + rows.rawNewTv.take(NEW_ROW_CERT_FETCH_LIMIT))
+            .filter { it.certification == null }
+        if (candidates.isEmpty()) return
+        enrichJob = viewModelScope.launch {
+            for (c in candidates) {
+                val fetched = runCatching { titleRepository.ensureFresh(c.tmdbId, c.mediaType, rows.region) }.getOrNull() ?: continue
+                if (fetched.certification == null) continue
+                suspend fun reload(raw: List<TitleEntity>) =
+                    titleRepository.getTitles(raw.map { it.tmdbId to it.mediaType })
+                        .associateBy { it.tmdbId }
+                        .let { byId -> raw.mapNotNull { byId[it.tmdbId] } }
+                        .filter { it.survivesAgeCap(rows.ageCap) }
+                _discover.value = _discover.value.copy(
+                    newMovies = reload(rows.rawNewMovies),
+                    newTv = reload(rows.rawNewTv),
+                )
+            }
+        }
+    }
+
     private data class NewRows(
         val hasServices: Boolean,
         val movies: List<TitleEntity>,
@@ -717,6 +755,10 @@ class HomeViewModel(
         val newMovies: List<TitleEntity>,
         val newMoviePaidOnlyIds: Set<Int>,
         val newTv: List<TitleEntity>,
+        val rawNewMovies: List<TitleEntity>,
+        val rawNewTv: List<TitleEntity>,
+        val ageCap: String?,
+        val region: String,
     )
 
     private data class DiscoverState(
@@ -733,6 +775,9 @@ class HomeViewModel(
     companion object {
         /** Same order of magnitude as [org.seg7.familywatchlist.ui.tune.TunePicksViewModel.RECOMPUTE_DEBOUNCE_MS] — don't refire on every rapid chip tap. */
         const val FAMILY_NIGHT_DEBOUNCE_MS = 400L
+
+        /** PLAN.md §5i: per-row cap on certification detail fetches for a capped profile. */
+        const val NEW_ROW_CERT_FETCH_LIMIT = 20
 
         /** PLAN.md §5d part 5: a Family Night result faster than this shows no progress UI at all. */
         const val FAMILY_NIGHT_PROGRESS_GRACE_MS = 500L

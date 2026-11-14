@@ -1057,6 +1057,12 @@ user's subscribed providers in the user's region (GB by default).
   long-press dismisses, a + / check button toggles the watch list (same availability gate and attribution as Search's
   quick-add). An empty row renders nothing, not even a header.
 
+- **Capped profiles (fix found in the alpha.20 emulator check):** releases are bare stubs with no certification, so the
+  confirmed-cert rule hid nearly all of them. After a refresh, for a capped profile only, `HomeViewModel` calls
+  `TitleRepository.ensureFresh` for up to 20 cert-less candidates per row (same throttle), republishing from Room after
+  each so the rows fill progressively. `ensureFresh` is a cache read once a title has detail, so nothing refetches
+  inside the TTL. Uncapped profiles never fetch. The confirmed-cert rule is unchanged.
+
 **Judgement calls:** the + button is new to Home (the popular rows have none); the New rows get it as specified. The
 cold-start "For You" row and the hero still draw only from the popular rows. A capped child's New rows can be sparse
 until titles have been opened once (stubs carry no certification), the same limitation as the popular rows.
