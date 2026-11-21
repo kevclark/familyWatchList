@@ -49,7 +49,6 @@ The app is a conventional layered design with a hand-written DI container
 (`di/AppContainer.kt`, one instance on `FamilyWatchListApp`, no Hilt).
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 flowchart TD
     subgraph UI["ui/*  (Compose screens and ViewModels)"]
         Screens["Screens: home, search, details, watchlist,<br/>history, logwatch, profile, settings, tune,<br/>activity, onboarding, nav"]
@@ -141,7 +140,6 @@ The schema below is taken from the Room entities in `data/local/entity/*` and th
 *People and Family*
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 erDiagram
     profiles {
         long id PK "autoGenerate"
@@ -180,7 +178,6 @@ erDiagram
 *Activity*
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 erDiagram
     watch_events {
         long id PK "autoGenerate"
@@ -227,7 +224,6 @@ Notes:
 *Title cache and availability*
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 erDiagram
     titles {
         int tmdbId PK
@@ -288,7 +284,6 @@ erDiagram
 *Recommendations and caches*
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 erDiagram
     shortlist_entries {
         string weekStart PK "LocalDate, the Monday"
@@ -372,7 +367,6 @@ notification.
 *Scheduling and retry*
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant App as FamilyWatchListApp
@@ -396,7 +390,6 @@ sequenceDiagram
 *One refresh run*
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant Worker as RecommendationWorker
@@ -459,7 +452,6 @@ locally into chips, resolved against TMDB, and run as discover queries. A title-
 runs alongside, so a real title that contains genre words still appears.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant UI as SearchViewModel
@@ -537,7 +529,6 @@ Home is one feed. The popular rows and the New rows share `DiscoverRepository`, 
 `discover_cache` and the same age rule. The New rows add paging and a paid-only detection trick.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant HVM as HomeViewModel
@@ -612,7 +603,6 @@ What to remember:
 Decisions: [ADR 0009](adr/0009-more-like-this-uses-tmdb-recommendations-not-similar.md).
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant VM as TitleDetailViewModel
