@@ -49,6 +49,7 @@ The app is a conventional layered design with a hand-written DI container
 (`di/AppContainer.kt`, one instance on `FamilyWatchListApp`, no Hilt).
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 flowchart TD
     subgraph UI["ui/*  (Compose screens and ViewModels)"]
         Screens["Screens: home, search, details, watchlist,<br/>history, logwatch, profile, settings, tune,<br/>activity, onboarding, nav"]
@@ -137,7 +138,10 @@ The schema below is taken from the Room entities in `data/local/entity/*` and th
 
 ### People, activity and preferences
 
+*People and Family*
+
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 erDiagram
     profiles {
         long id PK "autoGenerate"
@@ -167,6 +171,17 @@ erDiagram
         long profileId PK "may be the family sentinel -1"
         bool enabled "default true"
     }
+
+    profiles ||--o| family_profile_members : "member of Family (FK)"
+    profiles ||..o| profile_sliders : "tuning"
+    profiles ||..o| profile_notification_prefs : "opt-out"
+```
+
+*Activity*
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
+erDiagram
     watch_events {
         long id PK "autoGenerate"
         int tmdbId
@@ -193,9 +208,6 @@ erDiagram
         string state "ACTIVE, WATCHED or REMOVED"
     }
 
-    profiles ||--o| family_profile_members : "member of Family (FK)"
-    profiles ||..o| profile_sliders : "tuning"
-    profiles ||..o| profile_notification_prefs : "opt-out"
     profiles ||..o{ watch_event_profiles : "tagged on"
     watch_events ||..o{ watch_event_profiles : "multi-tag"
     profiles ||..o{ ratings : "rates"
@@ -212,7 +224,10 @@ Notes:
 
 ### Title cache, availability and recommendations
 
+*Title cache and availability*
+
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 erDiagram
     titles {
         int tmdbId PK
@@ -263,6 +278,18 @@ erDiagram
         real rating "nullable"
         string createdAt "nullable"
     }
+
+    titles ||..o{ title_attributes : "genres, cast, keywords"
+    titles ||..o{ provider_availability : "GB availability"
+    providers ||..o{ provider_availability : "offered by"
+    titles ||..o{ reviews : "TMDB review snippets"
+```
+
+*Recommendations and caches*
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
+erDiagram
     shortlist_entries {
         string weekStart PK "LocalDate, the Monday"
         string scopeKey PK "profile id, FAMILY, or AD_HOC key"
@@ -291,10 +318,6 @@ erDiagram
         string notificationStatus "nullable"
     }
 
-    titles ||..o{ title_attributes : "genres, cast, keywords"
-    titles ||..o{ provider_availability : "GB availability"
-    providers ||..o{ provider_availability : "offered by"
-    titles ||..o{ reviews : "TMDB review snippets"
     titles ||..o{ shortlist_entries : "suggested as"
     titles ||..o{ discover_cache : "page membership"
 ```
@@ -347,6 +370,7 @@ One refresh code path serves three triggers (scheduled, catch-up, manual). A sin
 notification.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 sequenceDiagram
     autonumber
     participant App as FamilyWatchListApp
@@ -422,6 +446,7 @@ locally into chips, resolved against TMDB, and run as discover queries. A title-
 runs alongside, so a real title that contains genre words still appears.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 sequenceDiagram
     autonumber
     participant UI as SearchViewModel
@@ -499,6 +524,7 @@ Home is one feed. The popular rows and the New rows share `DiscoverRepository`, 
 `discover_cache` and the same age rule. The New rows add paging and a paid-only detection trick.
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 sequenceDiagram
     autonumber
     participant HVM as HomeViewModel
@@ -573,6 +599,7 @@ What to remember:
 Decisions: [ADR 0009](adr/0009-more-like-this-uses-tmdb-recommendations-not-similar.md).
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
 sequenceDiagram
     autonumber
     participant VM as TitleDetailViewModel
