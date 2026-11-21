@@ -20,7 +20,7 @@ if JDK 21 ever gets installed alongside 17.
 
 1. **TMDB API key** — register free at https://www.themoviedb.org → Settings → API.
    Copy the **API Read Access Token (v4)**. It goes in `local.properties` as
-   `TMDB_ACCESS_TOKEN=...` (git-ignored, injected via BuildConfig). Not committed, ever.
+   `TMDB_ACCESS_TOKEN=...` (git-ignored). Not committed, ever.
 2. **Switch this session to Sonnet** — run `/model sonnet` after approving this plan.
    The orchestrating session bills at its own model; subagent pins only cover the subagents.
    Sonnet 5 orchestrates day-to-day, delegating to:
@@ -114,8 +114,7 @@ Storage Access Framework.
 
 ## 3. TMDB integration
 
-**Auth:** v4 Read Access Token as `Authorization: Bearer` header via OkHttp interceptor.
-From `local.properties` → `BuildConfig.TMDB_ACCESS_TOKEN`.
+**Auth:** v4 Read Access Token, supplied from local, git-ignored configuration. Never committed.
 
 **Endpoints used:**
 

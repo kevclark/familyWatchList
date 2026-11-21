@@ -4,7 +4,7 @@ A private, single-household Android app that tracks what the family has actually
 learns everyone's taste locally on the device, and recommends what to watch next — restricted
 to titles genuinely available on the UK streaming services you already pay for.
 
-No accounts, no cloud sync, no ads. Everything lives in a local Room database; the only network
+No accounts in the app, no cloud sync, no ads. Everything lives in a local Room database; the only network
 calls are to [TMDB](https://www.themoviedb.org/) for metadata/availability and to fetch a
 trailer. Recommendations are a deterministic, hand-written scoring function — not a trained
 model, nothing about your household ever leaves the device or trains anything.
@@ -55,8 +55,17 @@ More screenshots from each milestone's live-verification pass are under [`docs/`
 ## Building & previewing
 
 Standard Android Studio / Gradle project — Kotlin + Jetpack Compose, Room, Retrofit, manual DI
-(`AppContainer`), no Hilt. You'll need a TMDB v4 read access token in `local.properties`
-(`TMDB_ACCESS_TOKEN=...`, git-ignored, never committed).
+(`AppContainer`), no Hilt.
+
+### Get a TMDB token
+
+The app needs your own free TMDB account to fetch metadata and availability:
+
+1. Create an account at [themoviedb.org](https://www.themoviedb.org/) and open Settings → API.
+2. Request a developer key (free, personal use).
+3. Copy the **API Read Access Token** (the long one, not the short API key).
+4. Put it in `local.properties` at the project root as `TMDB_ACCESS_TOKEN=<your token>`.
+   That file is git-ignored; never commit the token.
 
 ```bash
 ./gradlew test assembleDebug

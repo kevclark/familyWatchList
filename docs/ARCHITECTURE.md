@@ -79,7 +79,7 @@ flowchart TD
 
     subgraph Remote["data/remote"]
         Api["TmdbApi (Retrofit) + DTOs"]
-        Net["AuthInterceptor, ThrottleInterceptor 4 req/s"]
+        Net["Request interceptors, 4 req/s throttle"]
     end
 
     subgraph Work["work/*"]
@@ -113,7 +113,7 @@ flowchart TD
 | `ui/*` | One package per screen area: `home`, `search`, `details`, `watchlist`, `history`, `logwatch`, `profile`, `settings`, `tune`, `activity`, `onboarding`, `nav`, plus shared `components`, `theme`, `avatar`. | A ViewModel per screen. ViewModels get their repositories from `AppContainer` via `ui/LocalAppContainer`. `ui/nav/MainScaffold` owns the nav graph (bottom tabs Home, Search, My List, History, Settings, plus routes for details, Tune my picks, Activity, About). |
 | `data/repository` | The classes in the diagram above, plus `TmdbMappers` (DTO to entity), `BrowseGating` (`passesBrowseGate`, `persistStubs`) and `BackupRepository` (JSON export and import of user data only). | The only layer that touches both Room and TMDB. |
 | `data/local` | `AppDatabase` (v11, 17 entities, 10 migrations), `Converters`, `entity/*`, `dao/*`. | Schemas are exported (`exportSchema = true`). The database file is `family_watchlist.db`. |
-| `data/remote` | `TmdbApi` (Retrofit interface), `TmdbClient` (builds Retrofit with kotlinx.serialization), `AuthInterceptor`, `ThrottleInterceptor`, `dto/*`. | The bearer token comes from `BuildConfig` (from the git-ignored `local.properties`). Never log it. |
+| `data/remote` | `TmdbApi` (Retrofit interface), `TmdbClient` (builds Retrofit with kotlinx.serialization), `ThrottleInterceptor`, `dto/*`. | The TMDB credential comes from local, git-ignored configuration. Never log it. |
 | `data/recommend` | `AffinityEngine`, `Scorer`, `ShortlistAssembler`, `FamilyBlend`, `ShortlistDiff`, `SliderSettings`, `RecommenderSpec`, `ExtraPicks`, `FamilyNightProgress`, `AttrKey`. | Pure Kotlin, fixture-tested. `RecommenderSpec` holds the spec constants (half-life 180 days, weights 0.70 / 0.15 / 0.15, shortlist size 30). |
 | `data/search` | `QueryParser`, `PhraseTable`, `AgeFilter`, `TitleMatch`. | Pure and deterministic. |
 | `work/*` | `RecommendationScheduler`, `RecommendationWorker`, `RefreshCoordinator`, `RefreshSlots`, `NotificationGate`, `ShortlistNotifier`. | WorkManager and the notification. |
@@ -122,7 +122,7 @@ flowchart TD
 ### Two image-loading and DataStore details worth knowing
 
 - Poster images use a separate, plain OkHttp client in `FamilyWatchListApp.newImageLoader`, so image
-  requests neither carry the TMDB bearer token nor go through the 4 req/s throttle.
+  requests neither carry the TMDB credential nor go through the 4 req/s throttle.
 - Small preferences (onboarding done, active profile, region, accent, refresh day and hour,
   notification master switch, family blend slider) live in DataStore (`UserPreferencesRepository`),
   not Room. The per-profile notification opt-out is in Room (`profile_notification_prefs`).
@@ -650,7 +650,7 @@ surfaces share. When changing a rule, change it there.
 | Rent/buy is not browsable | `AvailabilityGate.isPaidOnlyCached` and `isPaidOnlyOnSubscribedProvider`; `passesBrowseGate`; `DescriptiveSearchRepository.MONETIZATION = "flatrate\|free"`; `TmdbApi` discover default `flatrate\|free` | Paid-only means every subscribed row is BUY or RENT. Browse surfaces drop such titles. `isPaidOnlyCached` is a cache-only read for callers that just ran the availability check. For badge wording only, never a gate, outside the browse gate. See [ADR 0004](adr/0004-no-rent-buy-in-browsing-paid-titles-only.md). |
 | The single rent/buy exception | `DiscoverRepository.newMovies`, `NEW_FILMS_MONETIZATION = "flatrate\|free\|rent\|buy"` | Signed off by Kev (2026-11-14). Only New films asks for rent and buy; paid-only films carry the RENT or BUY poster tag (`HomeUiState.newMoviePaidOnlyIds`). A test pins that every other discover call stays `flatrate\|free`. Explicit title search may also show paid-only titles with a badge, because the user named the title. See [ADR 0005](adr/0005-new-films-exception-rent-buy-allowed-on-the.md). |
 | TMDB throttle, 4 req/s | `ThrottleInterceptor` (installed by `TmdbClient.create`) | Sliding one-second window, blocks the calling thread, retries up to 3 times on HTTP 429 honouring `Retry-After`. Everything that talks to TMDB inherits it. Image requests deliberately do not. See [ADR 0020](adr/0020-tmdb-requests-throttled-to-4-per-second.md). |
-| TMDB auth | `AuthInterceptor`, `BuildConfig.TMDB_ACCESS_TOKEN` | Token from git-ignored `local.properties`. Never print or commit. |
+| TMDB auth | `data/remote` | Credential from local, git-ignored configuration. Never print or commit. |
 | Cache freshness | `TitleRepository`, `DiscoverRepository`; see the table below | One detail call refreshes metadata, attributes, availability and reviews together. See [ADR 0001](adr/0001-offline-first-the-ui-reads-room-only-tmdb.md). |
 | Offline-first | UI reads Room-backed flows (`observe*`); repositories call TMDB only to fill Room | For You reads `shortlist_entries`; title detail reads `titles` and friends. See [ADR 0001](adr/0001-offline-first-the-ui-reads-room-only-tmdb.md). |
 | One refresh at a time | `RefreshCoordinator.guard` (a `Mutex`); `runIfIdle` | Scheduled waits, catch-up and manual yield. See [ADR 0010](adr/0010-weekly-refresh-re-anchored-one-time-unique-work.md). |
