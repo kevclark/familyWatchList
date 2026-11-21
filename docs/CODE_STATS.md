@@ -1,6 +1,6 @@
 # Code statistics
 
-A snapshot of the codebase size at commit `7723420` (2026-11-14). Not documentation: just numbers.
+A snapshot of the codebase size at commit `7c2d380` (2026-11-14). Not documentation: just numbers.
 
 - **Code lines** exclude blank lines and comment lines (`//`, `/* */`, KDoc, `#`, `<!-- -->`).
 - Only git-tracked text files are counted. Images and the Gradle wrapper jar are excluded.

@@ -65,6 +65,8 @@ Standard Android Studio / Gradle project — Kotlin + Jetpack Compose, Room, Ret
 For running against an emulator or a real phone from a headless dev box — boot commands, scrcpy
 mirroring, wireless ADB — see [`docs/PREVIEW.md`](docs/PREVIEW.md).
 
+Architecture, decision records and test notes start at [`docs/README.md`](docs/README.md).
+
 The full spec (data model, TMDB integration, recommender design, screen-by-screen UX, milestone
 plan) lives in [`PLAN.md`](PLAN.md); [`PROGRESS.md`](PROGRESS.md) tracks what's actually shipped
 against it.

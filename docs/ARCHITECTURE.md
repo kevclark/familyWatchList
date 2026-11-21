@@ -369,13 +369,36 @@ One refresh code path serves three triggers (scheduled, catch-up, manual). A sin
 `RefreshCoordinator` means two refreshes never run at once. Only the `SCHEDULED` trigger posts a
 notification.
 
+*Scheduling and retry*
+
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant App as FamilyWatchListApp
     participant Sched as RecommendationScheduler
     participant WM as WorkManager
+    participant Worker as RecommendationWorker
+
+    App->>Sched: scheduleWeekly(day, hour), policy KEEP
+    Sched->>WM: enqueue unique one-time work, delayed to next slot
+    Note over Sched,WM: A settings change uses REPLACE. Only one pending request ever exists.
+    WM->>Worker: doWork (network available)
+    Worker->>Worker: run the refresh (second diagram)
+    alt FAILED and attempts remain (max 3)
+        Worker-->>WM: Result.retry (no next slot booked yet)
+    else finished for good
+        Worker->>Sched: scheduleNext(day, hour), policy REPLACE
+        Worker-->>WM: success or failure
+    end
+```
+
+*One refresh run*
+
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
+sequenceDiagram
+    autonumber
     participant Worker as RecommendationWorker
     participant Coord as RefreshCoordinator
     participant Log as RefreshLogRepository
@@ -383,33 +406,23 @@ sequenceDiagram
     participant Gate as NotificationGate
     participant Notif as ShortlistNotifier
 
-    App->>Sched: scheduleWeekly(day, hour), policy KEEP
-    Sched->>WM: enqueue unique one-time work (initial delay to next slot)
-    Note over Sched,WM: Settings change uses REPLACE. Only one pending request ever exists.
-    WM->>Worker: doWork (network constraint met)
     Worker->>Coord: run(SCHEDULED), waits for the mutex
-    Coord->>Log: start(trigger) writes a RUNNING row
+    Coord->>Log: start(trigger), writes a RUNNING row
     Coord->>Reco: refreshAllDetailed(region, onProgress)
     loop each profile, then Family if it exists
         Reco->>Reco: refreshProfileShortlistDetailed(isRefreshRun = true)
-        Note over Reco: cold start is skipped. A failure is caught per profile.
+        Note over Reco: Cold start skipped. A failure is caught per profile.
     end
-    Reco-->>Coord: completed profiles and per-profile summaries
+    Reco-->>Coord: completed profiles and summaries
     Coord->>Coord: invalidateDiscover (clear discover_cache)
     Coord->>Gate: profilesToNotify(completed, master, per-profile)
     Gate-->>Coord: who to mention
-    alt trigger is SCHEDULED, not FAILED, at least one profile enabled
+    alt SCHEDULED, not FAILED, someone enabled
         Coord->>Notif: notifyShortlistReady(names)
         Notif-->>Coord: POSTED, PERMISSION_DENIED or BLOCKED_BY_SYSTEM
     end
     Coord->>Log: finish(outcome, reason, summaries, notificationStatus)
     Coord-->>Worker: outcome
-    alt FAILED and attempts remain (max 3)
-        Worker-->>WM: Result.retry (no next slot booked yet)
-    else finished for good
-        Worker->>Sched: scheduleNext(day, hour), policy REPLACE
-        Worker-->>WM: success or failure
-    end
 ```
 
 What to remember:
@@ -446,7 +459,7 @@ locally into chips, resolved against TMDB, and run as discover queries. A title-
 runs alongside, so a real title that contains genre words still appears.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant UI as SearchViewModel
@@ -524,7 +537,7 @@ Home is one feed. The popular rows and the New rows share `DiscoverRepository`, 
 `discover_cache` and the same age rule. The New rows add paging and a paid-only detection trick.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant HVM as HomeViewModel
@@ -599,7 +612,7 @@ What to remember:
 Decisions: [ADR 0009](adr/0009-more-like-this-uses-tmdb-recommendations-not-similar.md).
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'}}}%%
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#dbe7f5','primaryTextColor':'#15202b','primaryBorderColor':'#5b7a99','secondaryColor':'#eef2f6','tertiaryColor':'#f6f8fa','lineColor':'#6e7681','textColor':'#6e7681','attributeBackgroundColorOdd':'#f3f6fa','attributeBackgroundColorEven':'#e4ebf3','signalColor':'#6e7681','signalTextColor':'#6e7681','loopTextColor':'#6e7681','labelTextColor':'#15202b','actorLineColor':'#6e7681','noteBkgColor':'#fff5c2','noteTextColor':'#15202b','noteBorderColor':'#b59a2c','clusterBkg':'#eef2f6','clusterBorder':'#5b7a99'},'sequence':{'mirrorActors':false,'wrap':true,'width':150,'messageMargin':30,'actorFontSize':15,'messageFontSize':14,'noteFontSize':13}}}%%
 sequenceDiagram
     autonumber
     participant VM as TitleDetailViewModel
