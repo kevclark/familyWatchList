@@ -38,7 +38,7 @@ Done means: `./gradlew assembleDebug` green; APK boots on the emulator.
 - [x] `./gradlew test` green (serialization smoke test)
 - [x] AVD `family_test` created (Pixel 7, API 35 google_apis x86_64, 2048MB RAM)
 - [x] Booted headless with KVM, debug APK installed, activity resumed
-- [x] Screenshot proof: `docs/first-boot.png`
+- [x] Screenshot proof: `docs/evidence/first-boot.png`
 - [x] `docs/PREVIEW.md` — scrcpy-over-TCP from the laptop + wireless ADB pairing for the phone
 - [x] `PROGRESS.md` (this file)
 
@@ -94,9 +94,9 @@ look at onboarding/profiles/Home before the rest of the milestone builds on that
       optional age-rating cap
 - [x] Home shell + navigation (screens/rows can be stubs — this pass is nav + profile UX)
 - [x] `./gradlew test assembleDebug` green
-- [x] Screenshot(s) captured for Kev's review (`docs/`), per the M0 first-boot.png pattern —
-      `docs/m2a-onboarding-attribution.png`, `docs/m2a-onboarding-services.png`,
-      `docs/m2a-onboarding-profile.png`, `docs/m2a-profiles.png`, `docs/m2a-home.png`
+- [x] Screenshot(s) captured for Kev's review (`docs/`), per the M0 docs/evidence/first-boot.png pattern —
+      `docs/evidence/m2a-onboarding-attribution.png`, `docs/evidence/m2a-onboarding-services.png`,
+      `docs/evidence/m2a-onboarding-profile.png`, `docs/evidence/m2a-profiles.png`, `docs/evidence/m2a-home.png`
 
 Implementation notes for whoever picks up M2b:
 - Top-level screen choice (Onboarding / ProfilePicker / Home) is driven reactively by
@@ -209,7 +209,7 @@ and touch Settings/Home. See PLAN.md §5a "Post-M2b decisions" for full spec.
 - [x] `./gradlew test assembleDebug` green — 134 tests, 1 pre-existing failure (see note below),
       assembleDebug clean
 - [x] Screenshots confirming Obsidian applied app-wide + the new For You card
-      (`docs/m2c-home.png`, `docs/m2c-settings-accent.png`, `docs/m2c-obsidian-detail.png`)
+      (`docs/evidence/m2c-home.png`, `docs/evidence/m2c-settings-accent.png`, `docs/evidence/m2c-obsidian-detail.png`)
 
 **Pre-existing test failure, unrelated to this pass:** `LogWatchFlowUiTest`'s "the common case
 is one tap…" fails on an assertion at line 161 (`dismissed` flag not set in time) in this
@@ -616,20 +616,20 @@ the session) against 3 pre-existing profiles from earlier milestones' testing. S
 "Kev" past the cold-start threshold (6 tagged watch events across Toy Story/Toy Story 2/
 Paddington/Paddington 2/Spider-Man: No Way Home, two UP ratings) directly via `run-as sqlite3`
 — the same established technique M2d/M2e/M2g used — then drove the real UI:
-- **POST_NOTIFICATIONS fired correctly** on first reaching Home (`docs/m3-live-03-permission.png`).
+- **POST_NOTIFICATIONS fired correctly** on first reaching Home (`docs/evidence/m3-live-03-permission.png`).
 - **Base recommendations, real and live**: tapping refresh triggered a genuine
   `refreshProfileShortlist` — real `/discover` + `/recommendations` + detail-fetch network calls
   against TMDB, no mocks. Result: hero flipped from the old raw-popularity Spider-Man pick to
   **Toy Story 2** (top-scored, 0.949), with reasons `["John Lasseter","Animation","Comedy"]`
   correctly citing the director/genre overlap with Kev's rated titles
-  (`docs/m3-live-05-home.png` before -> `docs/m3-live-07-foryou.png` after).
+  (`docs/evidence/m3-live-05-home.png` before -> `docs/evidence/m3-live-07-foryou.png` after).
 - **"Tune my picks" screen** renders all four sliders including "Family Night blend" (visible —
-  the account has 3 profiles) at their s=0 defaults (`docs/m3-live-09-tune-my-picks.png`).
+  the account has 3 profiles) at their s=0 defaults (`docs/evidence/m3-live-09-tune-my-picks.png`).
 - **A slider visibly changing Home's output**: moved the Discovery slider to ~+0.96 ("Surprise
   me") — persisted to `profile_sliders`, debounced recompute fired, and the "For You" row's
   third card visibly changed from *Spider-Man: Homecoming* to *Project Hail Mary* as the
-  loosened diversity cap pulled in an unexplored genre (`docs/m3-live-13-discovery-slider2.png`,
-  `docs/m3-live-16-home-final.png`).
+  loosened diversity cap pulled in an unexplored genre (`docs/evidence/m3-live-13-discovery-slider2.png`,
+  `docs/evidence/m3-live-16-home-final.png`).
 - **WorkManager genuinely scheduled on-device**: `adb shell dumpsys jobscheduler` shows the real
   `androidx.work.systemjobscheduler` job for this package with `Minimum latency: +3d9h...` —
   correctly the distance from Thursday to next Monday 06:00.
@@ -1122,15 +1122,15 @@ research behind the rating-scale call. This milestone builds every confirmed ite
         (`ageRatingCap=12`) with 3 shared-watchlist items certified `15` (The Matrix / Reloaded /
         Revolutions, all `ACTIVE`, added by Kevu). Switched to Sam: both Home's My List carousel
         and the full My List screen render all three dimmed, each with content-desc/caption
-        "Over your age rating cap" — screenshots `docs/m3i-mylist-home-dimmed.png` and
-        `docs/m3i-mylist-full-dimmed.png`. Bonus check: switching to the Family profile
+        "Over your age rating cap" — screenshots `docs/evidence/m3i-mylist-home-dimmed.png` and
+        `docs/evidence/m3i-mylist-full-dimmed.png`. Bonus check: switching to the Family profile
         (strictest-member cap = Sam's 12) dims the same three items too, confirming
         `FamilyBlend.strictestCap` feeds this path correctly as well.
       - Item 10 (Family cold-start): live DB genuinely qualifies — Kevu has 3 watch_event_profiles
         rows, Sam has 0, both under the 5-event threshold, so `familyIsColdStart` is true with no
         setup needed. Switched to the Family profile on Home: the `ColdStartHero` intro panel
         ("Let's find your picks") renders exactly as the individual cold-start case does —
-        screenshot `docs/m3i-family-coldstart.png`.
+        screenshot `docs/evidence/m3i-family-coldstart.png`.
       - Keyboard-padding fix (Search/log-watch `imePadding()`) was **not** covered this pass —
         out of scope for the two safety-relevant items requested; still unverified live.
       No bugs found in either item 9 or item 10's on-device behaviour.
@@ -1243,7 +1243,7 @@ legitimately in a `WebView`, which is the fix:
       `TmdbMappersTest`) — this only changes what happens when the button is tapped
 - [x] `./gradlew test assembleDebug` green (401 tests, +1 `TrailerPlayerDialogTest` covering the
       close-button dismiss wiring) + live verification: tapping Trailer opens the player in-app,
-      no app switch (screenshot: `docs/m4a2-trailer-inapp.png`), closing via the × control and via
+      no app switch (screenshot: `docs/evidence/m4a2-trailer-inapp.png`), closing via the × control and via
       system back both return cleanly to the details screen underneath. **Video playback itself
       did not render** — YouTube's IFrame Player consistently returned its own "Video player
       configuration error" for a confirmed-valid, confirmed-embeddable trailer key (verified via
@@ -1336,7 +1336,7 @@ implementation rather than a re-interpretation:
       via ANGLE/Vulkan/SwiftShader), screenshotted the actual launcher icon via the Settings
       "App info" page (shows the real masked adaptive icon at a larger size than the home
       screen dock) and the home-screen dock itself. Screenshots saved at
-      `docs/m4c-launcher-icon.png` and `docs/m4c-launcher-icon-homescreen.png`. Reads
+      `docs/evidence/m4c-launcher-icon.png` and `docs/evidence/m4c-launcher-icon-homescreen.png`. Reads
       correctly as the spec: dark near-black ground, warm-lit screen glow top-of-frame,
       three silhouetted heads + sofa-back at the bottom edge, circular mask crops the
       sofa-back bleed as intended.
@@ -1404,7 +1404,7 @@ implementation rather than a re-interpretation:
       trailer, the YouTube IFrame Player chrome loaded (title "Central Intelligence | ...",
       Warner Bros. Entertainment, 1:11 duration — no Error 153), and it genuinely played: two
       screenshots 3s apart show different frames (Dwayne Johnson talking, then a night fight
-      scene), not a static error card. Screenshot: `docs/m5fix-trailer-playing.png`. This
+      scene), not a static error card. Screenshot: `docs/evidence/m5fix-trailer-playing.png`. This
       resolves the referrer theory with real evidence, on top of Kev's real-device confirmation
       that the DRM-permission theory alone was insufficient.
 - [x] **"Who's watching tonight?" row confused for a profile switcher** — investigated, not a
@@ -1455,12 +1455,12 @@ Search/watchlist only ever considered flatrate/free (included-with-subscription)
       unchanged. Done on the emulator (`family_test`, `-gpu swangle`, GLES confirmed via
       `dumpsys SurfaceFlinger`): subscribed "Apple TV Store" (via Settings > Streaming services,
       it wasn't already on among the 6 pre-subscribed GB services), searched "Central
-      Intelligence" — now appears with a "RENT/BUY" tag (`docs/m6-search-paid-badge.png`), its
+      Intelligence" — now appears with a "RENT/BUY" tag (`docs/evidence/m6-search-paid-badge.png`), its
       details screen's "Where to watch" shows three separate paid rows (Apple TV Store BUY, Apple
       TV Store RENT — same provider, two kinds, proving the primary-key fix — and Google Play BUY,
       each tagged), added it to the watchlist successfully (button flips to "On list"), and it
       shows on My List with the same "RENT/BUY" poster tag, not dimmed. Home's "For You — popular
-      on your services" row is unchanged before/after (`docs/m6-home-unchanged.png` — Reacher/The
+      on your services" row is unchanged before/after (`docs/evidence/m6-home-unchanged.png` — Reacher/The
       Mentalist/Lioness/Spider-Man, same as the pre-change baseline, no paid titles, no tags). No
       crashes in logcat throughout.
 - [x] Final `./gradlew test assembleDebug` green
@@ -1590,8 +1590,8 @@ successfully requests one. Both are needed; either alone isn't enough.
 - [x] `./gradlew test assembleDebug` green
 - [x] Live verification: tapped YouTube's own fullscreen control inside the trailer player on a
       real emulator (swangle GPU) — confirmed it genuinely goes fullscreen (screenshots:
-      `docs/fullscreen-fix-before.png`, `docs/fullscreen-fix-active.png`), first back exits
-      fullscreen back to the normal player (`docs/fullscreen-fix-after-back.png`, not the whole
+      `docs/evidence/fullscreen-fix-before.png`, `docs/evidence/fullscreen-fix-active.png`), first back exits
+      fullscreen back to the normal player (`docs/evidence/fullscreen-fix-after-back.png`, not the whole
       dialog), second back closes the trailer dialog entirely back to the details screen.
 
 ## M7 — In-app "About this build" AI-transparency screen (Kev, 2026-08-22)
@@ -1710,9 +1710,9 @@ explicitly NOT part of this milestone.
       fills edge-to-edge with no letterbox bars; back exits fullscreen back to the normal
       letterboxed player (position preserved) in both orientations, a second back dismisses the
       dialog — the two-stage back state machine from the earlier fullscreen fix is unaffected by
-      the configChanges addition. Screenshots: `docs/m8-trailer-portrait.png`,
-      `docs/m8-trailer-landscape.png`, `docs/m8-trailer-back-to-portrait.png`,
-      `docs/m8-trailer-fullscreen-portrait.png`, `docs/m8-trailer-fullscreen-landscape.png`.
+      the configChanges addition. Screenshots: `docs/evidence/m8-trailer-portrait.png`,
+      `docs/evidence/m8-trailer-landscape.png`, `docs/evidence/m8-trailer-back-to-portrait.png`,
+      `docs/evidence/m8-trailer-fullscreen-portrait.png`, `docs/evidence/m8-trailer-fullscreen-landscape.png`.
 - [x] `./gradlew test assembleDebug` green
 - [x] Explicitly out of scope, note if raised again separately: landscape layouts for the rest
       of the app (Home, Search, title details, etc.) — confirmed still out of scope: with the
@@ -1806,8 +1806,8 @@ could be safe/low-risk to remove or make conditional.
 - [x] Live verification: whatever's practical on the emulator (confirm no regression to the
       already-working emulator fullscreen path), but the real gate is Kev's own phone —
       report honestly that final confirmation is pending his test
-      — emulator regression-check done (`docs/m9-normal-playback.png`,
-      `docs/m9-fullscreen-still-works.png`): normal inline playback in both the pre-existing
+      — emulator regression-check done (`docs/evidence/m9-normal-playback.png`,
+      `docs/evidence/m9-fullscreen-still-works.png`): normal inline playback in both the pre-existing
       16:9 dialog works, `onShowCustomView` still fires on fullscreen tap, two-stage back
       (exit fullscreen → close dialog) still correct. **Real-device confirmation is pending
       Kev's phone test — not something verifiable from this environment.**
@@ -1838,8 +1838,8 @@ The design above is now built in `TrailerPlayerDialog.kt`:
       (`trailerEmbedUrl`, `fullscreenListenerJs` ×2, `exitFullscreenJs`, close-button dismiss).
 - [x] Emulator regression-check: normal playback, `onShowCustomView`-driven fullscreen, and
       two-stage back all still correct after the change
-      (`docs/m9-jsbridge-normal-playback.png`, `docs/m9-jsbridge-fullscreen-still-works.png`,
-      `docs/m9-jsbridge-back-exits-fullscreen.png`, `docs/m9-jsbridge-back-closes-dialog.png`).
+      (`docs/evidence/m9-jsbridge-normal-playback.png`, `docs/evidence/m9-jsbridge-fullscreen-still-works.png`,
+      `docs/evidence/m9-jsbridge-back-exits-fullscreen.png`, `docs/evidence/m9-jsbridge-back-closes-dialog.png`).
 - [x] Emulator diagnostic (temporary logging, not committed): confirmed the JS bridge *can* fire
       correctly and independently of the native path — one capture showed
       `native onShowCustomView fired` followed ~1s later by `JS bridge onEnterFullscreen fired`,
@@ -1938,12 +1938,12 @@ by Compose + the Activity's window, not by any WebView callback or JS event.
       it doesn't depend on WebView's fullscreen internals at all — it's pure Compose/Window API).
       Final real-world confirmation still needs Kev's phone, but this path should have a much
       higher chance of actually working there than the previous two attempts.
-      — done: `docs/m9-manual-normal-playback.png` (normal playback + both new/existing icons
-      unaffected), `docs/m9-manual-fullscreen-active.png` (manual fullscreen active — status bar
+      — done: `docs/evidence/m9-manual-normal-playback.png` (normal playback + both new/existing icons
+      unaffected), `docs/evidence/m9-manual-fullscreen-active.png` (manual fullscreen active — status bar
       genuinely hidden, verifiable proof unlike the previous two attempts; residual top-edge gap
       visible and honestly not hidden in this screenshot),
-      `docs/m9-manual-fullscreen-back-exits-first.png` (back restores bars + normal layout),
-      `docs/m9-manual-fullscreen-back-closes-dialog.png` (second back closes the dialog).
+      `docs/evidence/m9-manual-fullscreen-back-exits-first.png` (back restores bars + normal layout),
+      `docs/evidence/m9-manual-fullscreen-back-closes-dialog.png` (second back closes the dialog).
 
 **M9 addendum — lock landscape during manual fullscreen (Kev, 2026-08-23).** M8 deliberately
 skipped forcing orientation on fullscreen-tap because there was no clean, deterministic scope
@@ -1983,7 +1983,7 @@ precisely to the manual-fullscreen window with no ambiguity about when it starts
       `SCREEN_ORIENTATION_UNSPECIFIED` on exit) and screenshots for both the icon-toggle and
       back-key exit paths, plus the two-stage-back full dialog close; details screen underneath
       confirmed portrait and unstuck in all cases. Screenshot:
-      `docs/m9-landscape-lock-active.png`.
+      `docs/evidence/m9-landscape-lock-active.png`.
 - [x] `./gradlew test assembleDebug` green
 
 **M9 confirmed working on Kev's real phone, 2026-08-23.** Initial report of "no change, status
@@ -2044,7 +2044,7 @@ silently rendering nothing.**
       every provider directly in the on-device Room DB (`adb shell run-as ... sqlite3`,
       app stopped first), which reproduces the exact "genuinely empty candidate pool, zero
       network calls, no exception" condition `HomeViewModelTest`'s new fixture also covers, then
-      selected both chips in the running app. Confirmed live: `docs/m10-family-night-empty-state.png`.
+      selected both chips in the running app. Confirmed live: `docs/evidence/m10-family-night-empty-state.png`.
 
 ## M11 — Two real gaps in shared recommendation code, found via Family Night testing
 (Kev, 2026-08-23)
@@ -2136,8 +2136,8 @@ this code. Don't let this block or complicate the fix for gaps 1/2 above.
       confirmed-PG title with zero `provider_availability` rows (the "Mexicali" shape), and a
       confirmed-PG/available control. Both the regular "For You" row and the ad-hoc Family Night
       chip-row blend (Kid + a second profile selected) showed *only* the control candidate —
-      screenshots at `docs/m11-foryou-capped-gap1-gap2-excluded.png` and
-      `docs/m11-familynight-adhoc-blend-gap1-gap2-excluded.png`. Emulator shut down with
+      screenshots at `docs/evidence/m11-foryou-capped-gap1-gap2-excluded.png` and
+      `docs/evidence/m11-familynight-adhoc-blend-gap1-gap2-excluded.png`. Emulator shut down with
       `adb emu kill` after.
 
 **The `collectLatest` fix did not resolve the flicker — real device retest, 2026-08-23.** Kev
@@ -2198,7 +2198,7 @@ again for the genuine ~7-8s computation. Two separate things to fix:
       **Done, on `family_test` (`-gpu swangle`, verified ANGLE/Vulkan renderer live):** selected
       Kid + Setupuu, deselected Setupuu, reselected Setupuu, screenshotting every ~0.3s throughout.
       The very first frame after reselecting shows "Finding a pick for everyone…" with the spinner
-      (screenshot: `docs/m11-familynight-loading-indicator.png`) — no empty-state message ever
+      (screenshot: `docs/evidence/m11-familynight-loading-indicator.png`) — no empty-state message ever
       appeared in any frame — and the row resolved to the real blended pick a couple of frames
       later. Emulator shut down with `adb emu kill` after.
 

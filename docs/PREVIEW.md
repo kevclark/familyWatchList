@@ -178,7 +178,7 @@ adb exec-out screencap -p > /tmp/shot.png     # on buildhost
 scp kev@buildhost:/tmp/shot.png .              # from the laptop
 ```
 
-`docs/first-boot.png` was captured exactly this way.
+`docs/evidence/first-boot.png` was captured exactly this way.
 
 ---
 

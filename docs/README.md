@@ -25,5 +25,5 @@ does, see the [project README](../README.md).
 Docs travel with the code: any feature updates ARCHITECTURE.md, adds or updates an ADR (and the
 index in `adr/README.md`) and updates TESTING.md in the same change.
 
-The PNG files in this folder are screenshots taken while verifying each milestone, named by
-milestone. They are evidence, not documentation.
+Images: `screenshots/` holds the pictures the project README shows. `evidence/` holds screenshots
+taken while verifying milestones; `PROGRESS.md` cites them as proof. They are evidence, not documentation.

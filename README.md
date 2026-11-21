@@ -44,11 +44,11 @@ things you can actually press play on tonight.
 
 | Home | Title details | My List (Family) |
 |---|---|---|
-| ![Home](docs/m4a-home.png) | ![Title details](docs/m4a-detail.png) | ![My List](docs/m3j-mylist-family-scoped.png) |
+| ![Home](docs/screenshots/m4a-home.png) | ![Title details](docs/screenshots/m4a-detail.png) | ![My List](docs/screenshots/m3j-mylist-family-scoped.png) |
 
 | Tune my picks | Settings |
 |---|---|
-| ![Tune my picks](docs/m3k-tune-picks-family-enabled.png) | ![Settings](docs/m3e-02-settings.png) |
+| ![Tune my picks](docs/screenshots/m3k-tune-picks-family-enabled.png) | ![Settings](docs/screenshots/m3e-02-settings.png) |
 
 More screenshots from each milestone's live-verification pass are under [`docs/`](docs/).
 

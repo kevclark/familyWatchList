@@ -36,7 +36,7 @@ Task order (each step verified before the next):
 5. Emulator: check `[ -r /dev/kvm ] && [ -w /dev/kvm ]`. If no access → report the usermod
    command and continue with remaining steps. Otherwise create AVD `family_test`, boot
    headless (`-no-window -no-audio`), `adb wait-for-device`, install the APK, capture
-   `adb exec-out screencap -p > docs/first-boot.png` as proof.
+   `adb exec-out screencap -p > docs/evidence/first-boot.png` as proof.
 6. Write `docs/PREVIEW.md`: exact scrcpy-over-TCP steps for the laptop, and wireless ADB
    pairing steps for Kev's phone.
 
